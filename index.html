@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="barquinho">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Tarefas</title>
   <meta name="description" content="Gerenciador pessoal de tarefas que funciona offline.">
-  <meta name="theme-color" content="#2f5d50">
+  <meta name="theme-color" content="#EAF2F5">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -23,6 +23,11 @@
   </script>
 </head>
 <body>
+  <div class="splash" id="splash" role="img" aria-label="Tarefas: a lista navega, você descansa">
+    <img src="icons/barco.svg" alt="" width="326" height="326">
+    <strong>Tarefas</strong>
+    <span>a lista navega, você descansa</span>
+  </div>
   <div class="app">
     <nav class="nav" id="nav" aria-label="Navegação principal"></nav>
     <main class="main">
@@ -32,6 +37,13 @@
   </div>
   <dialog id="dialog"></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
+  <script>
+    setTimeout(() => {
+      const splash = document.getElementById('splash');
+      splash.classList.add('hide');
+      setTimeout(() => splash.remove(), 300);
+    }, 1100);
+  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

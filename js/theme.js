@@ -1,6 +1,7 @@
 // Temas do app e cálculos de cor do marca-texto.
 
 export const THEMES = [
+  { id: 'barquinho', name: 'Barquinho', chrome: '#EAF2F5' },
   { id: 'diamante', name: 'Diamante', chrome: '#0E1218' },
   { id: 'folha', name: 'Folha', chrome: '#F3F8F3' },
   { id: 'marca-texto', name: 'Marca-texto', chrome: '#FFFFFF' },
@@ -45,7 +46,7 @@ export function textOn(color) {
 /** Uma cor quase branca não aparece como destaque no papel branco. */
 export const isTooLight = (color) => contrast(color, WHITE) < 1.15;
 
-/** Sistema escolhe entre os dois temas aprovados; valores antigos são convertidos. */
+/** Sistema alterna entre Diamante e Barquinho; valores antigos são convertidos. */
 export function normalizeTheme(theme) {
   const legacy = { auto: 'system', dark: 'diamante', light: 'folha' };
   const value = legacy[theme] || theme;
@@ -53,4 +54,4 @@ export function normalizeTheme(theme) {
 }
 
 export const resolveTheme = (theme, prefersDark) =>
-  (theme === 'system' ? (prefersDark ? 'diamante' : 'folha') : theme);
+  (theme === 'system' ? (prefersDark ? 'diamante' : 'barquinho') : theme);

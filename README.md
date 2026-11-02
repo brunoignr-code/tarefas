@@ -29,10 +29,10 @@ A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 ## Temas
 
-Em Config., escolha entre Diamante (escuro), Folha (claro), Marca-texto (claro) ou Sistema, que alterna entre Diamante e Folha.
+Em Config., escolha entre Barquinho (claro, padrão), Diamante (escuro), Folha (claro), Marca-texto (claro) ou Sistema, que alterna entre Diamante e Barquinho.
 No Marca-texto, dá para trocar a cor do destaque por uma das oito sugestões ou por qualquer outra.
 
-As fontes ficam em `fonts/` para funcionar offline: Manrope, Nunito, Figtree e Bricolage Grotesque, do Google Fonts (licença SIL Open Font License).
+As fontes ficam em `fonts/` para funcionar offline: Bitter, Manrope, Nunito, Figtree e Bricolage Grotesque, do Google Fonts (licença SIL Open Font License).
 
 Botões em cinza são funções planejadas, ainda sem ação.
 

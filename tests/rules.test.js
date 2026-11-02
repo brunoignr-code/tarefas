@@ -183,9 +183,9 @@ test('Título vazio é recusado', () => {
   eq(typeof applyEdit(null, { title: '  ' }, TODAY).error, 'string');
 });
 
-test('Tema: Sistema alterna entre Diamante e Folha', () => {
+test('Tema: Sistema alterna entre Diamante e Barquinho', () => {
   eq(resolveTheme('system', true), 'diamante');
-  eq(resolveTheme('system', false), 'folha');
+  eq(resolveTheme('system', false), 'barquinho');
   eq(resolveTheme('marca-texto', true), 'marca-texto');
 });
 

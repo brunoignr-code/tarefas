@@ -1,3 +1,4 @@
+@font-face { font-family: Bitter; src: url(fonts/bitter.woff2) format("woff2"); font-weight: 400 700; font-display: swap; }
 @font-face { font-family: Manrope; src: url(fonts/manrope.woff2) format("woff2"); font-weight: 400 800; font-display: swap; }
 @font-face { font-family: Nunito; src: url(fonts/nunito.woff2) format("woff2"); font-weight: 400 800; font-display: swap; }
 @font-face { font-family: Figtree; src: url(fonts/figtree.woff2) format("woff2"); font-weight: 400 700; font-display: swap; }
@@ -20,6 +21,23 @@
   --task-line: transparent; --gap: 6px;
   --mark-size: 18px; --mark-radius: 2px 11px 2px 11px; --mark-rotate: 0deg; --mark-line: #0F6B4C; --mark-fill: #0F6B4C;
   --dot-size: 9px; --dot-radius: 1px 7px 1px 7px; --dot-rotate: 0deg;
+}
+:root[data-theme="barquinho"] {
+  color-scheme: light;
+  --bg: #EAF2F5; --surface: #FFFFFF; --surface-2: #DCE8EE; --text: #17324D; --muted: #4A6478;
+  --line: #D3E1E8; --edge: #BCD0DA; --danger: #B83A26; --danger-soft: #FBE6E1;
+  --off: #5F7183; --off-line: #CFDDE4;
+  --primary: #17324D; --on-primary: #FFFFFF;
+  --accent: #17324D;
+  --selected: #17324D; --on-selected: #FFFFFF;
+  --segment: #17324D; --on-segment: #FFFFFF;
+  --banner: #FCE9E3; --on-banner: #17324D; --banner-line: #D9543C; --banner-label: #A93C27;
+  --reminder-bg: transparent; --reminder-text: #A93C27;
+  --font: Bitter, Georgia, serif; --font-title: Bitter, Georgia, serif;
+  --radius: 12px; --radius-button: 10px; --radius-field: 10px;
+  --task-line: #D3E1E8; --gap: 6px;
+  --mark-size: 20px; --mark-radius: 3px 3px 10px 10px; --mark-rotate: 0deg; --mark-line: #17324D; --mark-fill: #D9543C;
+  --dot-size: 7px; --dot-radius: 50%; --dot-rotate: 0deg;
 }
 :root[data-theme="diamante"] {
   color-scheme: dark;
@@ -444,6 +462,31 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
 @media (min-width: 800px) {
   .toast { bottom: 24px; }
 }
+
+[data-theme="barquinho"] h2::before,
+[data-theme="barquinho"] .nav-item.active::before { background: #D9543C; }
+
+/* Capa exibida ao abrir o app */
+.splash {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  background: #EAF2F5;
+  color: #17324D;
+  font-family: Bitter, Georgia, serif;
+  transition: opacity .25s;
+}
+.splash img { width: min(326px, 80vw); height: auto; }
+.splash strong { font-size: 52px; line-height: 1.1; font-weight: 700; margin-top: 20px; }
+.splash span { font-size: 18px; font-weight: 500; color: #2B4A66; text-align: center; }
+.splash.hide { opacity: 0; pointer-events: none; }
+.segments.themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 /* Traços próprios do Marca-texto: linhas finas no lugar de cartões */
 [data-theme="marca-texto"] h1 span {

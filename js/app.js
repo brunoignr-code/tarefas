@@ -17,7 +17,7 @@ const FREQ_LABELS = {
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
 
-const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'system', highlight: DEFAULT_HIGHLIGHT }, search: '' };
+const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'barquinho', themeChosen: true, highlight: DEFAULT_HIGHLIGHT }, search: '' };
 const $ = (selector, root = document) => root.querySelector(selector);
 const today = () => localDate();
 const newId = () => crypto.randomUUID();
@@ -509,10 +509,10 @@ function settingsView() {
     </section>
     <section class="panel">
       <h3>Aparência</h3>
-      <div class="segments" role="group" aria-label="Tema">
+      <div class="segments themes" role="group" aria-label="Tema">
         ${themeOptions.map((item) => `<button class="${item.id === theme ? 'on' : ''}" data-action="set-theme" data-theme-id="${item.id}" aria-pressed="${item.id === theme}">${item.name}</button>`).join('')}
       </div>
-      <p style="margin:0">Em Sistema, o app usa Diamante no modo escuro e Folha no modo claro.</p>
+      <p style="margin:0">Em Sistema, o app usa Diamante no modo escuro e Barquinho no modo claro.</p>
     </section>
     ${highlightPanel}
     <section class="panel">
@@ -1147,6 +1147,10 @@ async function load() {
   const sync = meta.find((item) => item.id === 'sync');
   state.sync = sync?.token ? sync : null;
   state.settings.theme = normalizeTheme(state.settings.theme);
+  if (!state.settings.themeChosen) {
+    // Aparelhos que já usavam o app recebem uma vez o tema escolhido.
+    await saveSettings({ theme: 'barquinho', themeChosen: true });
+  }
   if (!isHexColor(state.settings.highlight)) state.settings.highlight = DEFAULT_HIGHLIGHT;
   if (!state.lists.some((l) => l.id === INBOX)) await saveList({ id: INBOX, name: 'Entrada', group: '' });
   applyTheme();

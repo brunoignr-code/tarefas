@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <filter id="traco" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="7" result="ondas"/>
+      <feDisplacementMap in="SourceGraphic" in2="ondas" scale="4"/>
+    </filter>
+    <filter id="aquarela" x="-15%" y="-15%" width="130%" height="130%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="4" seed="3" result="ondas"/>
+      <feDisplacementMap in="SourceGraphic" in2="ondas" scale="16" result="borda"/>
+      <feGaussianBlur in="borda" stdDeviation="1.2"/>
+    </filter>
+  </defs>
+  <circle cx="380" cy="132" r="58" fill="#F08A73" opacity=".85" filter="url(#aquarela)"/>
+  <path d="M46 424 C130 404 216 430 290 414 C362 402 424 414 474 416 C446 472 346 492 256 492 C150 492 74 474 46 424 Z" fill="#B9D3DE" opacity=".55" filter="url(#aquarela)"/>
+  <g transform="rotate(-4 256 300)" filter="url(#traco)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M254 88 C286 150 330 240 360 302 C300 316 214 316 150 302 C180 240 224 150 254 88 Z" fill="#FFFFFF"/>
+    <path d="M254 88 C262 170 262 250 256 312 C214 314 180 310 150 302 C180 240 224 150 254 88 Z" fill="#E7EFF3"/>
+    <path d="M254 88 C286 150 330 240 360 302 C300 316 214 316 150 302 C180 240 224 150 254 88 Z" fill="none" stroke="#2B4A66" stroke-width="3.5"/>
+    <path d="M254 88 C262 170 262 250 256 312" fill="none" stroke="#2B4A66" stroke-width="2" opacity=".55"/>
+    <path d="M82 296 C150 318 362 318 430 296 C414 346 382 386 346 402 C290 416 216 416 166 402 C130 386 98 346 82 296 Z" fill="#FFFFFF"/>
+    <path d="M82 296 C110 322 180 344 256 350 C224 382 196 402 166 402 C130 386 98 346 82 296 Z" fill="#DCE8EE"/>
+    <path d="M430 296 C402 322 332 344 256 350 C288 382 316 402 346 402 C382 386 414 346 430 296 Z" fill="#EDF3F6"/>
+    <path d="M82 296 C150 318 362 318 430 296 C414 346 382 386 346 402 C290 416 216 416 166 402 C130 386 98 346 82 296 Z" fill="none" stroke="#2B4A66" stroke-width="3.5"/>
+    <path d="M82 296 C110 322 180 344 256 350 C332 344 402 322 430 296" fill="none" stroke="#2B4A66" stroke-width="2" opacity=".55"/>
+    <path d="M270 192 l6 7 l11 -14" fill="none" stroke="#D9543C" stroke-width="4.5"/>
+    <path d="M296 196 h14" fill="none" stroke="#2B4A66" stroke-width="3" opacity=".7"/>
+    <path d="M276 232 l6 7 l11 -14" fill="none" stroke="#D9543C" stroke-width="4.5"/>
+    <path d="M302 236 h20" fill="none" stroke="#2B4A66" stroke-width="3" opacity=".7"/>
+    <path d="M278 272 l6 7 l11 -14" fill="none" stroke="#D9543C" stroke-width="4.5"/>
+    <path d="M304 276 h30" fill="none" stroke="#2B4A66" stroke-width="3" opacity=".7"/>
+  </g>
+  <g filter="url(#traco)" fill="none" stroke="#2B4A66" stroke-linecap="round">
+    <path d="M40 430 C76 416 108 440 146 428 M348 424 C386 412 424 438 472 424" stroke-width="3.5"/>
+    <path d="M112 462 C150 450 186 472 226 460 C262 450 300 472 344 458" stroke-width="2.5" opacity=".6"/>
+  </g>
+</svg>
