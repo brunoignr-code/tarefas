@@ -23,25 +23,30 @@ O Chrome no Android só instala o app e permite o uso offline se ele estiver em 
 1. Publique esta pasta em uma hospedagem estática, como GitHub Pages ou Cloudflare Pages.
 2. Abra o endereço no Chrome do celular.
 3. No menu do Chrome, toque em "Adicionar à tela inicial" ou "Instalar app".
-4. Em Ajustes, no app, toque em "Ativar notificações".
+4. Em Config., no app, toque em "Ativar notificações".
 
 A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 ## Temas
 
-Em Ajustes, escolha entre Diamante (escuro), Folha (claro), Marca-texto (claro) ou Sistema, que alterna entre Diamante e Folha.
+Em Config., escolha entre Diamante (escuro), Folha (claro), Marca-texto (claro) ou Sistema, que alterna entre Diamante e Folha.
 No Marca-texto, dá para trocar a cor do destaque por uma das oito sugestões ou por qualquer outra.
 
 As fontes ficam em `fonts/` para funcionar offline: Manrope, Nunito, Figtree e Bricolage Grotesque, do Google Fonts (licença SIL Open Font License).
 
 Botões em cinza são funções planejadas, ainda sem ação.
 
+## Sincronização
+
+Em Config. > Sincronização, crie a chave no aparelho que tem os dados e conecte os outros com ela. Conectar substitui as tarefas locais do aparelho pelas da sincronização.
+
+O servidor (`server/worker.js`) roda em Cloudflare Workers com banco D1. Ele guarda só o hash da chave, e as tarefas ficam no banco sem criptografia de ponta a ponta. Na edição do mesmo campo em dois aparelhos, a mais recente vence.
+
 ## Limitações desta versão
 
-- Cada aparelho e cada endereço têm dados próprios, sem sincronização. Use Exportar e Importar JSON.
-- Limpar os dados do navegador apaga as tarefas. Faça backups.
+- Sem sincronização, cada aparelho tem dados próprios, e limpar os dados do navegador apaga as tarefas. Faça backups.
 - Lembretes só disparam com o app aberto. Os atrasados aparecem em destaque ao abrir.
-- Sem widget Android, lembrete insistente, Google Agenda, listas compartilhadas ou importação do To Do.
+- Sem widget Android, lembrete insistente, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
 ## Estrutura
 

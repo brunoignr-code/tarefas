@@ -1,5 +1,5 @@
 // Mantém o app disponível offline e trata os botões das notificações.
-const CACHE = 'tarefas-v2';
+const CACHE = 'tarefas-v3';
 const FILES = [
   './',
   'index.html',
@@ -9,6 +9,8 @@ const FILES = [
   'js/db.js',
   'js/rules.js',
   'js/theme.js',
+  'js/sync-core.js',
+  'js/sync.js',
   'fonts/manrope.woff2',
   'fonts/nunito.woff2',
   'fonts/figtree.woff2',

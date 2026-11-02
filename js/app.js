@@ -6,6 +6,8 @@ import {
 import {
   DEFAULT_HIGHLIGHT, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
 } from './theme.js';
+import { newSyncKey, stamp, stampAll } from './sync-core.js';
+import { claimKey, createSync } from './sync.js';
 
 const INBOX = 'inbox';
 const SNOOZE_MINUTES = 10;
@@ -44,16 +46,65 @@ function repeatLabel(repeat) {
 
 /* ---------- Persistência ---------- */
 
+const syncEngine = createSync({
+  state,
+  config: () => state.sync,
+  saveConfig: (config) => db.put('meta', { ...config, id: 'sync' }),
+  put: (kind, record) => db.put(kind, record),
+  remove: (kind, id) => db.remove(kind, id),
+  onStatus: () => {
+    const line = $('#sync-status');
+    if (line) line.textContent = syncStatusText();
+  },
+  onRemoteChange: () => {
+    // Não apaga o que está sendo digitado na tela.
+    const active = document.activeElement;
+    const typing = active?.tagName === 'INPUT' && active.closest('#view');
+    if (typing && active.value && active.id !== 'search-input') {
+      renderNav();
+      renderReminders();
+      return;
+    }
+    const focusId = typing ? active.id : null;
+    render();
+    if (focusId) document.getElementById(focusId)?.focus();
+  },
+});
+
+const savedLocally = () => { if (state.sync?.key) syncEngine.schedule(); };
+
 async function saveTask(task) {
   const index = state.tasks.findIndex((t) => t.id === task.id);
-  if (index >= 0) state.tasks[index] = task; else state.tasks.push(task);
-  await db.put('tasks', task);
+  const stamped = stamp(index >= 0 ? state.tasks[index] : null, task, Date.now());
+  if (index >= 0) state.tasks[index] = stamped; else state.tasks.push(stamped);
+  await db.put('tasks', stamped);
+  if (stamped._dirty) savedLocally();
 }
 
 async function saveList(list) {
   const index = state.lists.findIndex((l) => l.id === list.id);
-  if (index >= 0) state.lists[index] = list; else state.lists.push(list);
-  await db.put('lists', list);
+  const stamped = stamp(index >= 0 ? state.lists[index] : null, list, Date.now());
+  if (index >= 0) state.lists[index] = stamped; else state.lists.push(stamped);
+  await db.put('lists', stamped);
+  if (stamped._dirty) savedLocally();
+}
+
+async function saveLogEntry(entry) {
+  const stamped = stamp(null, entry, Date.now());
+  state.log.push(stamped);
+  await db.put('log', stamped);
+  savedLocally();
+}
+
+/** Exclusão definitiva: avisa os outros aparelhos na próxima sincronização. */
+async function forget(kind, id) {
+  state[kind] = state[kind].filter((item) => item.id !== id);
+  await db.remove(kind, id);
+  if (state.sync?.key) {
+    state.sync.tombstones = [...(state.sync.tombstones || []), { kind, id }];
+    await db.put('meta', { ...state.sync, id: 'sync' });
+    savedLocally();
+  }
 }
 
 async function saveSettings(changes) {
@@ -91,8 +142,7 @@ async function complete(id) {
   let logEntry = null;
   if (log) {
     logEntry = { ...log, id: newId() };
-    state.log.push(logEntry);
-    await db.put('log', logEntry);
+    await saveLogEntry(logEntry);
   }
   await saveTask(updated);
   render();
@@ -101,10 +151,7 @@ async function complete(id) {
   if (updated.status === 'ended') message = 'Concluída. A repetição terminou.';
   else if (task.repeat) message = `Concluída. Próxima: ${formatDate(updated.when).toLowerCase()}.`;
   showToast(message, async () => {
-    if (logEntry) {
-      state.log = state.log.filter((entry) => entry.id !== logEntry.id);
-      await db.remove('log', logEntry.id);
-    }
+    if (logEntry) await forget('log', logEntry.id);
     await saveTask(task);
     render();
   });
@@ -266,7 +313,7 @@ function todayView() {
     <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}</div></div></div>
     ${quickAdd('Adicionar a Hoje', { when: now })}
     ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true }) : '<p class="empty">Nada planejado para hoje.</p>'}
-    <button class="btn small" disabled style="margin-top:14px">Sincronizar agora</button>`;
+    <button class="btn small" data-action="sync-now" ${state.sync?.key ? '' : 'disabled'} style="margin-top:14px">Sincronizar agora</button>`;
 }
 
 function upcomingView() {
@@ -375,6 +422,43 @@ function searchView() {
     <div id="search-results">${searchResults()}</div>`;
 }
 
+function syncStatusText() {
+  const { state: current, message, at } = syncEngine.status;
+  if (current === 'running') return 'Sincronizando...';
+  if (current === 'error' || current === 'offline') return message;
+  if (current === 'ok' && at) return `Sincronizado às ${at.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`;
+  return 'Conectado.';
+}
+
+function syncPanel() {
+  if (!state.sync?.key) {
+    return `
+    <section class="panel">
+      <h3>Sincronização</h3>
+      <p>No aparelho que tem seus dados, crie a chave. Nos outros, cole a chave para conectar.</p>
+      <div class="actions" style="margin-bottom:12px"><button class="btn primary" data-action="sync-create">Criar chave neste aparelho</button></div>
+      <div class="field">
+        <label for="sync-key-input">Já tenho uma chave</label>
+        <input id="sync-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Cole a chave aqui">
+      </div>
+      <div class="actions" style="margin-top:8px"><button class="btn" data-action="sync-join">Conectar este aparelho</button></div>
+    </section>`;
+  }
+  return `
+    <section class="panel">
+      <h3>Sincronização</h3>
+      <p id="sync-status" role="status">${escapeHtml(syncStatusText())}</p>
+      <div class="actions">
+        <button class="btn primary" data-action="sync-now">Sincronizar agora</button>
+        <button class="btn" data-action="sync-copy-link">Copiar link de conexão</button>
+        <button class="btn" data-action="sync-toggle-key">${state.showKey ? 'Ocultar chave' : 'Mostrar chave'}</button>
+        <button class="btn danger" data-action="sync-disconnect">Desconectar</button>
+      </div>
+      ${state.showKey ? `<p style="margin:10px 0 0;overflow-wrap:anywhere;user-select:all;color:var(--text)">${escapeHtml(state.sync.key)}</p>` : ''}
+      <p style="margin:10px 0 0">Quem tiver esta chave acessa suas tarefas. Envie só para você, por um canal privado.</p>
+    </section>`;
+}
+
 function settingsView() {
   const support = 'Notification' in window;
   const permission = support ? Notification.permission : 'denied';
@@ -399,19 +483,20 @@ function settingsView() {
       <p class="help-warning" id="highlight-warning" ${isTooLight(highlight) ? '' : 'hidden'}>Esta cor é muito clara e quase some no papel branco.</p>
     </section>` : '';
   return `
-    <div class="view-head"><div><h1><span>Ajustes</span></h1></div></div>
+    <div class="view-head"><div><h1><span>Config.</span></h1></div></div>
     <section class="panel">
       <h3>Notificações</h3>
-      <p>${statusText} Nesta versão sem servidor, os avisos só disparam com o app aberto. Ao abrir, os atrasados aparecem em destaque.</p>
+      <p>${statusText} Por enquanto, os avisos só disparam com o app aberto. Ao abrir, os atrasados aparecem em destaque.</p>
       <div class="actions">
         ${permission === 'default' ? '<button class="btn primary" data-action="enable-notifications">Ativar notificações</button>' : ''}
         ${permission === 'granted' ? '<button class="btn" data-action="test-notification">Enviar teste</button>' : ''}
         <button class="btn" disabled>Resumo diário</button>
       </div>
     </section>
+    ${syncPanel()}
     <section class="panel">
       <h3>Backup</h3>
-      <p>Seus dados ficam só neste aparelho, sem sincronizar com outros. Limpar os dados do navegador apaga tudo. ${backup}</p>
+      <p>${state.sync?.key ? 'Suas tarefas também ficam guardadas no servidor de sincronização.' : 'Seus dados ficam só neste aparelho. Limpar os dados do navegador apaga tudo.'} ${backup}</p>
       <div class="actions">
         <button class="btn primary" data-action="export">Exportar JSON</button>
         <button class="btn" data-action="import">Importar JSON</button>
@@ -433,7 +518,6 @@ function settingsView() {
     <section class="panel">
       <h3>Contas e integrações</h3>
       <div class="rows">
-        <button class="row-link" disabled>Sincronizar PC e celular</button>
         <button class="row-link" disabled>Google Agenda</button>
         <button class="row-link" disabled>Importar do To Do</button>
       </div>
@@ -468,7 +552,7 @@ function renderNav() {
     ${item('#done', 'Concluídas', route.name === 'done', 0, 'nav-only-desktop')}
     ${item('#trash', 'Lixeira', route.name === 'trash', 0, 'nav-only-desktop')}
     ${item('#search', 'Busca', route.name === 'search')}
-    ${item('#settings', 'Ajustes', route.name === 'settings')}`;
+    ${item('#settings', 'Config.', route.name === 'settings')}`;
 }
 
 function render() {
@@ -497,7 +581,7 @@ function openTask(id) {
     .map((l) => `<option value="${l.id}" ${l.id === selected ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
   const notifyHint = 'Notification' in window && Notification.permission === 'granted'
     ? 'Avisa com o app aberto. Se estiver fechado, aparece em destaque ao abrir.'
-    : 'Sinal visual no app. Para receber notificação, ative em Ajustes.';
+    : 'Sinal visual no app. Para receber notificação, ative em Config.';
 
   const dialog = $('#dialog');
   dialog.innerHTML = `
@@ -681,8 +765,7 @@ async function deleteList(id) {
   for (const task of state.tasks.filter((t) => t.listId === id)) {
     await saveTask({ ...task, listId: INBOX });
   }
-  state.lists = state.lists.filter((l) => l.id !== id);
-  await db.remove('lists', id);
+  await forget('lists', id);
   $('#dialog').close();
   location.hash = '#lists';
   render();
@@ -722,12 +805,103 @@ async function importData(file) {
     showToast('Arquivo inválido. Nada foi alterado.');
     return;
   }
-  if (!confirm(`Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) do arquivo?`)) return;
+  const syncing = !!state.sync?.key;
+  const question = syncing
+    ? `Importar ${data.tasks.length} tarefa(s) do arquivo? Elas serão enviadas aos seus aparelhos, e as tarefas que já estão na sincronização continuam lá.`
+    : `Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) do arquivo?`;
+  if (!confirm(question)) return;
   const settings = { ...state.settings, ...(data.settings || {}), id: 'settings' };
-  await db.replaceAll({ lists: data.lists, tasks: data.tasks, log: data.log, meta: [settings] });
+  const now = Date.now();
+  const prepare = (items) => (syncing ? items.map((item) => stampAll(item, now)) : items);
+  const meta = syncing ? [settings, { ...state.sync, id: 'sync' }] : [settings];
+  await db.replaceAll({ lists: prepare(data.lists), tasks: prepare(data.tasks), log: prepare(data.log), meta });
   await load();
   render();
   showToast('Dados importados.');
+  savedLocally();
+}
+
+/* ---------- Sincronização ---------- */
+
+async function connectFirstDevice() {
+  if (!confirm('Criar a chave neste aparelho? Todas as tarefas daqui serão enviadas ao servidor e serão a base para os outros aparelhos.')) return;
+  const key = newSyncKey();
+  try {
+    await claimKey(key);
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
+  const now = Date.now();
+  state.tasks = state.tasks.map((item) => stampAll(item, now));
+  state.lists = state.lists.map((item) => stampAll(item, now));
+  state.log = state.log.map((item) => stampAll(item, now));
+  await Promise.all(['tasks', 'lists', 'log'].flatMap((kind) => state[kind].map((item) => db.put(kind, item))));
+  state.sync = { key, since: 0, tombstones: [] };
+  await db.put('meta', { ...state.sync, id: 'sync' });
+  state.showKey = true;
+  render();
+  await syncEngine.run();
+  render();
+}
+
+async function connectThisDevice(key) {
+  const clean = (key || '').trim();
+  if (clean.length < 32) {
+    showToast('Esta chave não parece válida.');
+    return;
+  }
+  const count = state.tasks.length;
+  const warning = count
+    ? `Conectar este aparelho? As ${count} tarefa(s) daqui serão apagadas e substituídas pelas da sincronização. Exporte um backup antes se precisar delas.`
+    : 'Conectar este aparelho à sincronização?';
+  if (!confirm(warning)) return;
+  const previous = { lists: state.lists, tasks: state.tasks, log: state.log, sync: state.sync };
+  state.lists = [];
+  state.tasks = [];
+  state.log = [];
+  state.sync = { key: clean, since: 0, tombstones: [] };
+  await syncEngine.run();
+  if (syncEngine.status.state !== 'ok') {
+    // Chave errada ou sem conexão: nada é apagado.
+    state.lists = previous.lists;
+    state.tasks = previous.tasks;
+    state.log = previous.log;
+    state.sync = previous.sync;
+    const meta = previous.sync ? [state.settings, { ...previous.sync, id: 'sync' }] : [state.settings];
+    await db.replaceAll({ lists: state.lists, tasks: state.tasks, log: state.log, meta });
+    showToast(syncEngine.status.message || 'Não foi possível conectar.');
+    render();
+    return;
+  }
+  const keep = (kind) => new Set(state[kind].map((item) => item.id));
+  for (const kind of ['tasks', 'lists', 'log']) {
+    const ids = keep(kind);
+    await Promise.all(previous[kind].filter((item) => !ids.has(item.id)).map((item) => db.remove(kind, item.id)));
+  }
+  await load();
+  render();
+  showToast('Aparelho conectado.');
+}
+
+async function disconnect() {
+  if (!confirm('Desconectar este aparelho? As tarefas ficam aqui, mas param de sincronizar. A chave continua valendo para os outros aparelhos.')) return;
+  state.sync = null;
+  state.showKey = false;
+  await db.remove('meta', 'sync');
+  render();
+}
+
+async function copyConnectLink() {
+  const url = `${location.origin}${location.pathname}#conectar/${encodeURIComponent(state.sync.key)}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Link copiado. Envie só para você.');
+  } catch {
+    state.showKey = true;
+    render();
+    showToast('Não deu para copiar. Use a chave mostrada.');
+  }
 }
 
 /* ---------- Eventos ---------- */
@@ -816,8 +990,16 @@ const clickActions = {
   purge: async (el) => {
     const task = findTask(el.dataset.id);
     if (!confirm(`Excluir "${task.title}" de vez? Isso não pode ser desfeito.`)) return;
-    state.tasks = state.tasks.filter((t) => t.id !== task.id);
-    await db.remove('tasks', task.id);
+    await forget('tasks', task.id);
+    render();
+  },
+  'sync-now': () => syncEngine.run(),
+  'sync-create': connectFirstDevice,
+  'sync-join': () => connectThisDevice($('#sync-key-input').value),
+  'sync-disconnect': disconnect,
+  'sync-copy-link': copyConnectLink,
+  'sync-toggle-key': () => {
+    state.showKey = !state.showKey;
     render();
   },
   'new-list': () => openListDialog(null),
@@ -916,11 +1098,21 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     render();
     checkReminders();
+    syncEngine.run();
   }
 });
+window.addEventListener('online', () => syncEngine.run());
 
 // Ações de notificação abertas com o app fechado chegam pelo endereço.
 function handleRoute() {
+  const connect = location.hash.match(/^#conectar\/(.+)$/);
+  if (connect) {
+    // Tira a chave do endereço antes de qualquer outra coisa.
+    history.replaceState(null, '', '#settings');
+    render();
+    connectThisDevice(decodeURIComponent(connect[1]));
+    return;
+  }
   const match = location.hash.match(/^#notif\/(\w+)\/(.+)$/);
   if (match) {
     history.replaceState(null, '', '#today');
@@ -950,6 +1142,8 @@ async function load() {
   state.log = log;
   const settings = meta.find((item) => item.id === 'settings');
   if (settings) state.settings = settings;
+  const sync = meta.find((item) => item.id === 'sync');
+  state.sync = sync?.key ? sync : null;
   state.settings.theme = normalizeTheme(state.settings.theme);
   if (!isHexColor(state.settings.highlight)) state.settings.highlight = DEFAULT_HIGHLIGHT;
   if (!state.lists.some((l) => l.id === INBOX)) await saveList({ id: INBOX, name: 'Entrada', group: '' });
@@ -964,6 +1158,8 @@ async function start() {
   handleRoute();
   await checkReminders();
   setInterval(checkReminders, 15000);
+  syncEngine.run();
+  setInterval(() => syncEngine.run(), 60000);
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
   }

@@ -5,6 +5,7 @@ import {
 import {
   DEFAULT_HIGHLIGHT, HIGHLIGHTS, contrast, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
 } from '../js/theme.js';
+import { changedSince, merge, stamp, stampAll, toWire } from '../js/sync-core.js';
 
 const results = [];
 const eq = (actual, expected) => {
@@ -208,6 +209,49 @@ test('Marca-texto: valida cores e avisa quando é clara demais', () => {
   eq(isHexColor('red'), false);
   eq(isTooLight('#FFFFFF'), true);
   eq(HIGHLIGHTS.some((h) => isTooLight(h.color)), false);
+});
+
+test('Sync: só os campos alterados recebem hora', () => {
+  const first = stampAll({ id: 'a', title: 'x', notes: '' }, 100);
+  const next = stamp(first, { ...first, title: 'y' }, 200);
+  eq([next._t.title, next._t.notes, next._dirty], [200, 100, true]);
+});
+
+test('Sync: edições em campos diferentes de dois aparelhos se somam', () => {
+  const base = stampAll({ id: 'a', title: 'x', notes: '' }, 100);
+  const phone = stamp(base, { ...base, title: 'celular' }, 200);
+  const note = stamp(base, { ...base, notes: 'note' }, 300);
+  const merged = merge(phone, toWire(note));
+  eq([merged.title, merged.notes], ['celular', 'note']);
+});
+
+test('Sync: no mesmo campo, a edição mais recente vence', () => {
+  const base = stampAll({ id: 'a', title: 'x' }, 100);
+  const older = stamp(base, { ...base, title: 'antigo' }, 200);
+  const newer = stamp(base, { ...base, title: 'novo' }, 300);
+  eq(merge(newer, toWire(older)).title, 'novo');
+  eq(merge(older, toWire(newer)).title, 'novo');
+});
+
+test('Sync: o aviso de cada aparelho não viaja nem gera envio', () => {
+  const base = { ...stampAll({ id: 'a', title: 'x' }, 100), _dirty: false };
+  const notified = stamp(base, { ...base, notifiedFor: 't' }, 200);
+  eq(notified._dirty, false);
+  eq('notifiedFor' in toWire(notified), false);
+  eq(merge(notified, toWire(stamp(base, { ...base, title: 'y' }, 300))).notifiedFor, 't');
+});
+
+test('Sync: campo apagado em outro aparelho some aqui', () => {
+  const base = stampAll({ id: 'a', title: 'x', notes: 'n' }, 100);
+  const { notes, ...without } = base;
+  const remote = stamp(base, without, 200);
+  eq('notes' in merge(base, toWire(remote)), false);
+});
+
+test('Sync: detecta mudança depois do envio', () => {
+  const record = stampAll({ id: 'a', title: 'x' }, 100);
+  eq(changedSince(record, { ...record._t }), false);
+  eq(changedSince(stamp(record, { ...record, title: 'y' }, 200), { ...record._t }), true);
 });
 
 const failed = results.filter((r) => !r.ok);
