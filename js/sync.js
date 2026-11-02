@@ -1,24 +1,46 @@
 // Conversa com o servidor: envia o que mudou aqui e recebe o que mudou nos outros aparelhos.
-import { changedSince, merge, toWire } from './sync-core.js';
+import { changedSince, deriveProof, merge, normalizeLogin, toWire } from './sync-core.js';
 
 export const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const BATCH = 25;
 const MAX_ROUNDS = 40;
 const KINDS = ['tasks', 'lists', 'log'];
 
-export async function claimKey(key) {
-  const response = await fetch(`${SYNC_URL}/setup`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key }),
-  });
-  if (response.ok) return;
+async function post(path, payload, token) {
+  let response;
+  try {
+    response = await fetch(`${SYNC_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error('Sem conexão com o servidor.');
+  }
   const body = await response.json().catch(() => ({}));
-  throw new Error(body.error || 'Não foi possível criar a chave.');
+  if (!response.ok) throw new Error(body.error || 'O servidor não respondeu como esperado.');
+  return body;
+}
+
+/** Cria a conta ou entra nela e devolve a sessão deste aparelho. */
+export async function authenticate(mode, login, password) {
+  const clean = normalizeLogin(login);
+  const proof = await deriveProof(clean, password);
+  const { token } = await post(mode === 'register' ? '/register' : '/login', { login: clean, proof });
+  return { token, login: clean };
+}
+
+export const endSession = (token) => post('/logout', {}, token);
+
+export async function changePassword(login, token, current, next) {
+  await post('/password', {
+    proof: await deriveProof(login, current),
+    newProof: await deriveProof(login, next),
+  }, token);
 }
 
 /**
- * hooks: state (coleções em memória), config() e saveConfig() com { key, since, tombstones },
+ * hooks: state (coleções em memória), config() e saveConfig() com { token, login, since, tombstones },
  * put(kind, record), remove(kind, id), onStatus(), onRemoteChange().
  */
 export function createSync(hooks) {
@@ -49,10 +71,10 @@ export function createSync(hooks) {
 
     const response = await fetch(`${SYNC_URL}/sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
       body: JSON.stringify({ since: config.since || 0, records, deletes }),
     });
-    if (response.status === 401) throw Object.assign(new Error('Chave recusada pelo servidor.'), { fatal: true });
+    if (response.status === 401) throw Object.assign(new Error('Sessão encerrada. Saia e entre novamente.'), { fatal: true });
     if (!response.ok) throw new Error('O servidor não respondeu como esperado.');
     const body = await response.json();
 
@@ -96,7 +118,7 @@ export function createSync(hooks) {
 
   async function run() {
     const config = hooks.config();
-    if (!config?.key) return;
+    if (!config?.token) return;
     if (running) {
       again = true;
       return;

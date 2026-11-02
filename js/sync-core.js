@@ -51,7 +51,17 @@ export function merge(local, remote) {
 export const changedSince = (record, sentTimes) =>
   Object.entries(record._t || {}).some(([field, time]) => time > (sentTimes[field] || 0));
 
-export function newSyncKey() {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+export const normalizeLogin = (login) => (login || '').trim().toLocaleLowerCase('pt-BR');
+
+/** Deriva a prova enviada ao servidor. A senha em si nunca sai do aparelho. */
+export async function deriveProof(login, password) {
+  const encoder = new TextEncoder();
+  const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    hash: 'SHA-256',
+    salt: encoder.encode(`tarefas-sync:${normalizeLogin(login)}`),
+    iterations: 600000,
+  }, material, 256);
+  return [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

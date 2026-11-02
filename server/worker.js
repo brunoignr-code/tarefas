@@ -8,6 +8,8 @@ const KINDS = new Set(['tasks', 'lists', 'log']);
 const MAX_BATCH = 25;
 const MAX_RECORD = 64 * 1024;
 const PAGE = 300;
+const MAX_FAILS = 5;
+const LOCK_MS = 15 * 60 * 1000;
 
 function headers(request) {
   const origin = request.headers.get('Origin');
@@ -31,8 +33,84 @@ async function sha256(text) {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const storedHash = async (env) =>
-  (await env.DB.prepare("SELECT value FROM meta WHERE key = 'key_hash'").first('value'));
+const readMeta = async (env, key) => {
+  const value = await env.DB.prepare('SELECT value FROM meta WHERE key = ?').bind(key).first('value');
+  return value ? JSON.parse(value) : null;
+};
+const writeMeta = (env, key, value) =>
+  env.DB.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
+    .bind(key, JSON.stringify(value));
+
+const randomHex = (size) => [...crypto.getRandomValues(new Uint8Array(size))]
+  .map((b) => b.toString(16).padStart(2, '0')).join('');
+
+// A senha nunca chega aqui: o aparelho envia uma prova derivada dela com PBKDF2.
+const validLogin = (login) => typeof login === 'string' && login.length >= 3 && login.length <= 100;
+const validProof = (proof) => typeof proof === 'string' && /^[0-9a-f]{64}$/.test(proof);
+
+async function newSession(env) {
+  const token = randomHex(32);
+  await env.DB.prepare('INSERT INTO sessions (token_hash, created_at) VALUES (?, ?)')
+    .bind(await sha256(token), Date.now()).run();
+  return token;
+}
+
+async function sessionHash(request, env) {
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
+  if (!token) return null;
+  const hash = await sha256(token);
+  const row = await env.DB.prepare('SELECT token_hash FROM sessions WHERE token_hash = ?').bind(hash).first();
+  return row ? hash : null;
+}
+
+const hashProof = (salt, proof) => sha256(`${salt}:${proof}`);
+
+async function register(request, env) {
+  const { login, proof } = await request.json();
+  if (!validLogin(login) || !validProof(proof)) return reply(request, { error: 'Dados inválidos.' }, 400);
+  const salt = randomHex(16);
+  const account = JSON.stringify({ login, salt, hash: await hashProof(salt, proof) });
+  const result = await env.DB.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('account', ?)").bind(account).run();
+  if (!result.meta.changes) return reply(request, { error: 'Já existe uma conta. Use Entrar.' }, 409);
+  return reply(request, { token: await newSession(env) });
+}
+
+async function login(request, env) {
+  const body = await request.json();
+  if (!validLogin(body.login) || !validProof(body.proof)) return reply(request, { error: 'Login ou senha incorretos.' }, 401);
+  const lock = (await readMeta(env, 'lock')) || { fails: 0, until: 0 };
+  if (lock.until > Date.now()) {
+    return reply(request, { error: `Muitas tentativas. Aguarde ${Math.ceil((lock.until - Date.now()) / 60000)} min.` }, 429);
+  }
+  const account = await readMeta(env, 'account');
+  const correct = account && account.login === body.login && (await hashProof(account.salt, body.proof)) === account.hash;
+  if (!correct) {
+    const fails = lock.fails + 1;
+    await writeMeta(env, 'lock', { fails: fails >= MAX_FAILS ? 0 : fails, until: fails >= MAX_FAILS ? Date.now() + LOCK_MS : 0 }).run();
+    return reply(request, { error: 'Login ou senha incorretos.' }, 401);
+  }
+  await writeMeta(env, 'lock', { fails: 0, until: 0 }).run();
+  return reply(request, { token: await newSession(env) });
+}
+
+async function logout(request, env, current) {
+  await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(current).run();
+  return reply(request, { ok: true });
+}
+
+// Trocar a senha encerra a sessão de todos os outros aparelhos.
+async function changePassword(request, env, current) {
+  const { proof, newProof } = await request.json();
+  if (!validProof(proof) || !validProof(newProof)) return reply(request, { error: 'Dados inválidos.' }, 400);
+  const account = await readMeta(env, 'account');
+  if ((await hashProof(account.salt, proof)) !== account.hash) return reply(request, { error: 'Senha atual incorreta.' }, 403);
+  const salt = randomHex(16);
+  await env.DB.batch([
+    writeMeta(env, 'account', { login: account.login, salt, hash: await hashProof(salt, newProof) }),
+    env.DB.prepare('DELETE FROM sessions WHERE token_hash <> ?').bind(current),
+  ]);
+  return reply(request, { ok: true });
+}
 
 // A edição mais recente de cada campo vence.
 function merge(current, incoming) {
@@ -48,15 +126,6 @@ function merge(current, incoming) {
 }
 
 const validItem = (item) => KINDS.has(item?.kind) && typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 100;
-
-async function setup(request, env) {
-  const { key } = await request.json();
-  if (typeof key !== 'string' || key.length < 32) return reply(request, { error: 'Chave inválida.' }, 400);
-  const result = await env.DB.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('key_hash', ?)")
-    .bind(await sha256(key)).run();
-  if (!result.meta.changes) return reply(request, { error: 'Já existe uma chave neste servidor.' }, 409);
-  return reply(request, { ok: true });
-}
 
 async function sync(request, env) {
   const body = await request.json();
@@ -116,14 +185,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: headers(request) });
     const { pathname } = new URL(request.url);
     try {
-      if (request.method === 'POST' && pathname === '/setup') return await setup(request, env);
-      if (request.method === 'POST' && pathname === '/sync') {
-        const key = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
-        const expected = await storedHash(env);
-        if (!expected || !key || (await sha256(key)) !== expected) return reply(request, { error: 'Chave incorreta.' }, 401);
-        return await sync(request, env);
-      }
-      return reply(request, { error: 'Não encontrado.' }, 404);
+      if (request.method !== 'POST') return reply(request, { error: 'Não encontrado.' }, 404);
+      if (pathname === '/register') return await register(request, env);
+      if (pathname === '/login') return await login(request, env);
+      const routes = { '/sync': (r, e) => sync(r, e), '/logout': logout, '/password': changePassword };
+      if (!routes[pathname]) return reply(request, { error: 'Não encontrado.' }, 404);
+      const current = await sessionHash(request, env);
+      if (!current) return reply(request, { error: 'Sessão encerrada.' }, 401);
+      return await routes[pathname](request, env, current);
     } catch (error) {
       console.error(error);
       return reply(request, { error: 'Erro no servidor.' }, 500);

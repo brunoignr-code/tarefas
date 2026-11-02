@@ -38,9 +38,9 @@ Botões em cinza são funções planejadas, ainda sem ação.
 
 ## Sincronização
 
-Em Config. > Sincronização, crie a chave no aparelho que tem os dados e conecte os outros com ela. Conectar substitui as tarefas locais do aparelho pelas da sincronização.
+Em Config. > Sincronização, crie a conta no aparelho que tem os dados e entre com ela nos outros. Entrar substitui as tarefas locais do aparelho pelas da sincronização.
 
-O servidor (`server/worker.js`) roda em Cloudflare Workers com banco D1. Ele guarda só o hash da chave, e as tarefas ficam no banco sem criptografia de ponta a ponta. Na edição do mesmo campo em dois aparelhos, a mais recente vence.
+O servidor (`server/worker.js`) roda em Cloudflare Workers com banco D1. A senha não sai do aparelho: ele envia ao servidor uma prova derivada com PBKDF2 (600 mil iterações). O servidor guarda só o hash dessa prova e das sessões, e bloqueia novas tentativas por 15 minutos após 5 erros. As tarefas ficam no banco sem criptografia de ponta a ponta. Na edição do mesmo campo em dois aparelhos, a mais recente vence.
 
 ## Limitações desta versão
 

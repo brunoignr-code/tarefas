@@ -1,5 +1,5 @@
 // Mantém o app disponível offline e trata os botões das notificações.
-const CACHE = 'tarefas-v3';
+const CACHE = 'tarefas-v4';
 const FILES = [
   './',
   'index.html',

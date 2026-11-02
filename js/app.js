@@ -6,8 +6,8 @@ import {
 import {
   DEFAULT_HIGHLIGHT, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
 } from './theme.js';
-import { newSyncKey, stamp, stampAll } from './sync-core.js';
-import { claimKey, createSync } from './sync.js';
+import { stamp, stampAll } from './sync-core.js';
+import { authenticate, changePassword, createSync, endSession } from './sync.js';
 
 const INBOX = 'inbox';
 const SNOOZE_MINUTES = 10;
@@ -71,7 +71,7 @@ const syncEngine = createSync({
   },
 });
 
-const savedLocally = () => { if (state.sync?.key) syncEngine.schedule(); };
+const savedLocally = () => { if (state.sync?.token) syncEngine.schedule(); };
 
 async function saveTask(task) {
   const index = state.tasks.findIndex((t) => t.id === task.id);
@@ -100,7 +100,7 @@ async function saveLogEntry(entry) {
 async function forget(kind, id) {
   state[kind] = state[kind].filter((item) => item.id !== id);
   await db.remove(kind, id);
-  if (state.sync?.key) {
+  if (state.sync?.token) {
     state.sync.tombstones = [...(state.sync.tombstones || []), { kind, id }];
     await db.put('meta', { ...state.sync, id: 'sync' });
     savedLocally();
@@ -313,7 +313,7 @@ function todayView() {
     <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}</div></div></div>
     ${quickAdd('Adicionar a Hoje', { when: now })}
     ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true }) : '<p class="empty">Nada planejado para hoje.</p>'}
-    <button class="btn small" data-action="sync-now" ${state.sync?.key ? '' : 'disabled'} style="margin-top:14px">Sincronizar agora</button>`;
+    <button class="btn small" data-action="sync-now" ${state.sync?.token ? '' : 'disabled'} style="margin-top:14px">Sincronizar agora</button>`;
 }
 
 function upcomingView() {
@@ -431,31 +431,35 @@ function syncStatusText() {
 }
 
 function syncPanel() {
-  if (!state.sync?.key) {
+  if (!state.sync?.token) {
     return `
     <section class="panel">
       <h3>Sincronização</h3>
-      <p>No aparelho que tem seus dados, crie a chave. Nos outros, cole a chave para conectar.</p>
-      <div class="actions" style="margin-bottom:12px"><button class="btn primary" data-action="sync-create">Criar chave neste aparelho</button></div>
-      <div class="field">
-        <label for="sync-key-input">Já tenho uma chave</label>
-        <input id="sync-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Cole a chave aqui">
-      </div>
-      <div class="actions" style="margin-top:8px"><button class="btn" data-action="sync-join">Conectar este aparelho</button></div>
+      <p>Entre com sua conta para manter o note e os celulares iguais. Depois de entrar, o aparelho fica conectado.</p>
+      <div class="field"><label for="sync-login">Login</label><input id="sync-login" autocomplete="username" autocapitalize="none" spellcheck="false"></div>
+      <div class="field" style="margin-top:8px"><label for="sync-password">Senha</label><input id="sync-password" type="password" autocomplete="current-password"></div>
+      <div class="actions" style="margin-top:10px"><button class="btn primary" data-action="sync-login">Entrar</button></div>
+      <h3 style="margin-top:16px">Primeira vez</h3>
+      <p>Crie a conta no aparelho que tem suas tarefas, preenchendo login e senha acima. Use ao menos 12 caracteres. Só existe uma conta, e a senha não pode ser recuperada pelo app.</p>
+      <div class="field"><label for="sync-password-2">Repita a senha</label><input id="sync-password-2" type="password" autocomplete="new-password"></div>
+      <div class="actions" style="margin-top:10px"><button class="btn" data-action="sync-register">Criar conta</button></div>
     </section>`;
   }
   return `
     <section class="panel">
       <h3>Sincronização</h3>
+      <p>Conectado como ${escapeHtml(state.sync.login)}.</p>
       <p id="sync-status" role="status">${escapeHtml(syncStatusText())}</p>
       <div class="actions">
         <button class="btn primary" data-action="sync-now">Sincronizar agora</button>
-        <button class="btn" data-action="sync-copy-link">Copiar link de conexão</button>
-        <button class="btn" data-action="sync-toggle-key">${state.showKey ? 'Ocultar chave' : 'Mostrar chave'}</button>
-        <button class="btn danger" data-action="sync-disconnect">Desconectar</button>
+        <button class="btn" data-action="sync-toggle-password">Trocar senha</button>
+        <button class="btn danger" data-action="sync-logout">Sair</button>
       </div>
-      ${state.showKey ? `<p style="margin:10px 0 0;overflow-wrap:anywhere;user-select:all;color:var(--text)">${escapeHtml(state.sync.key)}</p>` : ''}
-      <p style="margin:10px 0 0">Quem tiver esta chave acessa suas tarefas. Envie só para você, por um canal privado.</p>
+      ${state.showPasswordForm ? `
+      <div class="field" style="margin-top:12px"><label for="sync-current">Senha atual</label><input id="sync-current" type="password" autocomplete="current-password"></div>
+      <div class="field" style="margin-top:8px"><label for="sync-new">Nova senha</label><input id="sync-new" type="password" autocomplete="new-password"></div>
+      <div class="field" style="margin-top:8px"><label for="sync-new-2">Repita a nova senha</label><input id="sync-new-2" type="password" autocomplete="new-password"></div>
+      <div class="actions" style="margin-top:10px"><button class="btn" data-action="sync-change-password">Salvar nova senha</button></div>` : ''}
     </section>`;
 }
 
@@ -496,7 +500,7 @@ function settingsView() {
     ${syncPanel()}
     <section class="panel">
       <h3>Backup</h3>
-      <p>${state.sync?.key ? 'Suas tarefas também ficam guardadas no servidor de sincronização.' : 'Seus dados ficam só neste aparelho. Limpar os dados do navegador apaga tudo.'} ${backup}</p>
+      <p>${state.sync?.token ? 'Suas tarefas também ficam guardadas no servidor de sincronização.' : 'Seus dados ficam só neste aparelho. Limpar os dados do navegador apaga tudo.'} ${backup}</p>
       <div class="actions">
         <button class="btn primary" data-action="export">Exportar JSON</button>
         <button class="btn" data-action="import">Importar JSON</button>
@@ -805,7 +809,7 @@ async function importData(file) {
     showToast('Arquivo inválido. Nada foi alterado.');
     return;
   }
-  const syncing = !!state.sync?.key;
+  const syncing = !!state.sync?.token;
   const question = syncing
     ? `Importar ${data.tasks.length} tarefa(s) do arquivo? Elas serão enviadas aos seus aparelhos, e as tarefas que já estão na sincronização continuam lá.`
     : `Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) do arquivo?`;
@@ -823,85 +827,91 @@ async function importData(file) {
 
 /* ---------- Sincronização ---------- */
 
-async function connectFirstDevice() {
-  if (!confirm('Criar a chave neste aparelho? Todas as tarefas daqui serão enviadas ao servidor e serão a base para os outros aparelhos.')) return;
-  const key = newSyncKey();
+const MIN_PASSWORD = 12;
+
+async function registerAccount() {
+  const login = $('#sync-login').value;
+  const password = $('#sync-password').value;
+  if (login.trim().length < 3) return showToast('Escolha um login com ao menos 3 caracteres.');
+  if (password.length < MIN_PASSWORD) return showToast(`Use uma senha com ao menos ${MIN_PASSWORD} caracteres.`);
+  if (password !== $('#sync-password-2').value) return showToast('As senhas não são iguais.');
+  if (!confirm('Criar a conta neste aparelho? Todas as tarefas daqui serão enviadas ao servidor e serão a base para os outros aparelhos.')) return undefined;
+  let session;
   try {
-    await claimKey(key);
+    session = await authenticate('register', login, password);
   } catch (error) {
-    showToast(error.message);
-    return;
+    return showToast(error.message);
   }
   const now = Date.now();
   state.tasks = state.tasks.map((item) => stampAll(item, now));
   state.lists = state.lists.map((item) => stampAll(item, now));
   state.log = state.log.map((item) => stampAll(item, now));
   await Promise.all(['tasks', 'lists', 'log'].flatMap((kind) => state[kind].map((item) => db.put(kind, item))));
-  state.sync = { key, since: 0, tombstones: [] };
+  state.sync = { ...session, since: 0, tombstones: [] };
   await db.put('meta', { ...state.sync, id: 'sync' });
-  state.showKey = true;
   render();
   await syncEngine.run();
   render();
+  return undefined;
 }
 
-async function connectThisDevice(key) {
-  const clean = (key || '').trim();
-  if (clean.length < 32) {
-    showToast('Esta chave não parece válida.');
-    return;
-  }
+async function loginThisDevice() {
   const count = state.tasks.length;
-  const warning = count
-    ? `Conectar este aparelho? As ${count} tarefa(s) daqui serão apagadas e substituídas pelas da sincronização. Exporte um backup antes se precisar delas.`
-    : 'Conectar este aparelho à sincronização?';
-  if (!confirm(warning)) return;
-  const previous = { lists: state.lists, tasks: state.tasks, log: state.log, sync: state.sync };
+  if (count && !confirm(`Entrar neste aparelho? As ${count} tarefa(s) daqui serão substituídas pelas da sincronização. Exporte um backup antes se precisar delas.`)) return undefined;
+  let session;
+  try {
+    session = await authenticate('login', $('#sync-login').value, $('#sync-password').value);
+  } catch (error) {
+    return showToast(error.message);
+  }
+  const previous = { lists: state.lists, tasks: state.tasks, log: state.log };
   state.lists = [];
   state.tasks = [];
   state.log = [];
-  state.sync = { key: clean, since: 0, tombstones: [] };
+  state.sync = { ...session, since: 0, tombstones: [] };
   await syncEngine.run();
   if (syncEngine.status.state !== 'ok') {
-    // Chave errada ou sem conexão: nada é apagado.
+    // Sem conexão no meio do caminho: nada local é perdido.
+    await endSession(session.token).catch(() => {});
     state.lists = previous.lists;
     state.tasks = previous.tasks;
     state.log = previous.log;
-    state.sync = previous.sync;
-    const meta = previous.sync ? [state.settings, { ...previous.sync, id: 'sync' }] : [state.settings];
-    await db.replaceAll({ lists: state.lists, tasks: state.tasks, log: state.log, meta });
-    showToast(syncEngine.status.message || 'Não foi possível conectar.');
+    state.sync = null;
+    await db.replaceAll({ lists: state.lists, tasks: state.tasks, log: state.log, meta: [state.settings] });
     render();
-    return;
+    return showToast(syncEngine.status.message || 'Não foi possível conectar.');
   }
-  const keep = (kind) => new Set(state[kind].map((item) => item.id));
   for (const kind of ['tasks', 'lists', 'log']) {
-    const ids = keep(kind);
+    const ids = new Set(state[kind].map((item) => item.id));
     await Promise.all(previous[kind].filter((item) => !ids.has(item.id)).map((item) => db.remove(kind, item.id)));
   }
   await load();
   render();
-  showToast('Aparelho conectado.');
+  return showToast('Aparelho conectado.');
 }
 
-async function disconnect() {
-  if (!confirm('Desconectar este aparelho? As tarefas ficam aqui, mas param de sincronizar. A chave continua valendo para os outros aparelhos.')) return;
+async function logoutThisDevice() {
+  if (!confirm('Sair neste aparelho? As tarefas ficam aqui, mas param de sincronizar.')) return;
+  const { token } = state.sync;
   state.sync = null;
-  state.showKey = false;
+  state.showPasswordForm = false;
   await db.remove('meta', 'sync');
+  await endSession(token).catch(() => {});
   render();
 }
 
-async function copyConnectLink() {
-  const url = `${location.origin}${location.pathname}#conectar/${encodeURIComponent(state.sync.key)}`;
+async function saveNewPassword() {
+  const next = $('#sync-new').value;
+  if (next.length < MIN_PASSWORD) return showToast(`Use uma senha com ao menos ${MIN_PASSWORD} caracteres.`);
+  if (next !== $('#sync-new-2').value) return showToast('As senhas novas não são iguais.');
   try {
-    await navigator.clipboard.writeText(url);
-    showToast('Link copiado. Envie só para você.');
-  } catch {
-    state.showKey = true;
-    render();
-    showToast('Não deu para copiar. Use a chave mostrada.');
+    await changePassword(state.sync.login, state.sync.token, $('#sync-current').value, next);
+  } catch (error) {
+    return showToast(error.message);
   }
+  state.showPasswordForm = false;
+  render();
+  return showToast('Senha trocada. Os outros aparelhos precisam entrar de novo.');
 }
 
 /* ---------- Eventos ---------- */
@@ -994,12 +1004,12 @@ const clickActions = {
     render();
   },
   'sync-now': () => syncEngine.run(),
-  'sync-create': connectFirstDevice,
-  'sync-join': () => connectThisDevice($('#sync-key-input').value),
-  'sync-disconnect': disconnect,
-  'sync-copy-link': copyConnectLink,
-  'sync-toggle-key': () => {
-    state.showKey = !state.showKey;
+  'sync-register': registerAccount,
+  'sync-login': loginThisDevice,
+  'sync-logout': logoutThisDevice,
+  'sync-change-password': saveNewPassword,
+  'sync-toggle-password': () => {
+    state.showPasswordForm = !state.showPasswordForm;
     render();
   },
   'new-list': () => openListDialog(null),
@@ -1105,14 +1115,6 @@ window.addEventListener('online', () => syncEngine.run());
 
 // Ações de notificação abertas com o app fechado chegam pelo endereço.
 function handleRoute() {
-  const connect = location.hash.match(/^#conectar\/(.+)$/);
-  if (connect) {
-    // Tira a chave do endereço antes de qualquer outra coisa.
-    history.replaceState(null, '', '#settings');
-    render();
-    connectThisDevice(decodeURIComponent(connect[1]));
-    return;
-  }
   const match = location.hash.match(/^#notif\/(\w+)\/(.+)$/);
   if (match) {
     history.replaceState(null, '', '#today');
@@ -1143,7 +1145,7 @@ async function load() {
   const settings = meta.find((item) => item.id === 'settings');
   if (settings) state.settings = settings;
   const sync = meta.find((item) => item.id === 'sync');
-  state.sync = sync?.key ? sync : null;
+  state.sync = sync?.token ? sync : null;
   state.settings.theme = normalizeTheme(state.settings.theme);
   if (!isHexColor(state.settings.highlight)) state.settings.highlight = DEFAULT_HIGHLIGHT;
   if (!state.lists.some((l) => l.id === INBOX)) await saveList({ id: INBOX, name: 'Entrada', group: '' });
