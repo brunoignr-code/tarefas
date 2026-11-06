@@ -38,3 +38,4 @@ export function replaceAll(data) {
     transaction.onabort = () => reject(transaction.error);
   });
 }
+export const get = (name, id) => promisify(store(name).get(id));

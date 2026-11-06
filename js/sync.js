@@ -41,7 +41,7 @@ export async function changePassword(login, token, current, next) {
 
 /**
  * hooks: state (coleções em memória), config() e saveConfig() com { token, login, since, tombstones },
- * put(kind, record), remove(kind, id), onStatus(), onRemoteChange().
+ * put(kind, record), remove(kind, id), onStatus(), onRemoteChange() e onSynced(), opcional.
  */
 export function createSync(hooks) {
   const status = { state: 'idle', message: '', at: null };
@@ -136,6 +136,7 @@ export function createSync(hooks) {
         if (rounds >= MAX_ROUNDS) throw new Error('A sincronização não terminou. Tente de novo.');
       }
       setStatus('ok');
+      hooks.onSynced?.();
     } catch (error) {
       setStatus('error', error.fatal ? error.message : (navigator.onLine ? error.message : 'Sem internet.'));
     } finally {

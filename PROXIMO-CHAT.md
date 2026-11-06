@@ -8,8 +8,8 @@ Continuando o meu gerenciador de tarefas (PWA pessoal, alternativa ao Microsoft 
 Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto"), este PROXIMO-CHAT.md e o memory do projeto.
 
 Onde paramos:
-- O lote A está publicado: importante, tags, repetição avançada, modos do campo Até, arrastar para ordenar, datas digitadas, calendário, Kanban, Matriz, compartilhar para o app e atalhos.
-- O próximo passo combinado é o lote B: lembretes com o app fechado (push enviado pelo servidor), lembrete insistente, vários lembretes por tarefa e resumo diário. Deixe isso como opção ativada em Config., porque o plano gratuito da Cloudflare tem 10 ms de CPU e o push pode estourar esse limite. Meu limite de atraso é de 1 minuto.
+- Lotes A e B publicados no app. O lote B traz lembretes com o app fechado (push enviado pelo servidor), vários lembretes por tarefa, lembrete insistente e resumo diário, ativados por aparelho em Config.
+- Se o README ainda disser "Pendente: implantar o novo server/worker.js e o Cron Trigger", faça isso primeiro, pelo painel da Cloudflare no meu Chrome, e confira o tempo de CPU nas métricas.
 - Ainda dependem da minha decisão: Listas compartilhadas, Hábitos, Pomodoro, Google Agenda, Importar do To Do direto e o nome do app.
 
 Regras:
@@ -29,7 +29,7 @@ Bugs (aparelho, o que fiz, o que aconteceu):
 Sincronização (chegou nos 3? demorou? perdeu algo?):
 - [preencher]
 
-Notificações (o teste chegou? os botões Concluir e Adiar funcionaram?):
+Notificações (o teste com o app fechado chegou? quanto atrasou? Concluir, Adiar, insistência e resumo funcionaram?):
 - [preencher]
 
 Atritos no dia a dia:
@@ -41,5 +41,5 @@ O que senti falta, em ordem de prioridade:
 Visual, tema, ícone e nome do app:
 - [preencher]
 
-Primeiro organize os feedbacks por prioridade, me diga o que corrigir agora e o que fica para depois. Depois siga com o mais importante, ou com o lote B se eu não tiver feedbacks.
+Primeiro organize os feedbacks por prioridade, me diga o que corrigir agora e o que fica para depois. Depois siga com o mais importante.
 ```

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Teste do servidor</title></head>
+<body>
+<pre id="out">Rodando...</pre>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script type="module">
+// Roda server/worker.js com um SQLite em memória no lugar do D1. Nada sai desta página.
+const SQL = await initSqlJs({ locateFile: (f) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
+const sqlite = new SQL.Database();
+sqlite.run(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, created_at INTEGER);`);
+
+function stmt(sql, args = []) {
+  const exec = () => {
+    const s = sqlite.prepare(sql);
+    s.bind(args);
+    const rows = [];
+    while (s.step()) rows.push(s.getAsObject());
+    s.free();
+    return { results: rows, meta: { changes: sqlite.getRowsModified() } };
+  };
+  return {
+    bind: (...values) => stmt(sql, values),
+    run: async () => exec(),
+    all: async () => exec(),
+    first: async (col) => { const row = exec().results[0]; return row ? (col ? row[col] : row) : null; },
+    _exec: exec,
+  };
+}
+const env = { DB: { prepare: (sql) => stmt(sql), batch: async (list) => list.map((s) => s._exec()) } };
+
+const pushed = [];
+const realFetch = fetch.bind(window);
+window.fetch = async (url, init) => {
+  if (String(url).startsWith('https://fcm.googleapis.com/')) {
+    pushed.push({ url, auth: init.headers.Authorization, ttl: init.headers.TTL });
+    return new Response('', { status: String(url).endsWith('gone') ? 410 : 201 });
+  }
+  return realFetch(url, init);
+};
+
+const worker = (await import(`../server/worker.js?t=${Date.now()}`)).default;
+const call = async (path, body, token) => {
+  const response = await worker.fetch(new Request(`https://w.test${path}`, {
+    method: 'POST',
+    headers: { Origin: 'http://localhost:8765', 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  }), env);
+  return { status: response.status, body: await response.json() };
+};
+const cron = () => new Promise((resolve) => worker.scheduled({}, env, { waitUntil: (p) => p.then(resolve) }));
+
+const lines = [];
+const check = (name, ok, extra = '') => lines.push(`${ok ? 'ok   ' : 'FALHA'} ${name}${extra ? ` -> ${extra}` : ''}`);
+const proof = 'a'.repeat(64);
+
+const reg = await call('/register', { login: 'teste-descartavel', proof });
+const token = reg.body.token;
+check('conta descartável criada', reg.status === 200 && !!token);
+check('sem sessão, /push/state recusa', (await call('/push/state', {})).status === 401);
+
+const state = await call('/push/state', {}, token);
+check('chave VAPID criada (65 bytes)', state.status === 200 && atob(state.body.publicKey.replace(/-/g, '+').replace(/_/g, '/') + '=').length === 65);
+const again = await call('/push/state', {}, token);
+check('chave VAPID estável', again.body.publicKey === state.body.publicKey);
+
+check('endereço fora dos serviços de push recusado', (await call('/push/subscribe', { endpoint: 'https://evil.example/x' }, token)).status === 400);
+const ep1 = 'https://fcm.googleapis.com/fcm/send/aparelho1';
+const ep2 = 'https://fcm.googleapis.com/fcm/send/gone';
+await call('/push/subscribe', { endpoint: ep1 }, token);
+const sub2 = await call('/push/subscribe', { endpoint: ep2 }, token);
+check('dois aparelhos inscritos', sub2.body.devices === 2);
+
+const settings = await call('/push/settings', { digest: true, digestTime: '07:30', insistMinutes: 10 }, token);
+check('configuração salva', settings.body.settings.digestTime === '07:30' && settings.body.settings.insistMinutes === 10);
+
+const now = Date.now();
+const items = [
+  { key: 't1|passado|0', at: now - 30000, taskId: 't1', kind: 'remind', title: 'Tarefa de teste', body: 'Lembrete das 10:00' },
+  { key: 't2|futuro|0', at: now + 3600000, taskId: 't2', kind: 'remind', title: 'Depois', body: 'x' },
+];
+const sched = await call('/push/schedule', { items }, token);
+check('agenda aceita e devolve a configuração', sched.status === 200 && sched.body.settings.digestTime === '07:30');
+check('agenda com tipo inválido recusada', (await call('/push/schedule', { items: [{ key: 'x', at: 1, kind: 'test' }] }, token)).status === 400);
+
+check('/push/due sem envio ainda: vazio', (await call('/push/due', { endpoint: ep1 })).body.items.length === 0);
+check('/push/due com inscrição desconhecida: 404', (await call('/push/due', { endpoint: 'https://fcm.googleapis.com/fcm/send/nada' })).status === 404);
+
+const t0 = performance.now();
+await cron();
+const cronMs = performance.now() - t0;
+check('cron enviou um push por aparelho, sem conteúdo', pushed.length === 2 && pushed.every((p) => p.auth.startsWith('vapid t=') && p.ttl === '900'));
+const jwt = pushed[0].auth.slice(8).split(',')[0];
+const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+check('JWT para o serviço certo, válido por 12 h', payload.aud === 'https://fcm.googleapis.com' && payload.exp - now / 1000 > 11 * 3600);
+
+const keys = JSON.parse(sqlite.exec("SELECT value FROM meta WHERE key = 'vapid'")[0].values[0][0]);
+const pub = await crypto.subtle.importKey('raw', Uint8Array.from(atob(keys.pub.replace(/-/g, '+').replace(/_/g, '/') + '='), (c) => c.charCodeAt(0)), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+const [h, p, sig] = jwt.split('.');
+const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice(0, (4 - sig.length % 4) % 4)), (c) => c.charCodeAt(0));
+check('assinatura do JWT confere', await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pub, sigBytes, new TextEncoder().encode(`${h}.${p}`)));
+
+const due = await call('/push/due', { endpoint: ep1 });
+check('/push/due devolve só o aviso vencido', due.body.items.length === 1 && due.body.items[0].key === 't1|passado|0' && due.body.items[0].title === 'Tarefa de teste');
+check('inscrição 410 removida', (await call('/push/due', { endpoint: ep2 })).status === 404);
+
+pushed.length = 0;
+await cron();
+check('cron seguinte não repete', pushed.length === 0);
+
+await call('/push/schedule', { items }, token);
+await cron();
+check('reenviar a agenda não repete o que já foi enviado', pushed.length === 0);
+
+const test = await call('/push/test', {}, token);
+check('teste agendado para daqui a 1 minuto', test.body.at - Date.now() > 55000);
+await call('/push/schedule', { items: [] }, token);
+check('agenda nova não apaga o teste', sqlite.exec("SELECT COUNT(*) FROM push_queue WHERE kind = 'test'")[0].values[0][0] === 1);
+
+await call('/push/unsubscribe', { endpoint: ep1 }, token);
+check('aparelho saiu', (await call('/push/state', {}, token)).body.devices === 0);
+
+lines.push(`\nCron (no navegador, só referência): ${cronMs.toFixed(1)} ms no total, incluindo esperas`);
+const failed = lines.filter((l) => l.startsWith('FALHA')).length;
+document.title = failed ? `FALHOU ${failed}` : 'OK servidor';
+document.getElementById('out').textContent = lines.join('\n');
+</script>
+</body>
+</html>

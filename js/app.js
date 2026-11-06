@@ -1,8 +1,13 @@
 import * as db from './db.js';
 import {
   applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue, isUrgent,
-  localDate, localDateTime, reminderTime, skipOccurrence, snooze, todayTasks, upcomingTasks,
+  INSIST_MAX, activeReminder, insistStep, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze,
+  todayTasks, upcomingTasks,
 } from './rules.js';
+import { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey } from './push-core.js';
+import {
+  currentSubscription, disablePush, enablePush, fetchPushState, pushSupported, savePushSettings, sendPushTest, uploadSchedule,
+} from './push.js';
 import { parseQuickAdd } from './parse.js';
 import {
   DEFAULT_HIGHLIGHT, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
@@ -84,9 +89,35 @@ const syncEngine = createSync({
     render();
     if (focusId) document.getElementById(focusId)?.focus();
   },
+  onSynced: () => refreshPushSchedule(),
 });
 
 const savedLocally = () => { if (state.sync?.token) syncEngine.schedule(); };
+
+/* ---------- Avisos com o app fechado ---------- */
+
+const pushLocal = () => state.push || { id: 'push', settings: DEFAULT_PUSH_SETTINGS, hash: null };
+const pushSettings = () => normalizePushSettings(pushLocal().settings);
+
+async function savePushLocal(record) {
+  state.push = { ...record, id: 'push' };
+  await db.put('meta', state.push);
+}
+
+let pushUploading = false;
+
+/** Depois de sincronizar, envia a agenda de avisos se ela mudou. */
+async function refreshPushSchedule(force = false) {
+  if (!state.sync?.token || pushUploading || !navigator.onLine) return;
+  pushUploading = true;
+  try {
+    await uploadSchedule(state.sync.token, { tasks: () => state.tasks, local: pushLocal, saveLocal: savePushLocal }, force);
+  } catch (error) {
+    console.warn('Agenda de avisos não enviada', error);
+  } finally {
+    pushUploading = false;
+  }
+}
 
 async function saveTask(task) {
   const index = state.tasks.findIndex((t) => t.id === task.id);
@@ -225,12 +256,16 @@ async function moveTask(id, direction) {
 
 /* ---------- Lembretes ---------- */
 
-async function showNotification(task) {
+async function showNotification(task, { time = null, step = 0 } = {}) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  let body = 'Toque para ver a tarefa.';
+  if (time) body = step ? `Ainda pendente · lembrete das ${time.slice(11)}` : `Lembrete das ${time.slice(11)}`;
   const options = {
-    body: 'Toque para ver a tarefa.',
+    body,
     tag: task.id,
+    renotify: step > 0,
     icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
     data: { id: task.id },
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -246,28 +281,52 @@ async function showNotification(task) {
   }
 }
 
+/** Avisos que o service worker já mostrou a partir de um push. */
+async function pushShownKeys() {
+  try {
+    const record = await db.get('meta', 'pushShown');
+    return new Set(record?.keys || []);
+  } catch {
+    return new Set();
+  }
+}
+
+let checking = false;
+
 async function checkReminders() {
-  const due = dueReminders(state.tasks, localDateTime());
-  for (const task of due) {
-    const time = reminderTime(task);
-    if (task.notifiedFor !== time) {
-      await saveTask({ ...task, notifiedFor: time });
+  if (checking) return;
+  checking = true;
+  try {
+    const nowDate = new Date();
+    const now = localDateTime(nowDate);
+    const due = dueReminders(state.tasks, now);
+    const shown = due.length ? await pushShownKeys() : new Set();
+    for (const task of due) {
+      const time = activeReminder(task, now);
+      const step = insistStep(task, time, nowDate, pushSettings().insistMinutes);
+      const mark = notifyMark(time, step);
+      if (task.notifiedFor === mark) continue;
+      await saveTask({ ...findTask(task.id), notifiedFor: mark });
+      if (shown.has(pushKey(task.id, time, step))) continue;
       try {
-        await showNotification(task);
+        await showNotification(task, { time, step });
       } catch (error) {
         console.warn('Notificação não enviada', error);
       }
     }
+  } finally {
+    checking = false;
   }
   renderReminders();
 }
 
 function renderReminders() {
-  const due = dueReminders(state.tasks, localDateTime());
+  const now = localDateTime();
+  const due = dueReminders(state.tasks, now);
   document.title = due.length ? `(${due.length}) Tarefas` : 'Tarefas';
   $('#reminders').innerHTML = due.map((task) => `
     <section class="reminder" aria-label="Lembrete">
-      <div class="reminder-label">Lembrete: ${escapeHtml(formatDateTime(reminderTime(task)).toLowerCase())}</div>
+      <div class="reminder-label">Lembrete: ${escapeHtml(formatDateTime(activeReminder(task, now)).toLowerCase())}</div>
       <div class="reminder-title">${escapeHtml(task.title)}</div>
       <div class="reminder-actions">
         <button class="btn small primary" data-action="complete" data-id="${task.id}">Concluir</button>
@@ -308,8 +367,9 @@ function taskChips(task, { showWhen = true, showList = false } = {}) {
     const end = task.seriesEnd ? `, até ${formatDate(task.seriesEnd).toLowerCase()}` : '';
     chips.push(`<span>↻ ${escapeHtml(repeatLabel(task.repeat) + end)}</span>`);
   }
-  const reminder = reminderTime(task);
-  if (reminder && !task.ackedAt) chips.push(`<span class="chip-reminder">Lembrar: ${escapeHtml(formatDateTime(reminder).toLowerCase())}</span>`);
+  const reminder = shownReminder(task, localDateTime());
+  const more = (task.extraReminders || []).length;
+  if (reminder) chips.push(`<span class="chip-reminder">Lembrar: ${escapeHtml(formatDateTime(reminder).toLowerCase())}${more ? ` +${more}` : ''}${task.insist ? ' · insiste' : ''}</span>`);
   if (task.steps && task.steps.length) {
     chips.push(`<span>${task.steps.filter((s) => s.done).length}/${task.steps.length} etapas</span>`);
   }
@@ -623,6 +683,65 @@ function syncPanel() {
     </section>`;
 }
 
+function pushPanel() {
+  const settings = pushSettings();
+  const head = '<h3>Lembretes com o app fechado</h3>';
+  if (!pushSupported()) return `<section class="panel">${head}<p>Este navegador não recebe avisos com o app fechado.</p></section>`;
+  if (!state.sync?.token) return `<section class="panel">${head}<p>Os avisos saem do servidor de sincronização. Entre na sua conta, em Sincronização, para ativar.</p></section>`;
+  const on = !!state.push?.enabled;
+  const devices = state.push?.devices;
+  return `
+    <section class="panel">
+      ${head}
+      <p>O servidor avisa este aparelho mesmo com o app fechado, com até 1 minuto de atraso. Vale também para o lembrete insistente e o resumo diário.</p>
+      <label class="check-line"><input type="checkbox" id="push-enabled" ${on ? 'checked' : ''}> Receber neste aparelho</label>
+      ${on ? `<p style="margin:6px 0 0">Ativado neste aparelho${devices ? `. Aparelhos inscritos na conta: ${devices}` : ''}.</p>
+      <div class="actions"><button class="btn" data-action="push-test">Testar com o app fechado</button></div>` : ''}
+      <h3 style="margin-top:16px">Resumo diário</h3>
+      <label class="check-line"><input type="checkbox" id="push-digest" ${settings.digest ? 'checked' : ''}> Avisar as tarefas de Hoje todo dia às</label>
+      <div class="field" style="max-width:160px"><input type="time" id="push-digest-time" aria-label="Horário do resumo" value="${settings.digestTime}" ${settings.digest ? '' : 'disabled'}></div>
+      <h3 style="margin-top:16px">Lembrete insistente</h3>
+      <p>Nas tarefas marcadas com "Insistir até eu reagir", repete o aviso até você concluir, adiar ou dispensar, no máximo ${INSIST_MAX} vezes.</p>
+      <div class="segments" role="group" aria-label="Intervalo da insistência">
+        ${[5, 10, 15, 30].map((minutes) => `<button class="${minutes === settings.insistMinutes ? 'on' : ''}" data-action="set-insist" data-minutes="${minutes}" aria-pressed="${minutes === settings.insistMinutes}">${minutes} min</button>`).join('')}
+      </div>
+      <p style="margin:8px 0 0">O resumo e a insistência valem para todos os aparelhos da conta.</p>
+    </section>`;
+}
+
+async function changePushSettings(changes) {
+  const settings = normalizePushSettings({ ...pushSettings(), ...changes });
+  try {
+    await savePushSettings(state.sync.token, settings);
+  } catch (error) {
+    render();
+    return showToast(error.message);
+  }
+  await savePushLocal({ ...pushLocal(), settings, hash: null });
+  render();
+  await refreshPushSchedule(true);
+  return undefined;
+}
+
+async function togglePush(enabled) {
+  try {
+    if (enabled) {
+      const { devices } = await enablePush(state.sync.token);
+      const { settings } = await fetchPushState(state.sync.token);
+      await savePushLocal({ ...pushLocal(), enabled: true, devices, settings, hash: null });
+      await refreshPushSchedule(true);
+      showToast('Pronto. Este aparelho recebe os lembretes com o app fechado.');
+    } else {
+      await disablePush(state.sync.token);
+      await savePushLocal({ ...pushLocal(), enabled: false });
+      showToast('Este aparelho não recebe mais avisos com o app fechado.');
+    }
+  } catch (error) {
+    showToast(error.message);
+  }
+  render();
+}
+
 function settingsView() {
   const support = 'Notification' in window;
   const permission = support ? Notification.permission : 'denied';
@@ -650,13 +769,13 @@ function settingsView() {
     <div class="view-head"><div><h1><span>Config.</span></h1></div></div>
     <section class="panel">
       <h3>Notificações</h3>
-      <p>${statusText} Por enquanto, os avisos só disparam com o app aberto. Ao abrir, os atrasados aparecem em destaque.</p>
+      <p>${statusText} Com o app aberto, os avisos disparam na hora. Ao abrir, os atrasados aparecem em destaque.</p>
       <div class="actions">
         ${permission === 'default' ? '<button class="btn primary" data-action="enable-notifications">Ativar notificações</button>' : ''}
         ${permission === 'granted' ? '<button class="btn" data-action="test-notification">Enviar teste</button>' : ''}
-        <button class="btn" disabled>Resumo diário</button>
       </div>
     </section>
+    ${pushPanel()}
     ${syncPanel()}
     <section class="panel">
       <h3>Backup</h3>
@@ -752,9 +871,13 @@ function openTask(id) {
   const options = (selected) => state.lists
     .slice().sort((a, b) => (a.id === INBOX ? -1 : b.id === INBOX ? 1 : a.name.localeCompare(b.name, 'pt-BR')))
     .map((l) => `<option value="${l.id}" ${l.id === selected ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
-  const notifyHint = 'Notification' in window && Notification.permission === 'granted'
-    ? 'Avisa com o app aberto. Se estiver fechado, aparece em destaque ao abrir.'
-    : 'Sinal visual no app. Para receber notificação, ative em Config.';
+  const granted = 'Notification' in window && Notification.permission === 'granted';
+  let notifyHint = 'Sinal visual no app. Para receber notificação, ative em Config.';
+  if (granted) {
+    notifyHint = state.push?.enabled
+      ? 'Avisa mesmo com o app fechado.'
+      : 'Avisa com o app aberto. Para avisar com ele fechado, ative em Config.';
+  }
   const mode = untilMode();
   const untilField = mode === 'A' ? `
         <div class="field">
@@ -821,11 +944,12 @@ function openTask(id) {
       <div class="field">
         <label for="f-remind">Lembrar</label>
         <input id="f-remind" type="datetime-local" name="remindAt" value="${task.remindAt || ''}">
+        <div id="extra-reminders" class="rows">${(task.extraReminders || []).map(extraReminderRow).join('')}</div>
         <div class="help">${notifyHint}</div>
         <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada ocorrência</label>
       </div>
-      <button type="button" class="btn" disabled>Adicionar outro lembrete</button>
-      <button type="button" class="switch" disabled>Insistir até eu reagir</button>
+      <button type="button" class="btn" data-action="add-reminder">Adicionar outro lembrete</button>
+      <label class="check-line" id="insist-line"><input type="checkbox" name="insist" ${task.insist ? 'checked' : ''}> Insistir até eu reagir (a cada ${pushSettings().insistMinutes} min, até ${INSIST_MAX} vezes)</label>
       <div class="field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
       <div class="field">
         <label for="f-tags">Tags</label>
@@ -855,6 +979,14 @@ function openTask(id) {
   dialog.showModal();
 }
 
+function extraReminderRow(value = '') {
+  return `
+    <div class="step field" style="display:flex">
+      <input type="datetime-local" name="extraReminder" aria-label="Outro lembrete" value="${escapeHtml(value)}">
+      <button type="button" class="step-remove" data-action="remove-reminder" aria-label="Remover lembrete">×</button>
+    </div>`;
+}
+
 function renderSteps() {
   const container = $('#steps');
   if (!container) return;
@@ -874,6 +1006,8 @@ function readForm(form) {
     when: data.get('when'),
     remindAt: data.get('remindAt'),
     remindEach: data.get('remindEach') === 'on',
+    extraReminders: data.getAll('extraReminder').filter(Boolean),
+    insist: data.get('insist') === 'on',
     listId: data.get('listId'),
     notes: data.get('notes'),
     tags: data.get('tags'),
@@ -919,7 +1053,9 @@ function updateFormHints() {
   $('#repeat-extra').hidden = !freq;
   $('#repeat-options').hidden = !freq;
   $('#weekday-field').hidden = freq !== 'weekly';
-  $('#remind-each-line').hidden = !freq || !form.elements.remindAt.value;
+  const hasReminder = !!form.elements.remindAt.value || [...form.querySelectorAll('[name="extraReminder"]')].some((input) => input.value);
+  $('#remind-each-line').hidden = !freq || !hasReminder;
+  $('#insist-line').hidden = !hasReminder;
   if (freq) $('#unit-text').textContent = FREQ_LABELS[freq][1];
   const help = $('#repeat-help');
   help.textContent = '';
@@ -1037,6 +1173,7 @@ async function importData(file) {
   const now = Date.now();
   const prepare = (items) => (syncing ? items.map((item) => stampAll(item, now)) : items);
   const meta = syncing ? [settings, { ...state.sync, id: 'sync' }] : [settings];
+  if (state.push) meta.push({ ...state.push, hash: null });
   await db.replaceAll({ lists: prepare(data.lists), tasks: prepare(data.tasks), log: prepare(data.log), meta });
   await load();
   render();
@@ -1112,6 +1249,9 @@ async function loginThisDevice() {
 async function logoutThisDevice() {
   if (!confirm('Sair neste aparelho? As tarefas ficam aqui, mas param de sincronizar.')) return;
   const { token } = state.sync;
+  // Sem conta, o servidor não deve mais avisar este aparelho.
+  await disablePush(token).catch(() => {});
+  if (state.push) await savePushLocal({ ...state.push, enabled: false, hash: null });
   state.sync = null;
   state.showPasswordForm = false;
   await db.remove('meta', 'sync');
@@ -1188,6 +1328,24 @@ const clickActions = {
     renderSteps();
     input.focus();
   },
+  'add-reminder': () => {
+    const box = $('#extra-reminders');
+    box.insertAdjacentHTML('beforeend', extraReminderRow());
+    box.lastElementChild.querySelector('input').focus();
+  },
+  'remove-reminder': (el) => {
+    el.closest('.step').remove();
+    updateFormHints();
+  },
+  'push-test': async () => {
+    try {
+      await sendPushTest(state.sync.token);
+      showToast('Teste agendado para daqui a 1 minuto. Feche o app e aguarde.');
+    } catch (error) {
+      showToast(error.message);
+    }
+  },
+  'set-insist': (el) => changePushSettings({ insistMinutes: Number(el.dataset.minutes) }),
   'remove-step': (el) => {
     draftSteps.splice(Number(el.dataset.index), 1);
     renderSteps();
@@ -1338,6 +1496,12 @@ document.addEventListener('change', async (event) => {
     await saveSettings({ highlight: target.value });
     applyTheme();
     render();
+  } else if (target.id === 'push-enabled') {
+    await togglePush(target.checked);
+  } else if (target.id === 'push-digest') {
+    await changePushSettings({ digest: target.checked });
+  } else if (target.id === 'push-digest-time' && target.value) {
+    await changePushSettings({ digestTime: target.value });
   } else if (target.id === 'parse-dates') {
     await saveSettings({ parseDates: target.checked });
   } else if (target.id === 'import-file' && target.files[0]) {
@@ -1474,6 +1638,9 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'notification-action') {
       handleReminderAction(event.data.action, event.data.id);
+    } else if (event.data && event.data.type === 'push-arrived') {
+      // Com o app aberto, ele mesmo avisa; sincroniza antes, caso a tarefa venha de outro aparelho.
+      syncEngine.run().finally(checkReminders);
     }
   });
 }
@@ -1491,6 +1658,7 @@ async function load() {
   if (settings) state.settings = settings;
   const sync = meta.find((item) => item.id === 'sync');
   state.sync = sync?.token ? sync : null;
+  state.push = meta.find((item) => item.id === 'push') || null;
   state.settings.theme = normalizeTheme(state.settings.theme);
   if (!state.settings.themeChosen) {
     // Aparelhos que já usavam o app recebem uma vez o tema escolhido.
@@ -1531,6 +1699,11 @@ async function start() {
   setInterval(() => syncEngine.run(), 60000);
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
+  }
+  // A inscrição pode sumir se o navegador limpar os dados ou a permissão for retirada.
+  if (state.push?.enabled && !(await currentSubscription().catch(() => null))) {
+    await savePushLocal({ ...state.push, enabled: false });
+    if (currentRoute().name === 'settings') render();
   }
 }
 

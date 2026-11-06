@@ -7,7 +7,10 @@ import {
 } from '../js/theme.js';
 import { changedSince, merge, stamp, stampAll, toWire } from '../js/sync-core.js';
 import { parseQuickAdd } from '../js/parse.js';
-import { cleanTags, isUrgent } from '../js/rules.js';
+import {
+  activeReminder, cleanTags, insistStep, isUrgent, notifyMark, reminderTimes, shownReminder,
+} from '../js/rules.js';
+import { alreadyNotified, buildSchedule, parsePushKey, pushKey } from '../js/push-core.js';
 
 const results = [];
 const eq = (actual, expected) => {
@@ -342,6 +345,111 @@ test('Datas digitadas: textos comuns ficam intactos', () => {
     const r = parse(text);
     if (r.matched || r.title !== text) throw new Error(`mexeu em "${text}"`);
   });
+});
+
+
+/* ---------- Lote B: vários lembretes, insistência e agenda do push ---------- */
+
+test('Vários lembretes: o primeiro fica em remindAt e os outros em ordem', () => {
+  const task = make({ remindAt: `${TODAY}T18:00`, extraReminders: [`${TODAY}T09:00`, `${TODAY}T18:00`, 'lixo', `${TODAY}T12:00`] });
+  eq(task.remindAt, `${TODAY}T18:00`);
+  eq(task.extraReminders, [`${TODAY}T09:00`, `${TODAY}T12:00`]);
+  eq(reminderTimes(task), [`${TODAY}T09:00`, `${TODAY}T12:00`, `${TODAY}T18:00`]);
+  const only = make({ remindAt: '', extraReminders: [`${TODAY}T10:00`] });
+  eq([only.remindAt, only.extraReminders], [`${TODAY}T10:00`, []]);
+});
+
+test('Vários lembretes: cada um dispara, e dispensar vale até a hora dispensada', () => {
+  const task = make({ remindAt: `${TODAY}T09:00`, extraReminders: [`${TODAY}T12:00`] });
+  eq(activeReminder(task, `${TODAY}T08:59`), null);
+  eq(activeReminder(task, `${TODAY}T09:30`), `${TODAY}T09:00`);
+  const acked = dismissReminder(task, `${TODAY}T09:30`);
+  eq(activeReminder(acked, `${TODAY}T11:00`), null);
+  eq(activeReminder(acked, `${TODAY}T12:00`), `${TODAY}T12:00`);
+  eq(shownReminder(acked, `${TODAY}T11:00`), `${TODAY}T12:00`);
+});
+
+test('Vários lembretes: o adiamento segura o anterior, e o seguinte passa na frente', () => {
+  const task = make({ remindAt: `${TODAY}T09:00`, extraReminders: [`${TODAY}T09:05`] });
+  const later = snooze(task, new Date(2026, 10, 2, 9, 0), 10);
+  eq(activeReminder({ ...later, extraReminders: [] }, `${TODAY}T09:05`), null);
+  eq(activeReminder({ ...later, extraReminders: [] }, `${TODAY}T09:10`), `${TODAY}T09:10`);
+  eq(activeReminder(later, `${TODAY}T09:05`), `${TODAY}T09:05`);
+});
+
+test('Vários lembretes: andam junto com a repetição', () => {
+  const task = make({ when: TODAY, repeat: { freq: 'daily' }, remindAt: `${TODAY}T08:00`, extraReminders: [`${TODAY}T20:00`] });
+  eq(completeTask(task, TODAY, 'x').task.extraReminders, ['2026-11-03T20:00']);
+});
+
+test('Insistir: só com lembrete e conta os passos até o máximo', () => {
+  eq(make({ insist: true }).insist, false);
+  const task = make({ remindAt: `${TODAY}T09:00`, insist: true });
+  eq(task.insist, true);
+  eq(insistStep(task, `${TODAY}T09:00`, new Date(2026, 10, 2, 9, 4), 5), 0);
+  eq(insistStep(task, `${TODAY}T09:00`, new Date(2026, 10, 2, 9, 11), 5), 2);
+  eq(insistStep(task, `${TODAY}T09:00`, new Date(2026, 10, 2, 15, 0), 5), 12);
+  eq(insistStep({ ...task, insist: false }, `${TODAY}T09:00`, new Date(2026, 10, 2, 9, 11), 5), 0);
+  eq([notifyMark('x', 0), notifyMark('x', 3)], ['x', 'x#3']);
+});
+
+test('Agenda do push: lembretes futuros, sem concluídas, com folga de 2 minutos', () => {
+  const now = new Date(2026, 10, 2, 10, 0);
+  const tasks = [
+    { ...make({ remindAt: `${TODAY}T11:00` }), id: 'a' },
+    { ...make({ remindAt: `${TODAY}T09:59` }), id: 'b' },
+    { ...make({ remindAt: `${TODAY}T09:00` }), id: 'c' },
+    { ...make({ remindAt: `${TODAY}T12:00` }), id: 'd', status: 'done' },
+  ];
+  const items = buildSchedule(tasks, now, {});
+  eq(items.map((i) => i.key), [pushKey('b', `${TODAY}T09:59`, 0), pushKey('a', `${TODAY}T11:00`, 0)]);
+  eq(items[1].at, new Date(2026, 10, 2, 11, 0).getTime());
+  eq([items[1].kind, items[1].body], ['remind', 'Lembrete das 11:00']);
+});
+
+test('Agenda do push: adiamento substitui o lembrete adiado', () => {
+  const now = new Date(2026, 10, 2, 9, 1);
+  const task = snooze({ ...make({ remindAt: `${TODAY}T09:00` }), id: 'a' }, new Date(2026, 10, 2, 9, 0), 10);
+  eq(buildSchedule([task], now, {}).map((i) => i.key), [pushKey('a', `${TODAY}T09:10`, 0)]);
+});
+
+test('Agenda do push: insistência para em 12 vezes e no próximo lembrete', () => {
+  const now = new Date(2026, 10, 2, 8, 0);
+  const task = { ...make({ remindAt: `${TODAY}T09:00`, extraReminders: [`${TODAY}T09:20`], insist: true }), id: 'a' };
+  const keys = buildSchedule([task], now, { insistMinutes: 5 }).map((i) => i.key);
+  eq(keys.slice(0, 5), ['a|2026-11-02T09:00|0', 'a|2026-11-02T09:00|1', 'a|2026-11-02T09:00|2', 'a|2026-11-02T09:00|3', 'a|2026-11-02T09:20|0']);
+  eq(keys.filter((k) => k.includes('T09:20|')).length, 13);
+  eq(parsePushKey(keys[1]), { taskId: 'a', time: '2026-11-02T09:00', step: 1 });
+});
+
+test('Agenda do push: insistência continua um lembrete passado sem resposta', () => {
+  const now = new Date(2026, 10, 2, 9, 12);
+  const task = { ...make({ remindAt: `${TODAY}T09:00`, insist: true }), id: 'a' };
+  // 9:10 ainda está dentro da folga de 2 minutos; 9:05 já passou.
+  eq(buildSchedule([task], now, { insistMinutes: 5 })[0].key, 'a|2026-11-02T09:00|2');
+  eq(buildSchedule([dismissReminder(task, `${TODAY}T09:12`)], now, { insistMinutes: 5 }).length, 0);
+});
+
+test('Agenda do push: resumo diário com as tarefas de cada dia', () => {
+  const now = new Date(2026, 10, 2, 7, 0);
+  const tasks = [
+    { ...base, id: 'a', title: 'Pagar luz', when: TODAY },
+    { ...base, id: 'b', title: 'Mercado', when: '2026-11-03', important: true },
+  ];
+  const digests = buildSchedule(tasks, now, { digest: true, digestTime: '08:00' }).filter((i) => i.kind === 'digest');
+  eq(digests.length, 8);
+  eq([digests[0].key, digests[0].title, digests[0].body], ['digest|2026-11-02', 'Hoje: 1 tarefa', 'Pagar luz']);
+  eq([digests[1].title, digests[1].body], ['Hoje: 2 tarefas', 'Mercado · Pagar luz']);
+  eq(buildSchedule(tasks, now, {}).filter((i) => i.kind === 'digest').length, 0);
+});
+
+test('Push com o app aberto: não repete o que o app já avisou', () => {
+  const task = { ...make({ remindAt: `${TODAY}T09:00` }), id: 'a', notifiedFor: `${TODAY}T09:00#2` };
+  eq(alreadyNotified(task, 'a|2026-11-02T09:00|2'), true);
+  eq(alreadyNotified(task, 'a|2026-11-02T09:00|3'), false);
+  eq(alreadyNotified({ ...task, notifiedFor: null }, 'a|2026-11-02T09:00|0'), false);
+  eq(alreadyNotified({ ...task, status: 'done' }, 'a|2026-11-02T09:00|0'), true);
+  eq(alreadyNotified(undefined, 'a|2026-11-02T09:00|0'), false);
 });
 
 const failed = results.filter((r) => !r.ok);

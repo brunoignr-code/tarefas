@@ -127,7 +127,10 @@ export function applyEdit(prev, fields, today) {
   if (seriesEnd && when && seriesEnd < when) return { error: 'O fim da repetição não pode ser anterior a Quando.' };
   if (deadline && when && deadline < when) return { error: 'O prazo não pode ser anterior a Quando.' };
 
-  const remindAt = fields.remindAt || null;
+  // Vários lembretes: o primeiro fica em remindAt, os outros em extraReminders.
+  const times = cleanTimes([fields.remindAt, ...('extraReminders' in fields ? fields.extraReminders || [] : prev?.extraReminders || [])]);
+  const remindAt = fields.remindAt || times[0] || null;
+  const extraReminders = times.filter((time) => time !== remindAt);
   const task = {
     ...prev,
     title,
@@ -141,15 +144,21 @@ export function applyEdit(prev, fields, today) {
     important: 'important' in fields ? !!fields.important : !!prev?.important,
     tags: 'tags' in fields ? cleanTags(fields.tags) : (prev?.tags || []),
     remindAt,
+    extraReminders,
     remindEach: fields.remindEach !== false,
+    insist: 'insist' in fields ? !!fields.insist && !!remindAt : !!prev?.insist && !!remindAt,
   };
-  if (!prev || prev.remindAt !== remindAt) {
+  if (!prev || prev.remindAt !== remindAt || (prev.extraReminders || []).join() !== extraReminders.join()) {
     task.snoozedUntil = null;
+    task.snoozedFor = null;
     task.ackedAt = null;
     task.notifiedFor = null;
   }
   return { task, whenFilled };
 }
+
+const TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const cleanTimes = (list) => [...new Set(list.filter((time) => TIME_RE.test(time || '')))].sort();
 
 /** Tags sem repetição, sem "#" e sem espaços nas pontas. */
 export function cleanTags(tags) {
@@ -192,8 +201,11 @@ function advance(task, today) {
   // R9: o lembrete acompanha cada ocorrência, mantendo o horário relativo.
   if (task.remindAt && task.remindEach) {
     const days = diffDays(next, task.when);
-    updated.remindAt = `${addDays(task.remindAt.slice(0, 10), days)}${task.remindAt.slice(10)}`;
+    const shift = (time) => `${addDays(time.slice(0, 10), days)}${time.slice(10)}`;
+    updated.remindAt = shift(task.remindAt);
+    updated.extraReminders = (task.extraReminders || []).map(shift);
     updated.snoozedUntil = null;
+    updated.snoozedFor = null;
     updated.ackedAt = null;
     updated.notifiedFor = null;
   }
@@ -234,18 +246,68 @@ export const isOverdue = (task, today) =>
 export const isUrgent = (task, today) =>
   (!!task.when && task.when <= today) || (!!task.deadline && task.deadline <= addDays(today, 2));
 
-export const reminderTime = (task) => task.snoozedUntil || task.remindAt || null;
+/** Todos os horários de lembrete da tarefa, em ordem. */
+export const reminderTimes = (task) => cleanTimes([task.remindAt, ...(task.extraReminders || [])]);
+
+/**
+ * Lembrete em vigor no momento `now`: o último que já passou, ou o adiamento dele.
+ * Um lembrete posterior ao adiamento passa na frente. Dispensar vale até a hora dispensada.
+ */
+export function activeReminder(task, now) {
+  if (!isOpen(task)) return null;
+  const passed = reminderTimes(task).filter((time) => time <= now);
+  let time = passed.length ? passed[passed.length - 1] : null;
+  const later = task.snoozedFor && time > task.snoozedFor;
+  if (task.snoozedUntil && time && time < task.snoozedUntil && !later) {
+    time = task.snoozedUntil <= now ? task.snoozedUntil : null;
+  }
+  if (!time || (task.ackedAt && task.ackedAt >= time)) return null;
+  return time;
+}
+
+/** Lembrete para mostrar na tarefa: o que está em vigor ou o próximo. */
+export function shownReminder(task, now) {
+  const active = activeReminder(task, now);
+  if (active) return active;
+  if (!isOpen(task)) return null;
+  const next = [...reminderTimes(task), task.snoozedUntil].filter((time) => time && time > now).sort();
+  return next[0] || null;
+}
+
+export const reminderTime = (task, now = localDateTime()) => activeReminder(task, now) || shownReminder(task, now);
 
 // R10 e R11: o lembrete funciona sem datas e deixa de valer ao concluir.
-export const dueReminders = (tasks, now) => tasks.filter((task) => {
-  const time = reminderTime(task);
-  return isOpen(task) && time && !task.ackedAt && time <= now;
-});
+export const dueReminders = (tasks, now) => tasks.filter((task) => activeReminder(task, now));
 
 export const snooze = (task, nowDate, minutes) => ({
   ...task,
   snoozedUntil: localDateTime(new Date(nowDate.getTime() + minutes * 60000)),
+  snoozedFor: activeReminder(task, localDateTime(nowDate)) || task.remindAt || null,
   notifiedFor: null,
 });
 
 export const dismissReminder = (task, now) => ({ ...task, ackedAt: now });
+
+/* ---------- Lembrete insistente ---------- */
+
+export const INSIST_MAX = 12;
+
+/** 'YYYY-MM-DDTHH:mm' local para Date. */
+export const parseLocal = (time) => {
+  const [date, clock] = time.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, mi] = clock.split(':').map(Number);
+  return new Date(y, m - 1, d, h, mi);
+};
+
+export const addMinutes = (time, minutes) => localDateTime(new Date(parseLocal(time).getTime() + minutes * 60000));
+
+/** Quantas vezes o lembrete já insistiu até `now` (0 é o aviso original). */
+export function insistStep(task, time, nowDate, minutes) {
+  if (!task.insist || !minutes) return 0;
+  const elapsed = Math.floor((nowDate.getTime() - parseLocal(time).getTime()) / 60000);
+  return Math.max(0, Math.min(INSIST_MAX, Math.floor(elapsed / minutes)));
+}
+
+/** Marca local de "já avisei": o horário, seguido de #n quando é uma insistência. */
+export const notifyMark = (time, step) => (step ? `${time}#${step}` : time);
