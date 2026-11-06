@@ -1,5 +1,5 @@
 // Mantém o app disponível offline e trata os botões das notificações.
-const CACHE = 'tarefas-v5';
+const CACHE = 'tarefas-v7';
 const FILES = [
   './',
   'index.html',
@@ -8,6 +8,7 @@ const FILES = [
   'js/app.js',
   'js/db.js',
   'js/rules.js',
+  'js/parse.js',
   'js/theme.js',
   'js/sync-core.js',
   'js/sync.js',
@@ -21,8 +22,11 @@ const FILES = [
   'icons/icon-512.png',
 ];
 
+// 'reload' ignora o cache HTTP do navegador, que poderia guardar uma versão antiga.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE)
+    .then((cache) => cache.addAll(FILES.map((file) => new Request(file, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -37,10 +41,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.includes('/tests/')) return;
+  // A chave ignora a busca do endereço, para não guardar textos compartilhados no cache.
+  const key = url.origin + url.pathname;
   event.respondWith(caches.open(CACHE).then(async (cache) => {
-    const cached = await cache.match(event.request, { ignoreSearch: true });
-    const network = fetch(event.request).then((response) => {
-      if (response.ok) cache.put(event.request, response.clone());
+    const cached = await cache.match(key);
+    const network = fetch(key, { cache: 'no-cache' }).then((response) => {
+      if (response.ok) cache.put(key, response.clone());
       return response;
     });
     if (cached) {

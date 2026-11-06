@@ -1,8 +1,9 @@
 import * as db from './db.js';
 import {
-  applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue,
+  applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue, isUrgent,
   localDate, localDateTime, reminderTime, skipOccurrence, snooze, todayTasks, upcomingTasks,
 } from './rules.js';
+import { parseQuickAdd } from './parse.js';
 import {
   DEFAULT_HIGHLIGHT, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
 } from './theme.js';
@@ -40,9 +41,23 @@ function repeatLabel(repeat) {
   if (!repeat) return '';
   const [name, unit] = FREQ_LABELS[repeat.freq];
   let label = repeat.interval > 1 ? `a cada ${repeat.interval} ${unit}` : name.toLowerCase();
-  if (repeat.freq === 'weekly') label += ` (${repeat.weekdays.map((d) => WEEKDAYS[d].toLowerCase()).join(', ')})`;
+  if (repeat.freq === 'weekly' && repeat.weekdays?.length) label += ` (${repeat.weekdays.map((d) => WEEKDAYS[d].toLowerCase()).join(', ')})`;
+  if (repeat.fromCompletion) label += ', após concluir';
+  if (repeat.count) label += `, ${repeat.done || 0}/${repeat.count}`;
   return label;
 }
+
+const UNTIL_MODES = {
+  A: ['Campo único', 'Um só campo Até: é o prazo sem repetição e o fim da série com repetição.'],
+  B: ['Dois campos', 'Prazo e Fim da repetição sempre visíveis. Com repetição, o prazo anda junto com cada ocorrência.'],
+  C: ['Fim em Repetir', 'Prazo na tarefa; o fim da repetição fica dentro de Repetir.'],
+};
+const untilMode = () => (UNTIL_MODES[state.settings.untilMode] ? state.settings.untilMode : 'A');
+
+const UPCOMING_MODES = [['list', 'Lista'], ['calendar', 'Calendário'], ['kanban', 'Kanban'], ['matrix', 'Matriz']];
+
+const STAR_ICON = (on) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"></path></svg>`;
+const GRIP_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>';
 
 /* ---------- Persistência ---------- */
 
@@ -118,20 +133,40 @@ const nextOrder = () => state.tasks.reduce((max, t) => Math.max(max, t.order || 
 
 /* ---------- Ações sobre tarefas ---------- */
 
-async function addTask(title, context) {
+async function addTask(title, context, parsed = null, extra = {}) {
   const result = applyEdit(null, {
     title,
     listId: context.listId || INBOX,
-    when: context.when || null,
+    when: parsed?.when || context.when || null,
+    until: parsed?.until || null,
+    remindAt: parsed?.remindAt || null,
+    repeat: parsed?.repeat || null,
+    notes: extra.notes || '',
   }, today());
-  if (result.error) return;
+  if (result.error) return null;
+  const id = newId();
   await saveTask({
     ...result.task,
-    id: newId(),
+    id,
     status: 'open',
     order: nextOrder(),
     createdAt: new Date().toISOString(),
   });
+  render();
+  return id;
+}
+
+/** Nova posição entre os vizinhos, sem renumerar a lista inteira. */
+async function reorderTo(id, orderedIds) {
+  const tasks = orderedIds.map(findTask).filter(Boolean);
+  const position = tasks.findIndex((task) => task.id === id);
+  const prev = tasks[position - 1];
+  const next = tasks[position + 1];
+  let order = tasks[position].order;
+  if (prev && next) order = (prev.order + next.order) / 2;
+  else if (prev) order = prev.order + 1;
+  else if (next) order = next.order - 1;
+  await saveTask({ ...tasks[position], order });
   render();
 }
 
@@ -278,31 +313,71 @@ function taskChips(task, { showWhen = true, showList = false } = {}) {
   if (task.steps && task.steps.length) {
     chips.push(`<span>${task.steps.filter((s) => s.done).length}/${task.steps.length} etapas</span>`);
   }
+  (task.tags || []).forEach((tag) => chips.push(`<span class="chip-tag">#${escapeHtml(tag)}</span>`));
   if (task.notes) chips.push('<span>Nota</span>');
   if (showList && task.listId !== INBOX) chips.push(`<span>${escapeHtml(listName(task.listId))}</span>`);
   return chips.length ? `<span class="chips">${chips.join('')}</span>` : '';
 }
 
-const taskRow = (task, options) => `
-  <li class="task">
+const taskRow = (task, options = {}) => `
+  <li class="task" data-id="${task.id}">
     <button class="check" data-action="complete" data-id="${task.id}" aria-label="Concluir ${escapeHtml(task.title)}"><span class="mark"></span></button>
     <button class="task-body" data-action="open" data-id="${task.id}">
       <span class="task-title">${escapeHtml(task.title)}</span>
       ${taskChips(task, options)}
     </button>
-    <button class="icon" disabled aria-label="Marcar como importante (em breve)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"></path></svg></button>
+    ${options.draggable ? `<button class="drag" data-drag="${task.id}" aria-label="Reordenar ${escapeHtml(task.title)}: arraste ou use as setas do teclado">${GRIP_ICON}</button>` : ''}
+    <button class="icon star ${task.important ? 'on' : ''}" data-action="toggle-important" data-id="${task.id}" aria-pressed="${!!task.important}" aria-label="Importante: ${escapeHtml(task.title)}">${STAR_ICON(task.important)}</button>
   </li>`;
 
 const taskListHtml = (tasks, options) => `<ul class="task-list">${tasks.map((t) => taskRow(t, options)).join('')}</ul>`;
 
 const quickAdd = (placeholder, context) => `
   <form class="quick-add" data-form="quick-add" data-list="${context.listId || ''}" data-when="${context.when || ''}">
-    <input id="quick-input" name="title" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(placeholder)}" autocomplete="off" enterkeyhint="done">
+    <input id="quick-input" name="title" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(placeholder)}" aria-describedby="quick-preview" autocomplete="off" enterkeyhint="done">
     <button class="btn primary">Adicionar</button>
-  </form>`;
+  </form>
+  <div class="quick-preview" id="quick-preview" aria-live="polite" hidden></div>`;
+
+/** O que foi entendido no texto digitado, ou nada se a função estiver desligada. */
+function quickParse(text) {
+  if (state.settings.parseDates === false || !text.trim() || text === state.quickIgnore) return null;
+  const parsed = parseQuickAdd(text, today(), localDateTime().slice(11));
+  return parsed.matched ? parsed : null;
+}
+
+function renderQuickPreview() {
+  const input = $('#quick-input');
+  const box = $('#quick-preview');
+  if (!input || !box) return;
+  const parsed = quickParse(input.value);
+  if (!parsed) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  const chips = [`<span class="chip">"${escapeHtml(parsed.title)}"</span>`];
+  if (parsed.when) chips.push(`<span class="chip">Quando: ${escapeHtml(formatDate(parsed.when).toLowerCase())}</span>`);
+  if (parsed.until) chips.push(`<span class="chip">Até: ${escapeHtml(formatDate(parsed.until).toLowerCase())}</span>`);
+  if (parsed.repeat) chips.push(`<span class="chip">↻ ${escapeHtml(repeatLabel(parsed.repeat))}</span>`);
+  if (parsed.remindAt) chips.push(`<span class="chip">Lembrar: ${escapeHtml(formatDateTime(parsed.remindAt).toLowerCase())}</span>`);
+  box.innerHTML = `<span>Entendi:</span>${chips.join('')}<button type="button" class="link-btn" data-action="quick-ignore">Usar o texto como está</button>`;
+  box.hidden = false;
+}
 
 const byOrder = (a, b) => a.order - b.order;
 const activeTasks = () => state.tasks.filter((t) => !t.deletedAt);
+const openTasks = () => state.tasks.filter((t) => t.status === 'open' && !t.deletedAt);
+const sameTag = (a, b) => a.toLocaleLowerCase('pt-BR') === b.toLocaleLowerCase('pt-BR');
+
+function allTags() {
+  const counts = new Map();
+  openTasks().forEach((task) => (task.tags || []).forEach((tag) => {
+    const key = [...counts.keys()].find((name) => sameTag(name, tag)) || tag;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }));
+  return [...counts].sort(([a], [b]) => a.localeCompare(b, 'pt-BR'));
+}
 
 function todayView() {
   const now = today();
@@ -312,20 +387,101 @@ function todayView() {
   return `
     <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}</div></div></div>
     ${quickAdd('Adicionar a Hoje', { when: now })}
-    ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true }) : '<p class="empty">Nada planejado para hoje.</p>'}
+    ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true, draggable: true }) : '<p class="empty">Nada planejado para hoje.</p>'}
     <button class="btn small" data-action="sync-now" ${state.sync?.token ? '' : 'disabled'} style="margin-top:14px">Sincronizar agora</button>`;
 }
 
-function upcomingView() {
+function upcomingList() {
   const tasks = upcomingTasks(state.tasks, today());
   const groups = new Map();
   tasks.forEach((task) => groups.set(task.when, [...(groups.get(task.when) || []), task]));
   const body = [...groups].map(([date, items]) =>
     `<h2>${escapeHtml(formatDate(date))}</h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
+  return body || '<p class="empty">Nenhuma tarefa com Quando no futuro.</p>';
+}
+
+function calendarView() {
+  const now = today();
+  const month = state.calMonth || now.slice(0, 7);
+  const selected = state.calDay || now;
+  const [y, m] = month.split('-').map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const open = openTasks();
+  const cells = [];
+  for (let i = 0; i < first; i += 1) cells.push('<span class="cal-day out" aria-hidden="true"></span>');
+  for (let d = 1; d <= days; d += 1) {
+    const date = `${month}-${String(d).padStart(2, '0')}`;
+    const count = open.filter((t) => t.when === date || t.deadline === date).length;
+    const classes = ['cal-day', date === now ? 'today' : '', date === selected ? 'selected' : ''].join(' ');
+    cells.push(`<button class="${classes}" data-action="cal-day" data-date="${date}" aria-pressed="${date === selected}" aria-label="${d}${count ? `, ${count} tarefa(s)` : ''}">${d}${count ? `<span class="cal-count">${count}</span>` : ''}</button>`);
+  }
+  const longTitle = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const title = longTitle.charAt(0).toUpperCase() + longTitle.slice(1);
+  const dayTasks = open.filter((t) => t.when === selected || t.deadline === selected).sort(byOrder);
+  return `
+    <div class="cal-head">
+      <button class="btn small" data-action="cal-move" data-step="-1" aria-label="Mês anterior">‹</button>
+      <strong>${escapeHtml(title)}</strong>
+      <button class="btn small" data-action="cal-move" data-step="1" aria-label="Próximo mês">›</button>
+    </div>
+    <div class="cal-grid">${WEEKDAYS.map((name) => `<span class="cal-week" aria-hidden="true">${name}</span>`).join('')}${cells.join('')}</div>
+    <h2>${escapeHtml(formatDate(selected))}</h2>
+    ${dayTasks.length ? taskListHtml(dayTasks, { showWhen: false, showList: true }) : '<p class="empty">Nada com Quando ou prazo neste dia.</p>'}`;
+}
+
+function kanbanView() {
+  const open = openTasks();
+  const lists = state.lists.slice().sort((a, b) => (a.id === INBOX ? -1 : b.id === INBOX ? 1 : a.name.localeCompare(b.name, 'pt-BR')));
+  const columns = lists.map((list) => [list, open.filter((t) => t.listId === list.id).sort(byOrder)]).filter(([, tasks]) => tasks.length);
+  if (!columns.length) return '<p class="empty">Nenhuma tarefa aberta.</p>';
+  return `<div class="kanban">${columns.map(([list, tasks]) => `
+    <section class="kanban-col" aria-label="${escapeHtml(list.name)}">
+      <h3><span>${escapeHtml(list.name)}</span><span class="count">${tasks.length}</span></h3>
+      ${taskListHtml(tasks, {})}
+    </section>`).join('')}</div>`;
+}
+
+function matrixView() {
+  const now = today();
+  const open = openTasks().sort(byOrder);
+  const quadrants = [
+    ['Importante e urgente', (t) => t.important && isUrgent(t, now)],
+    ['Importante', (t) => t.important && !isUrgent(t, now)],
+    ['Urgente', (t) => !t.important && isUrgent(t, now)],
+    ['Nem importante nem urgente', (t) => !t.important && !isUrgent(t, now)],
+  ];
+  return `
+    <p class="subtitle" style="margin:0 0 10px">Urgente: Quando já chegou ou o prazo vence em até 2 dias. Importante: marcada com a estrela.</p>
+    <div class="matrix">${quadrants.map(([name, test]) => {
+    const tasks = open.filter(test);
+    return `<section class="quadrant" aria-label="${name}"><h3><span>${name}</span><span class="count">${tasks.length}</span></h3>
+      ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty" style="padding:12px 4px">Nada aqui.</p>'}</section>`;
+  }).join('')}</div>`;
+}
+
+function upcomingView() {
+  const mode = UPCOMING_MODES.some(([id]) => id === state.settings.upcomingMode) ? state.settings.upcomingMode : 'list';
+  const body = { list: upcomingList, calendar: calendarView, kanban: kanbanView, matrix: matrixView }[mode]();
   return `
     <div class="view-head"><div><h1><span>Próximos dias</span></h1></div></div>
-    <div class="segments"><button class="on">Lista</button><button disabled>Calendário</button><button disabled>Kanban</button><button disabled>Matriz</button></div>
-    ${body || '<p class="empty">Nenhuma tarefa com Quando no futuro.</p>'}`;
+    <div class="segments" role="group" aria-label="Visão">${UPCOMING_MODES.map(([id, name]) => `<button class="${id === mode ? 'on' : ''}" data-action="set-upcoming-mode" data-mode="${id}" aria-pressed="${id === mode}">${name}</button>`).join('')}</div>
+    ${body}`;
+}
+
+function importantView() {
+  const tasks = openTasks().filter((t) => t.important).sort(byOrder);
+  return `
+    <div class="view-head"><div><h1><span>Importantes</span></h1></div></div>
+    ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Toque na estrela de uma tarefa para ela aparecer aqui.</p>'}`;
+}
+
+function tagView(encoded) {
+  const tag = decodeURIComponent(encoded || '');
+  const tasks = openTasks().filter((t) => (t.tags || []).some((name) => sameTag(name, tag))).sort(byOrder);
+  return `
+    <div class="view-head"><div><h1><span>#${escapeHtml(tag)}</span></h1><div class="subtitle">Tag</div></div></div>
+    ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta com esta tag.</p>'}`;
 }
 
 function listView(id) {
@@ -336,7 +492,7 @@ function listView(id) {
   return `
     <div class="view-head"><div><h1><span>${escapeHtml(list.name)}</span></h1>${list.group ? `<div class="subtitle">${escapeHtml(list.group)}</div>` : ''}</div>${edit}</div>
     ${quickAdd(`Adicionar a ${list.name}`, { listId: id })}
-    ${tasks.length ? taskListHtml(tasks, {}) : '<p class="empty">Esta lista está vazia.</p>'}`;
+    ${tasks.length ? taskListHtml(tasks, { draggable: true }) : '<p class="empty">Esta lista está vazia.</p>'}`;
 }
 
 function groupedLists() {
@@ -357,6 +513,11 @@ function listsView() {
     <div class="view-head"><div><h1><span>Listas</span></h1></div><button class="btn small primary" data-action="new-list">Nova lista</button></div>
     <div class="rows">${row(inbox)}${ungrouped.map(row).join('')}</div>
     ${groups.map(([name, lists]) => `<h2>${escapeHtml(name)}</h2><div class="rows">${lists.map(row).join('')}</div>`).join('')}
+    <h2>Filtros</h2>
+    <div class="rows">
+      <a class="row-link" href="#important"><span>Importantes</span><span class="count">${openTasks().filter((t) => t.important).length}</span></a>
+      ${allTags().map(([tag, count]) => `<a class="row-link" href="#tag/${encodeURIComponent(tag)}"><span>#${escapeHtml(tag)}</span><span class="count">${count}</span></a>`).join('')}
+    </div>
     <h2>Outros</h2>
     <div class="rows">
       <a class="row-link" href="#done"><span>Concluídas</span></a>
@@ -365,7 +526,6 @@ function listsView() {
     <h2>Mais recursos</h2>
     <div class="rows">
       <button class="row-link" disabled>Listas compartilhadas</button>
-      <button class="row-link" disabled>Tags</button>
       <button class="row-link" disabled>Hábitos</button>
       <button class="row-link" disabled>Pomodoro</button>
     </div>`;
@@ -408,8 +568,8 @@ function trashView() {
 
 function searchResults() {
   const query = state.search.trim().toLocaleLowerCase('pt-BR');
-  if (!query) return '<p class="empty">Busque por título, nota ou etapa.</p>';
-  const matches = (task) => [task.title, task.notes, ...(task.steps || []).map((s) => s.title)]
+  if (!query) return '<p class="empty">Busque por título, nota, etapa ou tag.</p>';
+  const matches = (task) => [task.title, task.notes, ...(task.steps || []).map((s) => s.title), ...(task.tags || [])]
     .some((text) => (text || '').toLocaleLowerCase('pt-BR').includes(query));
   const tasks = state.tasks.filter((t) => t.status === 'open' && !t.deletedAt && matches(t)).sort(byOrder);
   return tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta encontrada.</p>';
@@ -517,7 +677,13 @@ function settingsView() {
     ${highlightPanel}
     <section class="panel">
       <h3>Tarefas</h3>
-      <button class="fake-field" disabled>Modo do campo Até</button>
+      <p>Como o campo Até aparece nos detalhes da tarefa:</p>
+      <div class="segments themes" role="group" aria-label="Modo do campo Até">
+        ${Object.entries(UNTIL_MODES).map(([id, [name]]) => `<button class="${id === untilMode() ? 'on' : ''}" data-action="set-until-mode" data-mode="${id}" aria-pressed="${id === untilMode()}">${name}</button>`).join('')}
+      </div>
+      <p>${UNTIL_MODES[untilMode()][1]}</p>
+      <label class="check-line"><input type="checkbox" id="parse-dates" ${state.settings.parseDates === false ? '' : 'checked'}> Entender datas ao digitar, como "pagar luz sexta 9h"</label>
+      <p style="margin:8px 0 0">No teclado do note: N cria uma tarefa e / abre a busca.</p>
     </section>
     <section class="panel">
       <h3>Contas e integrações</h3>
@@ -536,7 +702,7 @@ function currentRoute() {
 
 function renderNav() {
   const route = currentRoute();
-  const isLists = ['lists', 'list', 'done', 'trash'].includes(route.name);
+  const isLists = ['lists', 'list', 'done', 'trash', 'important', 'tag'].includes(route.name);
   const dueCount = todayTasks(state.tasks, today()).length;
   const item = (href, label, active, count, extra = '') => `
     <a class="nav-item ${extra} ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}>
@@ -548,6 +714,7 @@ function renderNav() {
   $('#nav').innerHTML = `
     ${item('#today', 'Hoje', route.name === 'today', dueCount)}
     ${item('#upcoming', 'Próximos', route.name === 'upcoming')}
+    ${item('#important', 'Importantes', route.name === 'important', openTasks().filter((t) => t.important).length, 'nav-only-desktop')}
     ${desktopList(inbox)}
     ${ungrouped.map(desktopList).join('')}
     ${groups.map(([name, lists]) => `<span class="nav-group">${escapeHtml(name)}</span>${lists.map(desktopList).join('')}`).join('')}
@@ -565,6 +732,8 @@ function render() {
     today: todayView, upcoming: upcomingView, lists: listsView, done: doneView,
     trash: trashView, search: searchView, settings: settingsView,
     list: () => listView(route.id),
+    important: importantView,
+    tag: () => tagView(route.id),
   };
   renderNav();
   $('#view').innerHTML = (views[route.name] || todayView)();
@@ -586,6 +755,24 @@ function openTask(id) {
   const notifyHint = 'Notification' in window && Notification.permission === 'granted'
     ? 'Avisa com o app aberto. Se estiver fechado, aparece em destaque ao abrir.'
     : 'Sinal visual no app. Para receber notificação, ative em Config.';
+  const mode = untilMode();
+  const untilField = mode === 'A' ? `
+        <div class="field">
+          <label for="f-until" id="until-label">Até</label>
+          <input id="f-until" type="date" name="until" value="${task.repeat ? task.seriesEnd || '' : task.deadline || ''}">
+          <div class="help" id="until-help"></div>
+        </div>` : `
+        <div class="field">
+          <label for="f-deadline">Prazo</label>
+          <input id="f-deadline" type="date" name="deadline" value="${task.deadline || ''}">
+          <div class="help" id="deadline-help"></div>
+        </div>`;
+  const seriesField = mode === 'A' ? '' : `
+      <div class="field" id="series-field">
+        <label for="f-series">${mode === 'B' ? 'Fim da repetição' : 'Termina em'}</label>
+        <input id="f-series" type="date" name="seriesEnd" value="${task.seriesEnd || ''}">
+        <div class="help" id="series-help"></div>
+      </div>`;
 
   const dialog = $('#dialog');
   dialog.innerHTML = `
@@ -602,11 +789,7 @@ function openTask(id) {
             <button type="button" class="link-btn" data-action="set-when" data-days="1">Amanhã</button>
           </div>
         </div>
-        <div class="field">
-          <label for="f-until" id="until-label">Até</label>
-          <input id="f-until" type="date" name="until" value="${task.repeat ? task.seriesEnd || '' : task.deadline || ''}">
-          <div class="help" id="until-help"></div>
-        </div>
+        ${untilField}
       </div>
       <div class="field">
         <label for="f-freq">Repetir</label>
@@ -626,8 +809,15 @@ function openTask(id) {
           ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${name}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
         </div>
       </div>
-      <button type="button" class="switch" disabled>Contar a partir da conclusão</button>
-      <div class="field off"><span class="label-text">Terminar após</span><button type="button" class="fake-field" disabled>N vezes</button></div>
+      <div id="repeat-extra" hidden>
+        <label class="check-line"><input type="checkbox" name="fromCompletion" ${repeat.fromCompletion ? 'checked' : ''}> Contar a partir da conclusão</label>
+        <div class="field">
+          <label for="f-count">Terminar após (vezes)</label>
+          <input id="f-count" type="number" min="1" max="999" name="count" value="${repeat.count || ''}" placeholder="Sem limite" inputmode="numeric">
+          <div class="help">${repeat.count ? `Feitas ${repeat.done || 0} de ${repeat.count}.` : 'Deixe vazio para repetir sem limite.'}</div>
+        </div>
+      </div>
+      ${seriesField}
       <div class="field">
         <label for="f-remind">Lembrar</label>
         <input id="f-remind" type="datetime-local" name="remindAt" value="${task.remindAt || ''}">
@@ -637,8 +827,13 @@ function openTask(id) {
       <button type="button" class="btn" disabled>Adicionar outro lembrete</button>
       <button type="button" class="switch" disabled>Insistir até eu reagir</button>
       <div class="field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
-      <div class="field off"><span class="label-text">Tags</span><button type="button" class="fake-field" disabled>Adicionar tag</button></div>
-      <button type="button" class="switch" disabled>Importante</button>
+      <div class="field">
+        <label for="f-tags">Tags</label>
+        <input id="f-tags" name="tags" list="tag-names" value="${escapeHtml((task.tags || []).join(', '))}" placeholder="casa, mercado" autocomplete="off">
+        <datalist id="tag-names">${allTags().map(([tag]) => `<option value="${escapeHtml(tag)}">`).join('')}</datalist>
+        <div class="help">Separe por vírgula.</div>
+      </div>
+      <label class="check-line"><input type="checkbox" name="important" ${task.important ? 'checked' : ''}> Importante</label>
       <div class="field">
         <span class="label-text">Etapas</span>
         <div id="steps" class="rows"></div>
@@ -674,21 +869,31 @@ function renderSteps() {
 function readForm(form) {
   const data = new FormData(form);
   const freq = data.get('freq');
-  return {
+  const fields = {
     title: data.get('title'),
     when: data.get('when'),
-    until: data.get('until'),
     remindAt: data.get('remindAt'),
     remindEach: data.get('remindEach') === 'on',
     listId: data.get('listId'),
     notes: data.get('notes'),
+    tags: data.get('tags'),
+    important: data.get('important') === 'on',
     steps: draftSteps.filter((step) => step.title.trim()),
     repeat: freq ? {
       freq,
       interval: data.get('interval'),
       weekdays: data.getAll('weekday').map(Number),
+      fromCompletion: data.get('fromCompletion') === 'on',
+      count: data.get('count'),
     } : null,
   };
+  if (untilMode() === 'A') {
+    fields.until = data.get('until');
+  } else {
+    fields.deadline = data.get('deadline');
+    fields.seriesEnd = data.get('seriesEnd');
+  }
+  return fields;
 }
 
 // Mostra o significado de Até e antecipa o preenchimento de Quando (R5).
@@ -696,8 +901,22 @@ function updateFormHints() {
   const form = $('form[data-form="task"]');
   if (!form) return;
   const freq = form.elements.freq.value;
-  $('#until-label').textContent = freq ? 'Até (fim da repetição)' : 'Até (prazo)';
-  $('#until-help').textContent = freq ? 'Último dia da série, inclusive.' : 'Data limite da tarefa.';
+  const mode = untilMode();
+  if (mode === 'A') {
+    $('#until-label').textContent = freq ? 'Até (fim da repetição)' : 'Até (prazo)';
+    $('#until-help').textContent = freq ? 'Último dia da série, inclusive.' : 'Data limite da tarefa.';
+  } else {
+    $('#deadline-help').textContent = freq ? 'Anda junto com cada ocorrência.' : 'Data limite da tarefa.';
+    const series = form.elements.seriesEnd;
+    if (mode === 'B') {
+      series.disabled = !freq;
+      $('#series-help').textContent = freq ? 'Último dia da série, inclusive.' : 'Só vale para tarefas que repetem.';
+    } else {
+      $('#series-field').hidden = !freq;
+      $('#series-help').textContent = 'Último dia da série, inclusive.';
+    }
+  }
+  $('#repeat-extra').hidden = !freq;
   $('#repeat-options').hidden = !freq;
   $('#weekday-field').hidden = freq !== 'weekly';
   $('#remind-each-line').hidden = !freq || !form.elements.remindAt.value;
@@ -1032,6 +1251,36 @@ const clickActions = {
     applyTheme();
     render();
   },
+  'toggle-important': async (el) => {
+    const task = findTask(el.dataset.id);
+    await saveTask({ ...task, important: !task.important });
+    render();
+    document.querySelector(`[data-action="toggle-important"][data-id="${task.id}"]`)?.focus();
+  },
+  'set-until-mode': async (el) => {
+    await saveSettings({ untilMode: el.dataset.mode });
+    render();
+  },
+  'set-upcoming-mode': async (el) => {
+    await saveSettings({ upcomingMode: el.dataset.mode });
+    render();
+  },
+  'cal-day': (el) => {
+    state.calDay = el.dataset.date;
+    render();
+  },
+  'cal-move': (el) => {
+    const [y, m] = (state.calMonth || today().slice(0, 7)).split('-').map(Number);
+    const index = y * 12 + m - 1 + Number(el.dataset.step);
+    state.calMonth = `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+    render();
+  },
+  'quick-ignore': () => {
+    const input = $('#quick-input');
+    state.quickIgnore = input.value;
+    renderQuickPreview();
+    input.focus();
+  },
   export: exportData,
   import: () => $('#import-file').click(),
 };
@@ -1049,8 +1298,13 @@ document.addEventListener('submit', async (event) => {
   if (form.dataset.form === 'quick-add') {
     const title = form.elements.title.value;
     if (!title.trim()) return;
-    await addTask(title, { listId: form.dataset.list, when: form.dataset.when });
+    const parsed = quickParse(title);
+    state.quickIgnore = '';
+    await addTask(parsed ? parsed.title : title, { listId: form.dataset.list, when: form.dataset.when }, parsed);
     $('#quick-input')?.focus();
+    if (parsed?.when && parsed.when !== today() && form.dataset.when) {
+      showToast(`Criada para ${formatDate(parsed.when).toLowerCase()}: está em Próximos dias.`);
+    }
   } else if (form.dataset.form === 'task') {
     await submitTask(form);
   } else if (form.dataset.form === 'list') {
@@ -1063,6 +1317,8 @@ document.addEventListener('input', (event) => {
   if (target.id === 'search-input') {
     state.search = target.value;
     $('#search-results').innerHTML = searchResults();
+  } else if (target.id === 'quick-input') {
+    renderQuickPreview();
   } else if (target.id === 'highlight-custom') {
     // Mostra a cor enquanto ela é escolhida; só salva ao confirmar.
     applyTheme(target.value);
@@ -1082,6 +1338,8 @@ document.addEventListener('change', async (event) => {
     await saveSettings({ highlight: target.value });
     applyTheme();
     render();
+  } else if (target.id === 'parse-dates') {
+    await saveSettings({ parseDates: target.checked });
   } else if (target.id === 'import-file' && target.files[0]) {
     await importData(target.files[0]);
     target.value = '';
@@ -1090,13 +1348,100 @@ document.addEventListener('change', async (event) => {
   }
 });
 
-document.addEventListener('keydown', (event) => {
+function focusQuickAdd() {
+  if (!$('#quick-input')) {
+    // Sem disparar hashchange, que redesenharia a tela e tiraria o foco.
+    history.pushState(null, '', '#today');
+    render();
+  }
+  $('#quick-input')?.focus();
+}
+
+const visualOrder = (list) => [...list.children].map((row) => row.dataset.id).filter(Boolean);
+
+document.addEventListener('keydown', async (event) => {
   // Enter na etapa adiciona a etapa, sem salvar a tarefa.
   if (event.key === 'Enter' && event.target.id === 'step-input') {
     event.preventDefault();
     clickActions['add-step']();
+    return;
+  }
+  // Setas no botão de arrastar movem a tarefa sem mouse.
+  const handle = event.target.closest?.('[data-drag]');
+  if (handle && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    event.preventDefault();
+    const ids = visualOrder(handle.closest('.task-list'));
+    const from = ids.indexOf(handle.dataset.drag);
+    const to = from + (event.key === 'ArrowUp' ? -1 : 1);
+    if (to < 0 || to >= ids.length) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    await reorderTo(handle.dataset.drag, ids);
+    document.querySelector(`[data-drag="${handle.dataset.drag}"]`)?.focus();
+    return;
+  }
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || event.target.isContentEditable;
+  if (typing || event.ctrlKey || event.metaKey || event.altKey || $('#dialog').open) return;
+  if (event.key === 'n' || event.key === 'N') {
+    event.preventDefault();
+    focusQuickAdd();
+  } else if (event.key === '/') {
+    event.preventDefault();
+    if (currentRoute().name !== 'search') {
+      history.pushState(null, '', '#search');
+      render();
+    }
+    $('#search-input')?.focus();
   }
 });
+
+/* ---------- Arrastar para ordenar ---------- */
+
+let drag = null;
+
+document.addEventListener('pointerdown', (event) => {
+  const handle = event.target.closest('[data-drag]');
+  if (!handle || event.button > 0) return;
+  event.preventDefault();
+  const row = handle.closest('.task');
+  const rows = [...row.parentElement.children];
+  const rects = rows.map((item) => item.getBoundingClientRect());
+  const index = rows.indexOf(row);
+  const gap = rows.length > 1 ? Math.max(0, rects[1].top - rects[0].bottom) : 0;
+  handle.setPointerCapture(event.pointerId);
+  drag = { handle, row, rows, rects, index, target: index, startY: event.clientY, shift: rects[index].height + gap };
+  row.classList.add('dragging');
+});
+
+document.addEventListener('pointermove', (event) => {
+  if (!drag) return;
+  const dy = event.clientY - drag.startY;
+  const center = drag.rects[drag.index].top + drag.rects[drag.index].height / 2 + dy;
+  const above = drag.rects.filter((rect, i) => i !== drag.index && rect.top + rect.height / 2 < center).length;
+  drag.target = above;
+  drag.row.style.transform = `translateY(${dy}px)`;
+  drag.rows.forEach((item, i) => {
+    if (item === drag.row) return;
+    let offset = 0;
+    if (drag.index < above && i > drag.index && i <= above) offset = -drag.shift;
+    if (drag.index > above && i < drag.index && i >= above) offset = drag.shift;
+    item.style.transform = offset ? `translateY(${offset}px)` : '';
+  });
+});
+
+async function endDrag() {
+  if (!drag) return;
+  const { row, rows, index, target } = drag;
+  drag = null;
+  rows.forEach((item) => { item.style.transform = ''; });
+  row.classList.remove('dragging');
+  if (target === index) return;
+  const ids = rows.map((item) => item.dataset.id);
+  ids.splice(target, 0, ids.splice(index, 1)[0]);
+  await reorderTo(row.dataset.id, ids);
+}
+
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
 
 window.addEventListener('hashchange', handleRoute);
 matchMedia('(max-width: 799px)').addEventListener('change', renderNav);
@@ -1156,12 +1501,30 @@ async function load() {
   applyTheme();
 }
 
+/** Algo compartilhado de outro app vira uma tarefa na Entrada. */
+async function createFromShare(title, text, url) {
+  const source = title || text || url;
+  const [first, ...rest] = source.split('\n');
+  const notes = [title ? text : rest.join('\n'), text.includes(url) ? '' : url]
+    .map((part) => part.trim()).filter(Boolean).join('\n');
+  const id = await addTask(first.trim().slice(0, 200) || 'Compartilhado', { listId: INBOX }, null, { notes });
+  if (!id) return;
+  openTask(id);
+  showToast('Tarefa criada a partir do compartilhamento.');
+}
+
 async function start() {
   await db.openDb();
   await load();
   // Pede ao navegador para não apagar os dados quando faltar espaço.
   navigator.storage?.persist?.();
+  const params = new URLSearchParams(location.search);
+  const shared = ['share-title', 'share-text', 'share-url'].map((key) => (params.get(key) || '').trim());
+  const wantsNew = params.has('novo');
+  if (wantsNew || shared.some(Boolean)) history.replaceState(null, '', `${location.pathname}${location.hash || '#today'}`);
   handleRoute();
+  if (shared.some(Boolean)) await createFromShare(...shared);
+  else if (wantsNew) focusQuickAdd();
   await checkReminders();
   setInterval(checkReminders, 15000);
   syncEngine.run();

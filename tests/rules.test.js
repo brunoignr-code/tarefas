@@ -6,6 +6,8 @@ import {
   DEFAULT_HIGHLIGHT, HIGHLIGHTS, contrast, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
 } from '../js/theme.js';
 import { changedSince, merge, stamp, stampAll, toWire } from '../js/sync-core.js';
+import { parseQuickAdd } from '../js/parse.js';
+import { cleanTags, isUrgent } from '../js/rules.js';
 
 const results = [];
 const eq = (actual, expected) => {
@@ -252,6 +254,94 @@ test('Sync: detecta mudança depois do envio', () => {
   const record = stampAll({ id: 'a', title: 'x' }, 100);
   eq(changedSince(record, { ...record._t }), false);
   eq(changedSince(stamp(record, { ...record, title: 'y' }, 200), { ...record._t }), true);
+});
+
+test('Repetição: contar a partir da conclusão usa o dia em que foi feita', () => {
+  const task = make({ when: '2026-10-25', repeat: { freq: 'daily', interval: 3, fromCompletion: true } });
+  const next = completeTask(task, TODAY, 'x').task;
+  eq(next.when, '2026-11-05');
+  eq(next.repeat.anchor, '2026-11-05');
+  const monthly = make({ when: '2026-10-10', repeat: { freq: 'monthly', fromCompletion: true } });
+  eq(completeTask(monthly, TODAY, 'x').task.when, '2026-12-02');
+});
+
+test('Repetição: terminar após N vezes encerra na última', () => {
+  let task = make({ when: TODAY, repeat: { freq: 'daily', count: 3 } });
+  task = completeTask(task, TODAY, 'x').task;
+  eq([task.status, task.repeat.done], ['open', 1]);
+  task = skipOccurrence(task, task.when);
+  eq([task.status, task.repeat.done], ['open', 2]);
+  const last = completeTask(task, task.when, 'x');
+  eq(last.task.status, 'ended');
+  eq(!!last.log, true);
+});
+
+test('Repetição: editar a série mantém a contagem feita', () => {
+  const task = completeTask(make({ when: TODAY, repeat: { freq: 'daily', count: 5 } }), TODAY, 'x').task;
+  const edited = applyEdit(task, { title: 'Novo', when: task.when, repeat: { freq: 'daily', count: 5 } }, TODAY).task;
+  eq(edited.repeat.done, 1);
+});
+
+test('Modo B/C: prazo da ocorrência anda junto e pode atrasar', () => {
+  const task = make({ when: TODAY, repeat: { freq: 'weekly', weekdays: [1] }, deadline: '2026-11-06', seriesEnd: '2026-12-31' });
+  eq([task.deadline, task.seriesEnd], ['2026-11-06', '2026-12-31']);
+  const next = completeTask(task, TODAY, 'x').task;
+  eq(next.deadline, '2026-11-13');
+  eq(isOverdue(task, '2026-11-07'), true);
+});
+
+test('Modo A: salvar uma série não apaga o prazo criado em outro modo', () => {
+  const task = make({ when: TODAY, repeat: { freq: 'daily' }, deadline: '2026-11-03', seriesEnd: null });
+  const edited = applyEdit(task, { title: 'x', when: TODAY, until: '2026-11-30', repeat: { freq: 'daily' } }, TODAY).task;
+  eq([edited.deadline, edited.seriesEnd], ['2026-11-03', '2026-11-30']);
+});
+
+test('Importante e tags são guardados e limpos', () => {
+  const task = make({ important: true, tags: ' #casa, Casa ,  compras,' });
+  eq([task.important, task.tags], [true, ['casa', 'compras']]);
+  eq(cleanTags(['#a', 'a', 'b']), ['a', 'b']);
+  eq(applyEdit(task, { title: 'Outro' }, TODAY).task.tags, ['casa', 'compras']);
+});
+
+test('Matriz: urgente quando Quando chegou ou o prazo vence em 2 dias', () => {
+  eq(isUrgent({ when: TODAY }, TODAY), true);
+  eq(isUrgent({ deadline: '2026-11-04' }, TODAY), true);
+  eq(isUrgent({ deadline: '2026-11-05', when: '2026-11-03' }, TODAY), false);
+});
+
+const parse = (text, now = '10:00') => parseQuickAdd(text, TODAY, now);
+
+test('Datas digitadas: dia da semana e horário', () => {
+  const r = parse('Pagar luz sexta 9h');
+  eq([r.title, r.when, r.remindAt], ['Pagar luz', '2026-11-06', '2026-11-06T09:00']);
+  eq(parse('Ligar na segunda-feira às 14:30').remindAt, '2026-11-02T14:30');
+});
+
+test('Datas digitadas: amanhã, dia do mês e data com barra', () => {
+  eq(parse('Comprar pão amanhã').when, '2026-11-03');
+  eq(parse('Dia 24 8h psiquiatra').when, '2026-11-24');
+  eq(parse('Pagar dia 1').when, '2026-12-01');
+  eq(parse('Renovar 10/03').when, '2027-03-10');
+  eq(parse('Viagem 31/02').matched, false);
+});
+
+test('Datas digitadas: só horário vai para hoje ou amanhã', () => {
+  eq(parse('Remédio 22h').remindAt, '2026-11-02T22:00');
+  eq(parse('Remédio 8h').remindAt, '2026-11-03T08:00');
+  eq(parse('Remédio 8h').when, undefined);
+});
+
+test('Datas digitadas: repetição e prazo', () => {
+  const r = parse('Lavar roupa toda segunda até 30/11');
+  eq([r.title, r.repeat, r.until], ['Lavar roupa', { interval: 1, freq: 'weekly', weekdays: [1] }, '2026-11-30']);
+  eq(parse('Tomar água todo dia').repeat.freq, 'daily');
+});
+
+test('Datas digitadas: textos comuns ficam intactos', () => {
+  ['Comprar 2 kg de arroz', 'Ter que ligar pro dom', 'Ver até onde vai', 'Hojeeee festa'].forEach((text) => {
+    const r = parse(text);
+    if (r.matched || r.title !== text) throw new Error(`mexeu em "${text}"`);
+  });
 });
 
 const failed = results.filter((r) => !r.ok);

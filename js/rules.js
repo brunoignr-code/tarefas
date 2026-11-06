@@ -72,12 +72,20 @@ function normalizeRepeat(input, anchor) {
     const days = [...new Set(input.weekdays || [])].sort((a, b) => a - b);
     repeat.weekdays = days.length ? days : [weekday(anchor)];
   }
+  if (input.fromCompletion) repeat.fromCompletion = true;
+  const count = Math.floor(Number(input.count) || 0);
+  if (count >= 1) repeat.count = count;
   return repeat;
 }
 
 const sameRepeatPattern = (a, b) =>
   a && b && a.freq === b.freq && a.interval === b.interval &&
-  (a.weekdays || []).join() === (b.weekdays || []).join();
+  (a.weekdays || []).join() === (b.weekdays || []).join() &&
+  !!a.fromCompletion === !!b.fromCompletion && (a.count || 0) === (b.count || 0);
+
+/** Próxima data contada a partir de um dia qualquer, como o dia da conclusão. */
+const intervalAfter = (date, repeat) =>
+  nextOccurrence({ ...repeat, anchor: date, weekdays: [weekday(date)] }, date);
 
 /**
  * Valida uma edição e devolve a tarefa pronta para salvar, ou { error }.
@@ -101,15 +109,23 @@ export function applyEdit(prev, fields, today) {
     const candidate = normalizeRepeat(fields.repeat, when);
     const unchanged = prev && prev.when === when && sameRepeatPattern(prev.repeat, candidate);
     repeat = unchanged ? prev.repeat : candidate;
+    // A contagem de "terminar após N vezes" continua de onde estava.
+    if (repeat.count && prev?.repeat?.done) repeat = { ...repeat, done: Math.min(prev.repeat.done, repeat.count) };
   }
 
-  if (until && when && until < when) {
-    return {
-      error: repeat
-        ? 'O fim da repetição não pode ser anterior a Quando.'
-        : 'O prazo não pode ser anterior a Quando.',
-    };
+  // Modo A: um campo Até. Modos B e C: Prazo e Fim da série separados na tela.
+  let deadline;
+  let seriesEnd;
+  if ('deadline' in fields || 'seriesEnd' in fields) {
+    deadline = fields.deadline || null;
+    seriesEnd = repeat ? fields.seriesEnd || null : null;
+  } else {
+    deadline = repeat ? (prev?.repeat ? prev.deadline || null : null) : until;
+    seriesEnd = repeat ? until : null;
   }
+
+  if (seriesEnd && when && seriesEnd < when) return { error: 'O fim da repetição não pode ser anterior a Quando.' };
+  if (deadline && when && deadline < when) return { error: 'O prazo não pode ser anterior a Quando.' };
 
   const remindAt = fields.remindAt || null;
   const task = {
@@ -120,8 +136,10 @@ export function applyEdit(prev, fields, today) {
     steps: fields.steps || (prev && prev.steps) || [],
     when,
     repeat,
-    deadline: repeat ? null : until,
-    seriesEnd: repeat ? until : null,
+    deadline,
+    seriesEnd,
+    important: 'important' in fields ? !!fields.important : !!prev?.important,
+    tags: 'tags' in fields ? cleanTags(fields.tags) : (prev?.tags || []),
     remindAt,
     remindEach: fields.remindEach !== false,
   };
@@ -133,18 +151,44 @@ export function applyEdit(prev, fields, today) {
   return { task, whenFilled };
 }
 
+/** Tags sem repetição, sem "#" e sem espaços nas pontas. */
+export function cleanTags(tags) {
+  const list = Array.isArray(tags) ? tags : String(tags || '').split(',');
+  const seen = new Set();
+  return list.map((tag) => String(tag).trim().replace(/^#+/, '').trim()).filter((tag) => {
+    const key = tag.toLocaleLowerCase('pt-BR');
+    if (!tag || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function advance(task, today) {
-  const base = task.when > today ? task.when : today;
-  const next = nextOccurrence(task.repeat, base);
+  const done = (task.repeat.done || 0) + 1;
+  if (task.repeat.count && done >= task.repeat.count) {
+    return { ...task, status: 'ended', endedAt: today, repeat: { ...task.repeat, done } };
+  }
+  let repeat = { ...task.repeat, done };
+  let next;
+  if (repeat.fromCompletion) {
+    // Conta a partir do dia em que foi concluída ou pulada.
+    next = intervalAfter(today, repeat);
+    repeat = { ...repeat, anchor: next };
+  } else {
+    next = nextOccurrence(repeat, task.when > today ? task.when : today);
+  }
   // R4: Até é o último dia possível, inclusive.
   if (task.seriesEnd && next > task.seriesEnd) {
-    return { ...task, status: 'ended', endedAt: today };
+    return { ...task, status: 'ended', endedAt: today, repeat };
   }
   const updated = {
     ...task,
+    repeat,
     when: next,
     steps: (task.steps || []).map((step) => ({ ...step, done: false })),
   };
+  // No modo de dois campos, o prazo de cada ocorrência anda junto com ela.
+  if (task.deadline && task.when) updated.deadline = addDays(task.deadline, diffDays(next, task.when));
   // R9: o lembrete acompanha cada ocorrência, mantendo o horário relativo.
   if (task.remindAt && task.remindEach) {
     const days = diffDays(next, task.when);
@@ -182,9 +226,13 @@ export const upcomingTasks = (tasks, today) =>
 export const daysWaiting = (task, today) =>
   task.when && task.when < today ? diffDays(today, task.when) : 0;
 
-// R3: só o prazo de tarefa sem repetição atrasa.
+// R3: só o prazo atrasa; o fim da série, não.
 export const isOverdue = (task, today) =>
-  isOpen(task) && !task.repeat && !!task.deadline && task.deadline < today;
+  isOpen(task) && !!task.deadline && task.deadline < today;
+
+/** Urgente para a matriz: Quando chegou ou o prazo vence em até 2 dias. */
+export const isUrgent = (task, today) =>
+  (!!task.when && task.when <= today) || (!!task.deadline && task.deadline <= addDays(today, 2));
 
 export const reminderTime = (task) => task.snoozedUntil || task.remindAt || null;
 
