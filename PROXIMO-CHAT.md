@@ -10,7 +10,8 @@ Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Est
 Onde paramos:
 - v11 publicada: Diamante como tema padrão (capa e ícone próprios), check que acende ao concluir, "concluir e ir para a próxima" contando a partir de hoje, 5 tamanhos de letra. Lembretes com o app fechado funcionando pelo servidor (cron a cada minuto).
 - Comecei do zero: todas as tarefas foram apagadas em 9/11 (as 16 listas ficaram, vazias).
-- Próximo passo: o PLANO-ANDROID-E-USABILIDADE.md desta pasta. Item 7 (virar app Android, reaproveitando o que fiz no Sentinela em C:\Python - local\safe-at-home) e item 8 (usabilidade do zero).
+- APK Android (TWA) 1.0 criado em 9/11: abre o site em tela cheia e se atualiza sozinho a cada publicação. Arquivo em C:\Python - local\apk-afazeres, chave em C:\Python - local\chaves-android (fora do repositório).
+- Próximo passo: instalar o APK nos celulares, mandar os feedbacks e seguir com o item 8 (usabilidade do zero) do PLANO-ANDROID-E-USABILIDADE.md. A casca Kotlin com alarmes nativos (caminho 2) fica para quando o app estiver maduro.
 - Combinado: app simples (lembrete, recorrência, listas, grupos, etapas), custo zero, sem funções novas fora do plano.
 
 Regras:

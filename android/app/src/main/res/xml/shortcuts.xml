@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="nova"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/atalhoNovaCurto"
+        android:shortcutLongLabel="@string/atalhoNova">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="br.afazeres.app"
+            android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
+            android:data="https://brunoignr-code.github.io/tarefas/?novo=1#today" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="proximos"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/atalhoProximosCurto"
+        android:shortcutLongLabel="@string/atalhoProximos">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="br.afazeres.app"
+            android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
+            android:data="https://brunoignr-code.github.io/tarefas/#upcoming" />
+    </shortcut>
+</shortcuts>

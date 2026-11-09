@@ -1,6 +1,8 @@
 # Plano: app Android (item 7) e usabilidade do zero (item 8)
 
-Escrito em 9/11/2026, depois da v11. Nada daqui foi implementado ainda.
+Escrito em 9/11/2026, depois da v11.
+
+**Andamento (9/11):** item 7 feito pelo caminho 1 (TWA), por decisão sua, até o app amadurecer; widget depois. Ver "App Android" no README. Item 8 ainda não começou.
 
 ## 7. O que falta para ser um app Android
 

@@ -28,6 +28,17 @@ O Chrome no Android só instala o app e permite o uso offline se ele estiver em 
 
 A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
+### App Android (APK, desde 9/11)
+
+A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o endereço publicado dentro do Chrome, em tela cheia, com ícone, nome e notificações próprios. O conteúdo continua vindo do GitHub Pages, então **cada publicação chega ao celular sozinha, sem reinstalar**. Só é preciso instalar um APK novo quando mudar algo em `android/` (ícone, atalhos, versão).
+
+- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.0-twa.apk` para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
+- **Dados:** o TWA usa o armazenamento do Chrome do próprio celular. Se você já usava o app pelo Chrome nesse celular, o login, as tarefas e "Receber neste aparelho" continuam valendo.
+- **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
+- **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
+- **Compilar:** na pasta `android/`, com `JAVA_HOME` apontando para o Java do Android Studio (`C:\Program Files\Android\Android Studio\jbr`), rode `gradlew.bat assembleRelease`. O APK sai em `android/app/build/outputs/apk/release/`. Suba `versionCode` em `android/app/build.gradle.kts` a cada APK novo.
+- **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-diamante-512.png`.
+
 ## Temas
 
 Em Config., escolha entre Barquinho (claro, padrão), Diamante (escuro), Folha (claro), Marca-texto (claro) ou Sistema, que alterna entre Diamante e Barquinho.
@@ -60,7 +71,15 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Com o app fechado, tocar em Concluir ou Adiar abre o app para registrar a ação.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (6 de novembro de 2026)
+## Estado do projeto (9 de novembro de 2026)
+
+### APK Android (TWA) 1.0, 9 de novembro
+
+- Item 7 do plano, pelo caminho 1 (TWA), por decisão de 9/11: fica assim até o app amadurecer o bastante para valer instalar atualizações por cabo (aí entra a casca Kotlin com alarmes nativos, caminho 2). Widget fica para depois.
+- Pacote `br.afazeres.app`, nome "Afazeres" no ícone, ícone adaptável do Diamante (com versão monocromática), tela de abertura escura, ícone de notificação próprio, atalhos Nova tarefa e Próximos dias, e "Compartilhar" de outros apps.
+- Criado o repositório `brunoignr-code.github.io` só com `assetlinks.json`, `.nojekyll` e um `index.html` que leva para `/tarefas/`. O verificador do Google (Digital Asset Links) respondeu `linked: true`.
+- O app web e o servidor não mudaram: nada no formato dos dados nem no login.
+- Feedbacks de uso real ainda não recebidos (o modelo do PROXIMO-CHAT veio sem preencher).
 
 ### v11, 9 de novembro
 
@@ -117,10 +136,13 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Uso sem internet no endereço publicado.
 - Compartilhar de outro app, atalhos no ícone e arrastar com o dedo.
 - Todo o lote B com o app fechado num celular real: chegada do push, atraso, Android em economia de bateria, Concluir e Adiar.
+- O APK (TWA) inteiro: não foi instalado em nenhum celular (nenhum estava no cabo). Falta ver tela cheia sem barra de endereço, ícone, tela de abertura, notificações com o ícone e o nome do app, atalhos, Compartilhar e o pedido de permissão de notificação no Android 13 ou mais novo.
 
 ### Próximos passos conhecidos
 
+- Instalar o APK no A55 e no outro celular e conferir a lista acima. Depois, desinstalar a versão instalada pelo Chrome para não ficar com dois ícones.
 - Coletar os feedbacks de uso real e ajustar.
+- Item 8 do plano (usabilidade do zero).
 - Ativar "Receber neste aparelho" nos celulares e fazer o "Testar com o app fechado".
 - Congelar funções novas e, depois de 1 ou 2 semanas de uso, retirar o que não foi usado (candidatos: Kanban, Matriz e os modos B e C do Até). Hábitos, Pomodoro, Google Agenda, listas compartilhadas e importação do To Do foram desaconselhados por fugirem do objetivo.
 - Atualizar o canvas de temas, que ainda mostra "Ajustes" e não tem o Barquinho.
@@ -128,6 +150,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estrutura
 
+- `android/`: projeto do APK (TWA). Sem código próprio além do serviço que repassa as notificações; a configuração está no `AndroidManifest.xml` e em `res/values/strings.xml`.
 - `server/worker.js`: servidor de sincronização e login.
 - `js/sync-core.js` e `js/sync.js`: regras de junção e conversa com o servidor.
 - `js/push-core.js` e `js/push.js`: agenda dos avisos com o app fechado e inscrição do aparelho.

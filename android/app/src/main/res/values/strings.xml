@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appName">Minha lista de afazeres</string>
+    <string name="launcherName">Afazeres</string>
+    <string name="launchUrl">https://brunoignr-code.github.io/tarefas/</string>
+    <string name="assetStatements" translatable="false">[{\"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": {\"namespace\": \"web\", \"site\": \"https://brunoignr-code.github.io\"}}]</string>
+    <string name="shareTarget" translatable="false">{\"action\": \"https://brunoignr-code.github.io/tarefas/\", \"method\": \"GET\", \"params\": {\"title\": \"share-title\", \"text\": \"share-text\", \"url\": \"share-url\"}}</string>
+    <string name="atalhoNova">Nova tarefa</string>
+    <string name="atalhoNovaCurto">Nova</string>
+    <string name="atalhoProximos">Próximos dias</string>
+    <string name="atalhoProximosCurto">Próximos</string>
+</resources>
