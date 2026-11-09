@@ -9,9 +9,9 @@
   "background_color": "#0E1218",
   "theme_color": "#0E1218",
   "icons": [
-    { "src": "icons/icon-diamante-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-diamante-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-diamante-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icons/icon-barco-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-barco-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-barco-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "share_target": {
     "action": "./",
@@ -19,7 +19,7 @@
     "params": { "title": "share-title", "text": "share-text", "url": "share-url" }
   },
   "shortcuts": [
-    { "name": "Nova tarefa", "short_name": "Nova", "url": "./?novo=1#today", "icons": [{ "src": "icons/icon-diamante-192.png", "sizes": "192x192" }] },
-    { "name": "Próximos dias", "short_name": "Próximos", "url": "./#upcoming", "icons": [{ "src": "icons/icon-diamante-192.png", "sizes": "192x192" }] }
+    { "name": "Nova tarefa", "short_name": "Nova", "url": "./?novo=1#today", "icons": [{ "src": "icons/icon-barco-192.png", "sizes": "192x192" }] },
+    { "name": "Próximos dias", "short_name": "Próximos", "url": "./#upcoming", "icons": [{ "src": "icons/icon-barco-192.png", "sizes": "192x192" }] }
   ]
 }

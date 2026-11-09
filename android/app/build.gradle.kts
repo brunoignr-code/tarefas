@@ -20,8 +20,8 @@ android {
         applicationId = "br.afazeres.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0-twa"
+        versionCode = 2
+        versionName = "1.1-twa"
     }
 
     signingConfigs {

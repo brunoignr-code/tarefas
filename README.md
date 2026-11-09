@@ -37,7 +37,7 @@ A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o en
 - **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
 - **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
 - **Compilar:** na pasta `android/`, com `JAVA_HOME` apontando para o Java do Android Studio (`C:\Program Files\Android\Android Studio\jbr`), rode `gradlew.bat assembleRelease`. O APK sai em `android/app/build/outputs/apk/release/`. Suba `versionCode` em `android/app/build.gradle.kts` a cada APK novo.
-- **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-diamante-512.png`.
+- **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-barco-512.png`.
 
 ## Temas
 
@@ -73,6 +73,11 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (9 de novembro de 2026)
 
+### v12.2 e APK 1.1, 9 de novembro
+
+- O ícone voltou a ser o barquinho: app instalado pelo Chrome, aba do navegador, notificações e APK. O tema padrão continua Diamante.
+- APK 1.1 (`versionCode` 2), com a mesma chave: `C:\Python - localpk-afazeresfazeres-1.1-twa.apk`. Ícone adaptável do barquinho e silhueta de barco nas notificações e no ícone temático do Android.
+
 ### v12.1, 9 de novembro
 
 - Toque longo no celular abre o menu do app (tarefa ou lista) com uma vibração curta, no lugar do menu do Chrome. Sem seleção de texto ao segurar tarefas, listas e botões; os campos de texto continuam normais.
@@ -95,7 +100,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 ### APK Android (TWA) 1.0, 9 de novembro
 
 - Item 7 do plano, pelo caminho 1 (TWA), por decisão de 9/11: fica assim até o app amadurecer o bastante para valer instalar atualizações por cabo (aí entra a casca Kotlin com alarmes nativos, caminho 2). Widget fica para depois.
-- Pacote `br.afazeres.app`, nome "Afazeres" no ícone, ícone adaptável do Diamante (com versão monocromática), tela de abertura escura, ícone de notificação próprio, atalhos Nova tarefa e Próximos dias, e "Compartilhar" de outros apps.
+- Pacote `br.afazeres.app`, nome "Afazeres" no ícone, ícone adaptável (barquinho desde a 1.1, com versão monocromática), tela de abertura escura, ícone de notificação próprio, atalhos Nova tarefa e Próximos dias, e "Compartilhar" de outros apps.
 - Criado o repositório `brunoignr-code.github.io` só com `assetlinks.json`, `.nojekyll` e um `index.html` que leva para `/tarefas/`. O verificador do Google (Digital Asset Links) respondeu `linked: true`.
 - O app web e o servidor não mudaram: nada no formato dos dados nem no login.
 - Feedbacks de uso real ainda não recebidos (o modelo do PROXIMO-CHAT veio sem preencher).

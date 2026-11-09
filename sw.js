@@ -1,5 +1,5 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v12-1';
+const CACHE = 'tarefas-v12-2';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -27,6 +27,7 @@ const FILES = [
   'icons/icon-diamante-512.png',
   'icons/icon-barco-192.png',
   'icons/icon-barco-512.png',
+  'icons/icon-barco-maskable-512.png',
 ];
 
 // 'reload' ignora o cache HTTP do navegador, que poderia guardar uma versão antiga.
@@ -129,8 +130,8 @@ function localDue(tasks, now) {
 function notify(item, quiet) {
   const options = {
     body: item.body,
-    icon: 'icons/icon-diamante-192.png',
-    badge: 'icons/icon-diamante-192.png',
+    icon: 'icons/icon-barco-192.png',
+    badge: 'icons/icon-barco-192.png',
     tag: item.taskId || item.kind,
     renotify: !quiet && item.kind === 'insist',
     silent: !!quiet,
@@ -188,6 +189,6 @@ async function onPush() {
 self.addEventListener('push', (event) => {
   event.waitUntil(onPush().catch((error) => {
     console.error(error);
-    return self.registration.showNotification(APP_NAME, { body: 'Você tem um lembrete. Toque para abrir.', icon: 'icons/icon-diamante-192.png', tag: 'generic' });
+    return self.registration.showNotification(APP_NAME, { body: 'Você tem um lembrete. Toque para abrir.', icon: 'icons/icon-barco-192.png', tag: 'generic' });
   }));
 });

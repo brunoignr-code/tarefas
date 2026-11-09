@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v12.1 · 09/11/2026';
+const APP_VERSION = 'v12.2 · 09/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -403,8 +403,8 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
     body,
     tag: task.id,
     renotify: step > 0,
-    icon: 'icons/icon-diamante-192.png',
-    badge: 'icons/icon-diamante-192.png',
+    icon: 'icons/icon-barco-192.png',
+    badge: 'icons/icon-barco-192.png',
     data: { id: task.id },
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -1939,7 +1939,8 @@ function applyTheme(highlight = state.settings.highlight) {
   $('meta[name="theme-color"]').content = THEMES.find((item) => item.id === theme).chrome;
   const fs = fontSizePx();
   root.style.fontSize = `${fs}px`;
-  const icon = theme === 'diamante' ? 'icons/icon-diamante-192.png' : 'icons/icon-barco-192.png';
+  // Ícone do app: barquinho em todos os temas (decisão de 9/11).
+  const icon = 'icons/icon-barco-192.png';
   document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((link) => { link.href = icon; });
   try {
     localStorage.setItem('tarefas-tema', JSON.stringify({ theme, hi: highlight, onHi, fs }));
