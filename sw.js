@@ -1,5 +1,6 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v9';
+const CACHE = 'tarefas-v10';
+const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
   './',
@@ -177,13 +178,13 @@ async function onPush() {
   if (!latest.size && !visible) {
     // O navegador exige um aviso a cada push. Repete em silêncio o último, ou um aviso genérico.
     const last = items[items.length - 1];
-    await notify(last || { key: 'generic', kind: 'generic', title: 'Tarefas', body: 'Você tem um lembrete. Toque para abrir.' }, true);
+    await notify(last || { key: 'generic', kind: 'generic', title: APP_NAME, body: 'Você tem um lembrete. Toque para abrir.' }, true);
   }
 }
 
 self.addEventListener('push', (event) => {
   event.waitUntil(onPush().catch((error) => {
     console.error(error);
-    return self.registration.showNotification('Tarefas', { body: 'Você tem um lembrete. Toque para abrir.', icon: 'icons/icon-192.png', tag: 'generic' });
+    return self.registration.showNotification(APP_NAME, { body: 'Você tem um lembrete. Toque para abrir.', icon: 'icons/icon-192.png', tag: 'generic' });
   }));
 });

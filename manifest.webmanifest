@@ -1,6 +1,6 @@
 {
-  "name": "Tarefas",
-  "short_name": "Tarefas",
+  "name": "Minha lista de afazeres",
+  "short_name": "Afazeres",
   "description": "Gerenciador pessoal de tarefas que funciona offline.",
   "lang": "pt-BR",
   "start_url": "./",

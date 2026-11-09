@@ -1,4 +1,4 @@
-# Tarefas: demo offline
+# Minha lista de afazeres
 
 Gerenciador pessoal de tarefas com quatro campos independentes: Quando, Até, Repetir e Lembrar.
 O escopo e as regras (R1 a R12) estão no [documento de escopo](https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY).
@@ -62,6 +62,10 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (6 de novembro de 2026)
 
+### Nome do app, 9 de novembro
+
+- O app passou a se chamar "Minha lista de afazeres" (capa, aba e notificações). No ícone do Android aparece "Afazeres", porque o nome inteiro seria cortado. O Android pode demorar para trocar o nome de um app já instalado; reinstalar resolve.
+
 ### Lote B, publicado em 6 de novembro (app) e 9 de novembro (servidor)
 
 - Lembretes com o app fechado (push enviado pelo servidor), ativados por aparelho em Config.
@@ -110,7 +114,6 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Coletar os feedbacks de uso real e ajustar.
 - Ativar "Receber neste aparelho" nos celulares e fazer o "Testar com o app fechado".
 - Congelar funções novas e, depois de 1 ou 2 semanas de uso, retirar o que não foi usado (candidatos: Kanban, Matriz e os modos B e C do Até). Hábitos, Pomodoro, Google Agenda, listas compartilhadas e importação do To Do foram desaconselhados por fugirem do objetivo.
-- Definir o nome do app. Hoje ele aparece como "Tarefas" na capa e no ícone instalado.
 - Atualizar o canvas de temas, que ainda mostra "Ajustes" e não tem o Barquinho.
 - Escopo e decisões: [documento de escopo](https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY). O catálogo ainda traz a ordem antiga de algumas fases.
 

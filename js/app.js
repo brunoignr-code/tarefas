@@ -17,7 +17,8 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
-const APP_VERSION = 'v9 · 09/11/2026';
+const APP_NAME = 'Minha lista de afazeres';
+const APP_VERSION = 'v10 · 09/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -325,7 +326,7 @@ async function checkReminders() {
 function renderReminders() {
   const now = localDateTime();
   const due = dueReminders(state.tasks, now);
-  document.title = due.length ? `(${due.length}) Tarefas` : 'Tarefas';
+  document.title = due.length ? `(${due.length}) ${APP_NAME}` : APP_NAME;
   $('#reminders').innerHTML = due.map((task) => `
     <section class="reminder" aria-label="Lembrete">
       <div class="reminder-label">Lembrete: ${escapeHtml(formatDateTime(activeReminder(task, now)).toLowerCase())}</div>
