@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v12 · 09/11/2026';
+const APP_VERSION = 'v12.1 · 09/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -2455,12 +2455,28 @@ document.addEventListener('click', (event) => {
   }
 }, true);
 
-// Botão direito no note e toque longo no celular abrem o menu da tarefa.
+// Botão direito no note e toque longo no celular abrem o menu da tarefa ou da lista,
+// no lugar do menu do Chrome (copiar, abrir link em nova aba...).
 document.addEventListener('contextmenu', (event) => {
+  if (event.target.closest('input, textarea, select')) return;
   const row = event.target.closest('#view .task[data-id]');
-  if (!row || state.selecting || swipe?.active) return;
+  const listRow = event.target.closest('#view .row-wrap')?.querySelector('[data-action="list-menu"]');
+  const touch = event.pointerType === 'touch' || (event.sourceCapabilities?.firesTouchEvents ?? false) || matchMedia('(pointer: coarse)').matches;
+  if (state.selecting || swipe?.active || (!row && !listRow)) {
+    // Nas telas do app, toque longo não deve abrir o menu do Chrome.
+    if (touch && event.target.closest('#view, #nav, #dialog, #select-bar')) event.preventDefault();
+    return;
+  }
   event.preventDefault();
-  openTaskMenu(row.dataset.id);
+  if (swipe) swipe = null;
+  if (touch) {
+    navigator.vibrate?.(15);
+    // O dedo ainda na tela não deve "tocar" a primeira opção do menu.
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 450);
+  }
+  if (row) openTaskMenu(row.dataset.id);
+  else openListMenu(listRow.dataset.id);
 });
 
 window.addEventListener('hashchange', () => {

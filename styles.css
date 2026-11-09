@@ -692,3 +692,11 @@ body.selecting .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
 /* Config. */
 .settings-index { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 6px; }
 .settings-index a { padding: 6px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text); text-decoration: none; font-size: .82rem; font-weight: 650; }
+
+/* Toque longo: sem seleção de texto nem menu do Chrome nos itens tocáveis. */
+.task, .row-link, .row-wrap, .nav, .sheet-item, .select-bar, .btn, .segments, .done-toggle, .check, .icon {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+a.row-link { -webkit-user-drag: none; }

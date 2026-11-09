@@ -73,6 +73,10 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (9 de novembro de 2026)
 
+### v12.1, 9 de novembro
+
+- Toque longo no celular abre o menu do app (tarefa ou lista) com uma vibração curta, no lugar do menu do Chrome. Sem seleção de texto ao segurar tarefas, listas e botões; os campos de texto continuam normais.
+
 ### v12, 9 de novembro: listas, ações e Config.
 
 - **Listas:** menu ⋯ em cada lista (na tela Listas e no topo da lista) com editar, ordenar, mostrar e limpar concluídas, selecionar, duplicar, organizar e excluir. A lista ganhou emoji e cor. Ao excluir, você escolhe se as tarefas vão para a Entrada, para outra lista ou para a Lixeira. Aviso de nome repetido.
