@@ -8,10 +8,10 @@ Continuando o meu gerenciador de tarefas (PWA pessoal, alternativa ao Microsoft 
 Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto"), este PROXIMO-CHAT.md e o memory do projeto.
 
 Onde paramos:
-- Lotes A e B publicados no app. O lote B traz lembretes com o app fechado (push enviado pelo servidor), vários lembretes por tarefa, lembrete insistente e resumo diário, ativados por aparelho em Config.
-- O servidor do lote B está implantado, com o cron a cada minuto. Medido: 6 ms de CPU com envio e 2 ms sem.
-- Combinado: congelar funções novas, corrigir o que aparecer no uso e, depois de 1 ou 2 semanas, retirar o que não usei (Kanban, Matriz, modos B e C do Até). O objetivo é um app simples de lembrete e recorrência, com listas, grupos e etapas.
-- O app se chama "Minha lista de afazeres" ("Afazeres" no ícone). Hábitos, Pomodoro, Google Agenda, listas compartilhadas e importar do To Do foram desaconselhados.
+- v11 publicada: Diamante como tema padrão (capa e ícone próprios), check que acende ao concluir, "concluir e ir para a próxima" contando a partir de hoje, 5 tamanhos de letra. Lembretes com o app fechado funcionando pelo servidor (cron a cada minuto).
+- Pedi para começar do zero (apagar todas as tarefas) em 9/11; confira no README se já foi feito.
+- Próximo passo: o PLANO-ANDROID-E-USABILIDADE.md desta pasta. Item 7 (virar app Android, reaproveitando o que fiz no Sentinela em C:\Python - local\safe-at-home) e item 8 (usabilidade do zero).
+- Combinado: app simples (lembrete, recorrência, listas, grupos, etapas), custo zero, sem funções novas fora do plano.
 
 Regras:
 - App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome. Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.
