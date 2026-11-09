@@ -32,7 +32,7 @@ A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o endereço publicado dentro do Chrome, em tela cheia, com ícone, nome e notificações próprios. O conteúdo continua vindo do GitHub Pages, então **cada publicação chega ao celular sozinha, sem reinstalar**. Só é preciso instalar um APK novo quando mudar algo em `android/` (ícone, atalhos, versão).
 
-- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.0-twa.apk` para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
+- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.1-twa.apk` para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
 - **Dados:** o TWA usa o armazenamento do Chrome do próprio celular. Se você já usava o app pelo Chrome nesse celular, o login, as tarefas e "Receber neste aparelho" continuam valendo.
 - **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
 - **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
@@ -76,7 +76,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 ### v12.2 e APK 1.1, 9 de novembro
 
 - O ícone voltou a ser o barquinho: app instalado pelo Chrome, aba do navegador, notificações e APK. O tema padrão continua Diamante.
-- APK 1.1 (`versionCode` 2), com a mesma chave: `C:\Python - localpk-afazeresfazeres-1.1-twa.apk`. Ícone adaptável do barquinho e silhueta de barco nas notificações e no ícone temático do Android.
+- APK 1.1 (`versionCode` 2), com a mesma chave: `C:\Python - local\apk-afazeres\afazeres-1.1-twa.apk`. Ícone adaptável do barquinho e silhueta de barco nas notificações e no ícone temático do Android.
 
 ### v12.1, 9 de novembro
 
