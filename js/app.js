@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v11 · 09/11/2026';
+const APP_VERSION = 'v12 · 09/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -26,7 +26,7 @@ const FREQ_LABELS = {
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
 
-const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'diamante', themeChosen: true, themeV2: true, highlight: DEFAULT_HIGHLIGHT, fontSize: 3 }, search: '' };
+const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'diamante', themeChosen: true, themeV2: true, highlight: DEFAULT_HIGHLIGHT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
 const $ = (selector, root = document) => root.querySelector(selector);
 const today = () => localDate();
 const newId = () => crypto.randomUUID();
@@ -67,6 +67,17 @@ const FONT_SIZES = [[1, 12.5, 'Muito pequena'], [2, 13.5, 'Pequena'], [3, 14.5, 
 const fontSizePx = () => (FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize)) || FONT_SIZES[2])[1];
 
 const UPCOMING_MODES = [['list', 'Lista'], ['calendar', 'Calendário'], ['kanban', 'Kanban'], ['matrix', 'Matriz']];
+
+// Cores das listas (aparecem como uma bolinha ao lado do nome).
+const LIST_COLORS = [
+  ['', 'Sem cor'], ['#4C80AE', 'Azul'], ['#2E9E6B', 'Verde'], ['#D9A02B', 'Amarelo'], ['#D9543C', 'Laranja'],
+  ['#C2417A', 'Rosa'], ['#7A5BC7', 'Roxo'], ['#7E8A99', 'Cinza'],
+];
+const LIST_SORTS = [
+  ['manual', 'Minha ordem'], ['when', 'Data (Quando)'], ['deadline', 'Prazo'], ['important', 'Importância'],
+  ['title', 'Título (A–Z)'], ['created', 'Criação (mais novas)'],
+];
+const START_VIEWS = [['today', 'Hoje'], ['upcoming', 'Próximos dias'], ['lists', 'Listas'], ['inbox', 'Entrada']];
 
 const STAR_ICON = (on) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"></path></svg>`;
 const MARK = '<span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8"></path></svg></span>';
@@ -167,15 +178,69 @@ async function saveSettings(changes) {
 }
 
 const findTask = (id) => state.tasks.find((t) => t.id === id);
-const listName = (id) => (state.lists.find((l) => l.id === id) || { name: 'Entrada' }).name;
+const findList = (id) => state.lists.find((l) => l.id === id);
+const listName = (id) => (findList(id) || { name: 'Entrada' }).name;
 const nextOrder = () => state.tasks.reduce((max, t) => Math.max(max, t.order || 0), 0) + 1;
+/** Lista padrão das tarefas novas que não vêm de uma lista (Hoje, compartilhar). */
+const defaultListId = () => (findList(state.settings.defaultList) ? state.settings.defaultList : INBOX);
+
+/** Nome da lista com emoji e bolinha de cor, já escapado. */
+function listLabel(list, { dot = true } = {}) {
+  if (!list) return 'Entrada';
+  const color = dot && list.color ? `<span class="list-dot" style="--dot:${escapeHtml(list.color)}" aria-hidden="true"></span>` : '';
+  const emoji = list.emoji ? `<span class="list-emoji" aria-hidden="true">${escapeHtml(list.emoji)}</span>` : '';
+  return `${color}${emoji}<span class="list-name">${escapeHtml(list.name)}</span>`;
+}
+
+/** Ordem das listas: a escolhida em "Organizar", depois alfabética. */
+function byListOrder(a, b) {
+  if (a.id === INBOX) return -1;
+  if (b.id === INBOX) return 1;
+  const oa = Number.isFinite(a.order) ? a.order : Infinity;
+  const ob = Number.isFinite(b.order) ? b.order : Infinity;
+  return oa === ob ? a.name.localeCompare(b.name, 'pt-BR') : oa - ob;
+}
+const sortedLists = () => state.lists.slice().sort(byListOrder);
+
+/** Os campos atuais da tarefa no formato de applyEdit, para mudar só um deles. */
+const editFields = (task, changes = {}) => ({
+  title: task.title,
+  notes: task.notes,
+  listId: task.listId,
+  steps: task.steps,
+  when: task.when,
+  repeat: task.repeat,
+  deadline: task.deadline,
+  seriesEnd: task.seriesEnd,
+  important: task.important,
+  tags: task.tags || [],
+  remindAt: task.remindAt,
+  extraReminders: task.extraReminders || [],
+  remindEach: task.remindEach !== false,
+  insist: task.insist,
+  ...changes,
+});
+
+/** Ordena as tarefas de uma lista conforme a escolha da lista. */
+function sortTasks(tasks, mode = 'manual') {
+  const far = '9999-12-31';
+  const sorters = {
+    manual: byOrder,
+    when: (a, b) => (a.when || far).localeCompare(b.when || far) || byOrder(a, b),
+    deadline: (a, b) => (a.deadline || far).localeCompare(b.deadline || far) || byOrder(a, b),
+    important: (a, b) => Number(!!b.important) - Number(!!a.important) || byOrder(a, b),
+    title: (a, b) => a.title.localeCompare(b.title, 'pt-BR'),
+    created: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''),
+  };
+  return tasks.slice().sort(sorters[mode] || byOrder);
+}
 
 /* ---------- Ações sobre tarefas ---------- */
 
 async function addTask(title, context, parsed = null, extra = {}) {
   const result = applyEdit(null, {
     title,
-    listId: context.listId || INBOX,
+    listId: context.listId || defaultListId(),
     when: parsed?.when || context.when || null,
     until: parsed?.until || null,
     remindAt: parsed?.remindAt || null,
@@ -245,6 +310,72 @@ async function moveToTrash(id) {
   render();
   showToast('Tarefa enviada para a lixeira.', async () => {
     await saveTask(task);
+    render();
+  });
+}
+
+/** Restaura da lixeira; se a lista dela foi excluída, volta para a Entrada. */
+async function restoreTask(id) {
+  const task = findTask(id);
+  if (!task) return;
+  await saveTask({ ...task, deletedAt: null, listId: findList(task.listId) ? task.listId : INBOX });
+}
+
+/** Muda um campo pela mesma regra dos detalhes (validações e repetição). */
+async function editTask(id, changes) {
+  const task = findTask(id);
+  if (!task) return false;
+  const result = applyEdit(task, editFields(task, changes), today());
+  if (result.error) {
+    showToast(result.error);
+    return false;
+  }
+  await saveTask(result.task);
+  return true;
+}
+
+async function duplicateTask(id) {
+  const task = findTask(id);
+  if (!task) return null;
+  const copy = {
+    ...task,
+    id: newId(),
+    status: 'open',
+    order: task.order + 0.001,
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+    deletedAt: null,
+    ackedAt: null,
+    snoozedUntil: null,
+    snoozedFor: null,
+    notifiedFor: null,
+    steps: (task.steps || []).map((step) => ({ ...step })),
+  };
+  delete copy._t;
+  delete copy._dirty;
+  if (copy.repeat) copy.repeat = { ...copy.repeat, done: 0 };
+  await saveTask(copy);
+  render();
+  showToast('Tarefa duplicada.', async () => {
+    await forget('tasks', copy.id);
+    render();
+  });
+  return copy.id;
+}
+
+/** Ações sobre várias tarefas de uma vez, com Desfazer. */
+async function bulkApply(ids, label, change) {
+  const before = ids.map(findTask).filter(Boolean);
+  for (const task of before) {
+    // eslint-disable-next-line no-await-in-loop
+    await change(task);
+  }
+  render();
+  showToast(label, async () => {
+    for (const task of before) {
+      // eslint-disable-next-line no-await-in-loop
+      await saveTask(task);
+    }
     render();
   });
 }
@@ -383,7 +514,8 @@ function taskChips(task, { showWhen = true, showList = false } = {}) {
   }
   (task.tags || []).forEach((tag) => chips.push(`<span class="chip-tag">#${escapeHtml(tag)}</span>`));
   if (task.notes) chips.push('<span>Nota</span>');
-  if (showList && task.listId !== INBOX) chips.push(`<span>${escapeHtml(listName(task.listId))}</span>`);
+  if (showList && task.listId !== INBOX) chips.push(`<span class="chip-list">${listLabel(findList(task.listId))}</span>`);
+  if (task.status === 'done' && task.completedAt) chips.unshift(`<span>Concluída ${escapeHtml(formatDate(localDate(new Date(task.completedAt))).toLowerCase())}</span>`);
   return chips.length ? `<span class="chips">${chips.join('')}</span>` : '';
 }
 
@@ -399,16 +531,35 @@ function nextLabel(task, date) {
   return `${formatDate(date).toLowerCase()}${time}`;
 }
 
-const taskRow = (task, options = {}) => `
-  <li class="task" data-id="${task.id}">
-    <button class="check${task.repeat ? ' repeats' : ''}" data-action="complete" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}" title="${escapeHtml(task.repeat ? 'Concluir e ir para a próxima' : 'Concluir')}">${MARK}</button>
+const MORE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg>';
+
+function taskRow(task, options = {}) {
+  const done = task.status !== 'open';
+  if (state.selecting) {
+    const on = state.selected.has(task.id);
+    return `
+  <li class="task selectable ${on ? 'selected' : ''} ${done ? 'is-done' : ''}" data-id="${task.id}">
+    <button class="task-body select-body" data-action="toggle-select" data-id="${task.id}" aria-pressed="${on}">
+      <span class="select-box" aria-hidden="true">${on ? '✓' : ''}</span>
+      <span class="select-text"><span class="task-title">${escapeHtml(task.title)}</span>${taskChips(task, options)}</span>
+    </button>
+  </li>`;
+  }
+  const check = done
+    ? `<button class="check done" data-action="reopen" data-id="${task.id}" aria-label="Reabrir ${escapeHtml(task.title)}">${MARK}</button>`
+    : `<button class="check${task.repeat ? ' repeats' : ''}" data-action="complete" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}" title="${escapeHtml(task.repeat ? 'Concluir e ir para a próxima' : 'Concluir')}">${MARK}</button>`;
+  return `
+  <li class="task ${done ? 'is-done' : ''}" data-id="${task.id}">
+    ${check}
     <button class="task-body" data-action="open" data-id="${task.id}">
       <span class="task-title">${escapeHtml(task.title)}</span>
       ${taskChips(task, options)}
     </button>
-    ${options.draggable ? `<button class="drag" data-drag="${task.id}" aria-label="Reordenar ${escapeHtml(task.title)}: arraste ou use as setas do teclado">${GRIP_ICON}</button>` : ''}
-    <button class="icon star ${task.important ? 'on' : ''}" data-action="toggle-important" data-id="${task.id}" aria-pressed="${!!task.important}" aria-label="Importante: ${escapeHtml(task.title)}">${STAR_ICON(task.important)}</button>
+    ${options.draggable && !done ? `<button class="drag" data-drag="${task.id}" aria-label="Reordenar ${escapeHtml(task.title)}: arraste ou use as setas do teclado">${GRIP_ICON}</button>` : ''}
+    ${done ? '' : `<button class="icon star ${task.important ? 'on' : ''}" data-action="toggle-important" data-id="${task.id}" aria-pressed="${!!task.important}" aria-label="Importante: ${escapeHtml(task.title)}">${STAR_ICON(task.important)}</button>`}
+    <button class="icon more" data-action="task-menu" data-id="${task.id}" aria-label="Mais ações: ${escapeHtml(task.title)}" title="Mais ações">${MORE_ICON}</button>
   </li>`;
+}
 
 const taskListHtml = (tasks, options) => `<ul class="task-list">${tasks.map((t) => taskRow(t, options)).join('')}</ul>`;
 
@@ -465,11 +616,17 @@ function todayView() {
   const [y, m, d] = now.split('-').map(Number);
   const long = new Date(y, m - 1, d).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
   return `
-    <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}</div></div></div>
+    <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}</div></div>${selectButton(tasks)}</div>
     ${quickAdd('Adicionar a Hoje', { when: now })}
-    ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true, draggable: true }) : '<p class="empty">Nada planejado para hoje.</p>'}
-    <button class="btn small" data-action="sync-now" ${state.sync?.token ? '' : 'disabled'} style="margin-top:14px">Sincronizar agora</button>`;
+    ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true, draggable: true }) : `<div class="empty">
+      <p>Nada planejado para hoje.</p>
+      <p class="empty-tip">Digite acima, como "pagar luz sexta 9h" ou "academia toda segunda 7h". Toque numa tarefa para ver os detalhes; use ⋯ para mover, duplicar ou excluir. No celular, deslize para a direita para concluir e para a esquerda para excluir.</p>
+    </div>`}`;
 }
+
+/** Botão "Selecionar" do topo das telas com tarefas. */
+const selectButton = (tasks) => (tasks.length && !state.selecting
+  ? '<button class="btn small" data-action="select-start">Selecionar</button>' : '');
 
 function upcomingList() {
   const tasks = upcomingTasks(state.tasks, today());
@@ -485,7 +642,9 @@ function calendarView() {
   const month = state.calMonth || now.slice(0, 7);
   const selected = state.calDay || now;
   const [y, m] = month.split('-').map(Number);
-  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const weekStart = Number(state.settings.weekStart) === 1 ? 1 : 0;
+  const first = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() - weekStart + 7) % 7;
+  const weekNames = [...WEEKDAYS.slice(weekStart), ...WEEKDAYS.slice(0, weekStart)];
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const open = openTasks();
   const cells = [];
@@ -505,19 +664,18 @@ function calendarView() {
       <strong>${escapeHtml(title)}</strong>
       <button class="btn small" data-action="cal-move" data-step="1" aria-label="Próximo mês">›</button>
     </div>
-    <div class="cal-grid">${WEEKDAYS.map((name) => `<span class="cal-week" aria-hidden="true">${name}</span>`).join('')}${cells.join('')}</div>
+    <div class="cal-grid">${weekNames.map((name) => `<span class="cal-week" aria-hidden="true">${name}</span>`).join('')}${cells.join('')}</div>
     <h2>${escapeHtml(formatDate(selected))}</h2>
     ${dayTasks.length ? taskListHtml(dayTasks, { showWhen: false, showList: true }) : '<p class="empty">Nada com Quando ou prazo neste dia.</p>'}`;
 }
 
 function kanbanView() {
   const open = openTasks();
-  const lists = state.lists.slice().sort((a, b) => (a.id === INBOX ? -1 : b.id === INBOX ? 1 : a.name.localeCompare(b.name, 'pt-BR')));
-  const columns = lists.map((list) => [list, open.filter((t) => t.listId === list.id).sort(byOrder)]).filter(([, tasks]) => tasks.length);
+  const columns = sortedLists().map((list) => [list, open.filter((t) => t.listId === list.id).sort(byOrder)]).filter(([, tasks]) => tasks.length);
   if (!columns.length) return '<p class="empty">Nenhuma tarefa aberta.</p>';
   return `<div class="kanban">${columns.map(([list, tasks]) => `
     <section class="kanban-col" aria-label="${escapeHtml(list.name)}">
-      <h3><span>${escapeHtml(list.name)}</span><span class="count">${tasks.length}</span></h3>
+      <h3><span class="list-label">${listLabel(list)}</span><span class="count">${tasks.length}</span></h3>
       ${taskListHtml(tasks, {})}
     </section>`).join('')}</div>`;
 }
@@ -552,7 +710,7 @@ function upcomingView() {
 function importantView() {
   const tasks = openTasks().filter((t) => t.important).sort(byOrder);
   return `
-    <div class="view-head"><div><h1><span>Importantes</span></h1></div></div>
+    <div class="view-head"><div><h1><span>Importantes</span></h1></div>${selectButton(tasks)}</div>
     ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Toque na estrela de uma tarefa para ela aparecer aqui.</p>'}`;
 }
 
@@ -560,23 +718,36 @@ function tagView(encoded) {
   const tag = decodeURIComponent(encoded || '');
   const tasks = openTasks().filter((t) => (t.tags || []).some((name) => sameTag(name, tag))).sort(byOrder);
   return `
-    <div class="view-head"><div><h1><span>#${escapeHtml(tag)}</span></h1><div class="subtitle">Tag</div></div></div>
+    <div class="view-head"><div><h1><span>#${escapeHtml(tag)}</span></h1><div class="subtitle">Tag</div></div>${selectButton(tasks)}</div>
     ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta com esta tag.</p>'}`;
 }
 
 function listView(id) {
-  const list = state.lists.find((l) => l.id === id);
+  const list = findList(id);
   if (!list) return listsView();
-  const tasks = state.tasks.filter((t) => t.listId === id && t.status === 'open' && !t.deletedAt).sort(byOrder);
-  const edit = id === INBOX ? '' : `<button class="btn small" data-action="edit-list" data-id="${id}">Editar lista</button>`;
+  const mode = LIST_SORTS.some(([key]) => key === list.sort) ? list.sort : 'manual';
+  const inList = state.tasks.filter((t) => t.listId === id && !t.deletedAt);
+  const tasks = sortTasks(inList.filter((t) => t.status === 'open'), mode);
+  const done = inList.filter((t) => t.status === 'done').sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  const sortNote = mode === 'manual' ? '' : `<div class="sort-note">Ordenada por ${escapeHtml(LIST_SORTS.find(([key]) => key === mode)[1].toLowerCase())} · <button class="link-btn" data-action="set-list-sort" data-id="${id}" data-sort="manual">Voltar à minha ordem</button></div>`;
+  const doneOpen = state.doneOpen.has(id);
   return `
-    <div class="view-head"><div><h1><span>${escapeHtml(list.name)}</span></h1>${list.group ? `<div class="subtitle">${escapeHtml(list.group)}</div>` : ''}</div>${edit}</div>
+    <div class="view-head">
+      <div><h1><span>${list.emoji ? `${escapeHtml(list.emoji)} ` : ''}${escapeHtml(list.name)}</span></h1>${list.group ? `<div class="subtitle">${escapeHtml(list.group)}</div>` : ''}</div>
+      ${selectButton(tasks)}
+      <button class="btn small icon-btn" data-action="list-menu" data-id="${id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
+    </div>
     ${quickAdd(`Adicionar a ${list.name}`, { listId: id })}
-    ${tasks.length ? taskListHtml(tasks, { draggable: true }) : '<p class="empty">Esta lista está vazia.</p>'}`;
+    ${sortNote}
+    ${tasks.length ? taskListHtml(tasks, { draggable: mode === 'manual' }) : `<p class="empty">${done.length ? 'Tudo feito nesta lista.' : 'Esta lista está vazia.'}</p>`}
+    ${done.length ? `
+    <button class="done-toggle" data-action="toggle-done-section" data-id="${id}" aria-expanded="${doneOpen}">${doneOpen ? '▾' : '▸'} Concluídas (${done.length})</button>
+    ${doneOpen ? taskListHtml(done, {}) : ''}` : ''}`;
 }
 
+/** Listas fora da Entrada, separadas em soltas e por grupo, na ordem escolhida. */
 function groupedLists() {
-  const custom = state.lists.filter((l) => l.id !== INBOX).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const custom = sortedLists().filter((l) => l.id !== INBOX);
   const ungrouped = custom.filter((l) => !l.group);
   const groups = new Map();
   custom.filter((l) => l.group).forEach((l) => groups.set(l.group, [...(groups.get(l.group) || []), l]));
@@ -587,12 +758,21 @@ const openCount = (id) => state.tasks.filter((t) => t.listId === id && t.status 
 
 function listsView() {
   const { ungrouped, groups } = groupedLists();
-  const row = (list) => `<a class="row-link" href="#list/${list.id}"><span>${escapeHtml(list.name)}</span><span class="count">${openCount(list.id)}</span></a>`;
-  const inbox = state.lists.find((l) => l.id === INBOX);
+  const row = (list) => `
+    <div class="row-wrap">
+      <a class="row-link" href="#list/${list.id}"><span class="list-label">${listLabel(list)}</span><span class="count">${openCount(list.id)}</span></a>
+      <button class="icon more" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
+    </div>`;
+  const inbox = findList(INBOX);
+  const doneCount = activeTasks().filter((t) => t.status === 'done').length;
   return `
-    <div class="view-head"><div><h1><span>Listas</span></h1></div><button class="btn small primary" data-action="new-list">Nova lista</button></div>
+    <div class="view-head"><div><h1><span>Listas</span></h1></div>
+      <button class="btn small" data-action="organize-lists" ${ungrouped.length + groups.length ? '' : 'disabled'}>Organizar</button>
+      <button class="btn small primary" data-action="new-list">Nova lista</button>
+    </div>
     <div class="rows">${row(inbox)}${ungrouped.map(row).join('')}</div>
-    ${groups.map(([name, lists]) => `<h2>${escapeHtml(name)}</h2><div class="rows">${lists.map(row).join('')}</div>`).join('')}
+    ${groups.map(([name, lists]) => `<h2 class="group-head"><span>${escapeHtml(name)}</span><button class="icon more small-more" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}" title="Opções do grupo">${MORE_ICON}</button></h2><div class="rows">${lists.map(row).join('')}</div>`).join('')}
+    ${ungrouped.length + groups.length ? '' : '<p class="empty-tip">Crie listas para separar assuntos (Casa, Trabalho, Mercado). Para juntar listas, dê o mesmo nome de grupo a elas.</p>'}
     <h2>Filtros</h2>
     <div class="rows">
       <a class="row-link" href="#important"><span>Importantes</span><span class="count">${openTasks().filter((t) => t.important).length}</span></a>
@@ -600,34 +780,50 @@ function listsView() {
     </div>
     <h2>Outros</h2>
     <div class="rows">
-      <a class="row-link" href="#done"><span>Concluídas</span></a>
-      <a class="row-link" href="#trash"><span>Lixeira</span><span class="count">${state.tasks.filter((t) => t.deletedAt).length}</span></a>
-    </div>
-    <h2>Mais recursos</h2>
-    <div class="rows">
-      <button class="row-link" disabled>Listas compartilhadas</button>
-      <button class="row-link" disabled>Hábitos</button>
-      <button class="row-link" disabled>Pomodoro</button>
+      <a class="row-link" href="#done"><span>Concluídas</span><span class="count">${doneCount || ''}</span></a>
+      <a class="row-link" href="#trash"><span>Lixeira</span><span class="count">${state.tasks.filter((t) => t.deletedAt).length || ''}</span></a>
     </div>`;
 }
 
-function doneView() {
-  const single = activeTasks().filter((t) => t.status === 'done').map((t) => ({ title: t.title, at: t.completedAt || '', taskId: t.id, reopen: true }));
-  const series = state.log.map((l) => ({ title: l.title, at: l.completedAt, occurrence: l.occurrence, taskId: l.taskId }));
-  const items = [...single, ...series].sort((a, b) => b.at.localeCompare(a.at));
-  const row = (item) => `
-    <li class="task is-done">
-      ${item.reopen
-        ? `<button class="check done" data-action="reopen" data-id="${item.taskId}" aria-label="Reabrir ${escapeHtml(item.title)}">${MARK}</button>`
-        : `<span class="check done" aria-hidden="true">${MARK}</span>`}
-      <div class="task-body">
-        <span class="task-title">${escapeHtml(item.title)}</span>
-        <span class="chips"><span>${item.at ? `Concluída ${escapeHtml(formatDate(localDate(new Date(item.at))).toLowerCase())}` : ''}</span>${item.occurrence ? `<span>↻ ocorrência de ${escapeHtml(formatDate(item.occurrence).toLowerCase())}</span>` : ''}</span>
-      </div>
-    </li>`;
+/** Organizar: mudar a ordem das listas e cuidar dos grupos. */
+function organizeView() {
+  const { ungrouped, groups } = groupedLists();
+  const section = (lists) => `<div class="rows">${lists.map((list, index) => `
+    <div class="row-wrap organize-row">
+      <span class="row-link"><span class="list-label">${listLabel(list)}</span></span>
+      <button class="icon" data-action="move-list" data-id="${list.id}" data-step="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${escapeHtml(list.name)}">↑</button>
+      <button class="icon" data-action="move-list" data-id="${list.id}" data-step="1" ${index === lists.length - 1 ? 'disabled' : ''} aria-label="Descer ${escapeHtml(list.name)}">↓</button>
+      <button class="icon more" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}">${MORE_ICON}</button>
+    </div>`).join('')}</div>`;
   return `
-    <div class="view-head"><div><h1><span>Concluídas</span></h1></div></div>
-    ${items.length ? `<ul class="task-list">${items.map(row).join('')}</ul>` : '<p class="empty">Nada concluído ainda.</p>'}`;
+    <div class="view-head"><div><h1><span>Organizar listas</span></h1><div class="subtitle">Ordem das listas e grupos</div></div><a class="btn small primary btn-link" href="#lists">Pronto</a></div>
+    <p class="empty-tip">Use ↑ e ↓ para mudar a ordem. A Entrada fica sempre em primeiro. Os grupos aparecem em ordem alfabética; use ⋯ no grupo para renomear ou desfazer.</p>
+    ${ungrouped.length ? `<h2>Sem grupo</h2>${section(ungrouped)}` : ''}
+    ${groups.map(([name, lists]) => `<h2 class="group-head"><span>${escapeHtml(name)}</span><button class="icon more small-more" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}">${MORE_ICON}</button></h2>${section(lists)}`).join('')}
+    <div class="actions" style="margin-top:14px"><button class="btn" data-action="new-list">Nova lista</button><button class="btn" data-action="new-group">Novo grupo</button></div>`;
+}
+
+function doneView() {
+  const single = activeTasks().filter((t) => t.status === 'done').sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  const series = state.log.slice().sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  const logRow = (item) => `
+    <li class="task is-done">
+      <span class="check done" aria-hidden="true">${MARK}</span>
+      <button class="task-body" data-action="${findTask(item.taskId) && !findTask(item.taskId).deletedAt ? 'open' : 'noop'}" data-id="${item.taskId}">
+        <span class="task-title">${escapeHtml(item.title)}</span>
+        <span class="chips"><span>${item.completedAt ? `Concluída ${escapeHtml(formatDate(localDate(new Date(item.completedAt))).toLowerCase())}` : ''}</span>${item.occurrence ? `<span>↻ ocorrência de ${escapeHtml(formatDate(item.occurrence).toLowerCase())}</span>` : ''}</span>
+      </button>
+      <button class="icon" data-action="forget-log" data-id="${item.id}" aria-label="Apagar do histórico: ${escapeHtml(item.title)}" title="Apagar do histórico">×</button>
+    </li>`;
+  const empty = !single.length && !series.length;
+  return `
+    <div class="view-head"><div><h1><span>Concluídas</span></h1></div>
+      ${single.length ? selectButton(single) : ''}
+      ${empty ? '' : '<button class="btn small danger" data-action="clear-done">Limpar</button>'}
+    </div>
+    ${single.length ? `<h2>Tarefas</h2>${taskListHtml(single, { showList: true })}` : ''}
+    ${series.length ? `<h2>Histórico das repetições</h2><ul class="task-list">${series.map(logRow).join('')}</ul>` : ''}
+    ${empty ? '<p class="empty">Nada concluído ainda.</p>' : ''}`;
 }
 
 function trashView() {
@@ -635,6 +831,7 @@ function trashView() {
   const row = (task) => `
     <li class="task">
       <div class="task-body" style="padding-left:12px"><span class="task-title">${escapeHtml(task.title)}</span>
+        <span class="chips"><span>Excluída ${escapeHtml(formatDate(localDate(new Date(task.deletedAt))).toLowerCase())}</span><span class="chip-list">${findList(task.listId) ? listLabel(findList(task.listId)) : 'lista excluída (volta para a Entrada)'}</span></span>
         <span class="actions" style="margin-top:8px">
           <button class="btn small" data-action="restore" data-id="${task.id}">Restaurar</button>
           <button class="btn small danger" data-action="purge" data-id="${task.id}">Excluir de vez</button>
@@ -642,23 +839,28 @@ function trashView() {
       </div>
     </li>`;
   return `
-    <div class="view-head"><div><h1><span>Lixeira</span></h1></div></div>
+    <div class="view-head"><div><h1><span>Lixeira</span></h1></div>
+      ${tasks.length ? '<button class="btn small" data-action="restore-all">Restaurar tudo</button><button class="btn small danger" data-action="empty-trash">Esvaziar</button>' : ''}
+    </div>
     ${tasks.length ? `<ul class="task-list">${tasks.map(row).join('')}</ul>` : '<p class="empty">A lixeira está vazia.</p>'}`;
 }
 
 function searchResults() {
   const query = state.search.trim().toLocaleLowerCase('pt-BR');
-  if (!query) return '<p class="empty">Busque por título, nota, etapa ou tag.</p>';
-  const matches = (task) => [task.title, task.notes, ...(task.steps || []).map((s) => s.title), ...(task.tags || [])]
+  if (!query) return '<p class="empty">Busque por título, nota, etapa, tag ou nome de lista.</p>';
+  const matches = (task) => [task.title, task.notes, listName(task.listId), ...(task.steps || []).map((s) => s.title), ...(task.tags || [])]
     .some((text) => (text || '').toLocaleLowerCase('pt-BR').includes(query));
-  const tasks = state.tasks.filter((t) => t.status === 'open' && !t.deletedAt && matches(t)).sort(byOrder);
-  return tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta encontrada.</p>';
+  const withDone = !!state.settings.searchDone;
+  const tasks = state.tasks.filter((t) => !t.deletedAt && (t.status === 'open' || (withDone && t.status === 'done')) && matches(t))
+    .sort((a, b) => Number(a.status !== 'open') - Number(b.status !== 'open') || byOrder(a, b));
+  return tasks.length ? taskListHtml(tasks, { showList: true }) : `<p class="empty">Nenhuma tarefa ${withDone ? '' : 'aberta '}encontrada.</p>`;
 }
 
 function searchView() {
   return `
     <div class="view-head"><div><h1><span>Busca</span></h1></div></div>
-    <input class="search" id="search-input" type="search" placeholder="Buscar tarefas abertas" aria-label="Buscar tarefas abertas" value="${escapeHtml(state.search)}">
+    <input class="search" id="search-input" type="search" placeholder="Buscar tarefas" aria-label="Buscar tarefas" value="${escapeHtml(state.search)}">
+    <label class="check-line" style="margin:-6px 0 8px"><input type="checkbox" id="search-done" ${state.settings.searchDone ? 'checked' : ''}> Incluir concluídas</label>
     <div id="search-results">${searchResults()}</div>`;
 }
 
@@ -785,29 +987,43 @@ function settingsView() {
       <label class="custom-color"><input type="color" id="highlight-custom" value="${highlight.toLowerCase()}"> Escolher qualquer cor</label>
       <p class="help-warning" id="highlight-warning" ${isTooLight(highlight) ? '' : 'hidden'}>Esta cor é muito clara e quase some no papel branco.</p>
     </section>` : '';
+  const segmented = (label, action, options, current, dataKey = 'value') => `
+      <div class="segments" role="group" aria-label="${label}">
+        ${options.map(([id, name]) => `<button class="${String(id) === String(current) ? 'on' : ''}" data-action="${action}" data-${dataKey}="${id}" aria-pressed="${String(id) === String(current)}">${name}</button>`).join('')}
+      </div>`;
+  const startView = START_VIEWS.some(([id]) => id === state.settings.startView) ? state.settings.startView : 'today';
   return `
     <div class="view-head"><div><h1><span>Config.</span></h1></div></div>
+    <nav class="settings-index" aria-label="Seções">
+      <a href="#settings" data-action="jump" data-target="cfg-geral">Geral</a>
+      <a href="#settings" data-action="jump" data-target="cfg-aparencia">Aparência</a>
+      <a href="#settings" data-action="jump" data-target="cfg-avisos">Avisos</a>
+      <a href="#settings" data-action="jump" data-target="cfg-conta">Conta</a>
+      <a href="#settings" data-action="jump" data-target="cfg-dados">Dados</a>
+    </nav>
+    <h2 id="cfg-geral">Geral</h2>
     <section class="panel">
-      <h3>Notificações</h3>
-      <p>${statusText} Com o app aberto, os avisos disparam na hora. Ao abrir, os atrasados aparecem em destaque.</p>
-      <div class="actions">
-        ${permission === 'default' ? '<button class="btn primary" data-action="enable-notifications">Ativar notificações</button>' : ''}
-        ${permission === 'granted' ? '<button class="btn" data-action="test-notification">Enviar teste</button>' : ''}
+      <h3>Ao abrir o app, mostrar</h3>
+      ${segmented('Tela inicial', 'set-start-view', START_VIEWS, startView)}
+      <h3 style="margin-top:12px">Lista das tarefas novas</h3>
+      <p>Para onde vão as tarefas criadas em Hoje, pelo atalho do ícone ou compartilhadas de outro app.</p>
+      <div class="field"><select id="default-list" aria-label="Lista das tarefas novas">
+        ${sortedLists().map((list) => `<option value="${list.id}" ${list.id === defaultListId() ? 'selected' : ''}>${escapeHtml(`${list.emoji ? `${list.emoji} ` : ''}${list.name}`)}</option>`).join('')}
+      </select></div>
+      <h3 style="margin-top:12px">A semana começa no</h3>
+      ${segmented('Início da semana', 'set-week-start', [[0, 'Domingo'], [1, 'Segunda']], Number(state.settings.weekStart) === 1 ? 1 : 0)}
+      <label class="check-line"><input type="checkbox" id="parse-dates" ${state.settings.parseDates === false ? '' : 'checked'}> Entender datas ao digitar, como "pagar luz sexta 9h"</label>
+      <label class="check-line"><input type="checkbox" id="confirm-delete" ${state.settings.confirmDelete ? 'checked' : ''}> Perguntar antes de mandar uma tarefa para a lixeira</label>
+      <h3 style="margin-top:12px">Campo Até nos detalhes da tarefa</h3>
+      <div class="segments themes" role="group" aria-label="Modo do campo Até">
+        ${Object.entries(UNTIL_MODES).map(([id, [name]]) => `<button class="${id === untilMode() ? 'on' : ''}" data-action="set-until-mode" data-mode="${id}" aria-pressed="${id === untilMode()}">${name}</button>`).join('')}
       </div>
+      <p>${UNTIL_MODES[untilMode()][1]}</p>
+      <p style="margin:0">No teclado do note: N cria uma tarefa e / abre a busca.</p>
     </section>
-    ${pushPanel()}
-    ${syncPanel()}
+    <h2 id="cfg-aparencia">Aparência</h2>
     <section class="panel">
-      <h3>Backup</h3>
-      <p>${state.sync?.token ? 'Suas tarefas também ficam guardadas no servidor de sincronização.' : 'Seus dados ficam só neste aparelho. Limpar os dados do navegador apaga tudo.'} ${backup}</p>
-      <div class="actions">
-        <button class="btn primary" data-action="export">Exportar JSON</button>
-        <button class="btn" data-action="import">Importar JSON</button>
-        <input type="file" id="import-file" accept="application/json,.json" hidden>
-      </div>
-    </section>
-    <section class="panel">
-      <h3>Aparência</h3>
+      <h3>Tema</h3>
       <div class="segments themes" role="group" aria-label="Tema">
         ${themeOptions.map((item) => `<button class="${item.id === theme ? 'on' : ''}" data-action="set-theme" data-theme-id="${item.id}" aria-pressed="${item.id === theme}">${item.name}</button>`).join('')}
       </div>
@@ -819,24 +1035,41 @@ function settingsView() {
       <p style="margin:0">${(FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize || 3)) || FONT_SIZES[2])[2]}.</p>
     </section>
     ${highlightPanel}
+    <h2 id="cfg-avisos">Avisos</h2>
     <section class="panel">
-      <h3>Tarefas</h3>
-      <p>Como o campo Até aparece nos detalhes da tarefa:</p>
-      <div class="segments themes" role="group" aria-label="Modo do campo Até">
-        ${Object.entries(UNTIL_MODES).map(([id, [name]]) => `<button class="${id === untilMode() ? 'on' : ''}" data-action="set-until-mode" data-mode="${id}" aria-pressed="${id === untilMode()}">${name}</button>`).join('')}
-      </div>
-      <p>${UNTIL_MODES[untilMode()][1]}</p>
-      <label class="check-line"><input type="checkbox" id="parse-dates" ${state.settings.parseDates === false ? '' : 'checked'}> Entender datas ao digitar, como "pagar luz sexta 9h"</label>
-      <p style="margin:8px 0 0">No teclado do note: N cria uma tarefa e / abre a busca.</p>
-    </section>
-    <section class="panel">
-      <h3>Contas e integrações</h3>
-      <div class="rows">
-        <button class="row-link" disabled>Google Agenda</button>
-        <button class="row-link" disabled>Importar do To Do</button>
+      <h3>Notificações</h3>
+      <p>${statusText} Com o app aberto, os avisos disparam na hora. Ao abrir, os atrasados aparecem em destaque.</p>
+      <div class="actions">
+        ${permission === 'default' ? '<button class="btn primary" data-action="enable-notifications">Ativar notificações</button>' : ''}
+        ${permission === 'granted' ? '<button class="btn" data-action="test-notification">Enviar teste</button>' : ''}
       </div>
     </section>
-    <p class="help" style="text-align:center;margin:8px 0 24px">Versão ${APP_VERSION}</p>`;
+    ${pushPanel()}
+    <h2 id="cfg-conta">Conta e sincronização</h2>
+    ${syncPanel()}
+    <h2 id="cfg-dados">Dados</h2>
+    <section class="panel">
+      <h3>Backup</h3>
+      <p>${state.sync?.token ? 'Suas tarefas também ficam guardadas no servidor de sincronização.' : 'Seus dados ficam só neste aparelho. Limpar os dados do navegador apaga tudo.'} ${backup}</p>
+      <div class="actions">
+        <button class="btn primary" data-action="export">Exportar JSON</button>
+        <button class="btn" data-action="import">Importar JSON</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+    </section>
+    <section class="panel">
+      <h3>Limpeza</h3>
+      <p>Concluídas: ${activeTasks().filter((t) => t.status === 'done').length} tarefa(s) e ${state.log.length} registro(s) de repetição. Lixeira: ${state.tasks.filter((t) => t.deletedAt).length}.</p>
+      <div class="actions">
+        <button class="btn" data-action="clear-done">Limpar concluídas</button>
+        <button class="btn danger" data-action="empty-trash">Esvaziar lixeira</button>
+      </div>
+    </section>
+    <section class="panel">
+      <h3>Sobre</h3>
+      <p>${APP_NAME}, versão ${APP_VERSION}. As atualizações chegam sozinhas quando o app abre com internet.</p>
+      <div class="actions"><button class="btn" data-action="check-update">Buscar atualização agora</button></div>
+    </section>`;
 }
 
 function currentRoute() {
@@ -847,13 +1080,13 @@ function currentRoute() {
 
 function renderNav() {
   const route = currentRoute();
-  const isLists = ['lists', 'list', 'done', 'trash', 'important', 'tag'].includes(route.name);
+  const isLists = ['lists', 'list', 'done', 'trash', 'important', 'tag', 'organize'].includes(route.name);
   const dueCount = todayTasks(state.tasks, today()).length;
   const item = (href, label, active, count, extra = '') => `
     <a class="nav-item ${extra} ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}>
       <span class="label">${escapeHtml(label)}</span>${count ? `<span class="count">${count}</span>` : ''}
     </a>`;
-  const desktopList = (list) => item(`#list/${list.id}`, list.name, route.name === 'list' && route.id === list.id, openCount(list.id), 'nav-only-desktop');
+  const desktopList = (list) => item(`#list/${list.id}`, `${list.emoji ? `${list.emoji} ` : ''}${list.name}`, route.name === 'list' && route.id === list.id, openCount(list.id), 'nav-only-desktop');
   const { ungrouped, groups } = groupedLists();
   const inbox = state.lists.find((l) => l.id === INBOX);
   $('#nav').innerHTML = `
@@ -879,10 +1112,287 @@ function render() {
     list: () => listView(route.id),
     important: importantView,
     tag: () => tagView(route.id),
+    organize: organizeView,
   };
   renderNav();
   $('#view').innerHTML = (views[route.name] || todayView)();
   renderReminders();
+  renderSelectionBar();
+}
+
+/* ---------- Seleção de várias tarefas ---------- */
+
+function renderSelectionBar() {
+  let bar = $('#select-bar');
+  if (!state.selecting) {
+    bar?.remove();
+    document.body.classList.remove('selecting');
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'select-bar';
+    bar.className = 'select-bar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Ações das tarefas selecionadas');
+    document.body.append(bar);
+  }
+  document.body.classList.add('selecting');
+  const visible = [...document.querySelectorAll('#view .task.selectable')].map((row) => row.dataset.id);
+  const n = state.selected.size;
+  const off = n ? '' : 'disabled';
+  const allOn = visible.length && visible.every((id) => state.selected.has(id));
+  bar.innerHTML = `
+    <div class="select-count"><span><strong>${n}</strong> selecionada${n === 1 ? '' : 's'}</span>
+      <button class="link-btn" data-action="select-all">${allOn ? 'Nenhuma' : 'Todas'}</button>
+      <button class="btn small primary" data-action="select-end">Pronto</button></div>
+    <div class="select-actions">
+      <button class="btn small" data-action="bulk" data-op="complete" ${off}>Concluir</button>
+      <button class="btn small" data-action="bulk" data-op="today" ${off}>Hoje</button>
+      <button class="btn small" data-action="bulk" data-op="important" ${off} aria-label="Importante">★</button>
+      <button class="btn small" data-action="bulk" data-op="move" ${off}>Mover</button>
+      <button class="btn small danger" data-action="bulk" data-op="trash" ${off}>Excluir</button>
+    </div>`;
+}
+
+function endSelection() {
+  state.selecting = false;
+  state.selected.clear();
+  render();
+}
+
+async function runBulk(op) {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+  if (op === 'move') {
+    openMoveSheet(ids);
+    return;
+  }
+  if (op === 'trash' && state.settings.confirmDelete && !confirm(`Mandar ${ids.length} tarefa(s) para a lixeira?`)) return;
+  const now = new Date().toISOString();
+  state.selecting = false;
+  state.selected.clear();
+  if (op === 'complete') {
+    const before = ids.map(findTask).filter((t) => t && t.status === 'open');
+    const logs = [];
+    for (const task of before) {
+      const { task: updated, log } = completeTask(task, today(), now);
+      if (log) {
+        const entry = { ...log, id: newId() };
+        logs.push(entry);
+        // eslint-disable-next-line no-await-in-loop
+        await saveLogEntry(entry);
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await saveTask(updated);
+    }
+    render();
+    showToast(`${before.length} concluída(s).`, async () => {
+      for (const entry of logs) await forget('log', entry.id); // eslint-disable-line no-await-in-loop
+      for (const task of before) await saveTask(task); // eslint-disable-line no-await-in-loop
+      render();
+    });
+    return;
+  }
+  const allImportant = ids.every((id) => findTask(id)?.important);
+  const changes = {
+    today: (task) => editTask(task.id, { when: today() }),
+    important: (task) => saveTask({ ...task, important: !allImportant }),
+    trash: (task) => saveTask({ ...task, deletedAt: now }),
+  };
+  const labels = {
+    today: `${ids.length} tarefa(s) para hoje.`,
+    important: allImportant ? 'Estrela retirada.' : 'Marcadas como importantes.',
+    trash: `${ids.length} tarefa(s) na lixeira.`,
+  };
+  await bulkApply(ids, labels[op], changes[op]);
+}
+
+/* ---------- Menus (folha de opções) ---------- */
+
+let sheetItems = [];
+
+/** Abre uma folha com opções; cada item é [rótulo, função, {danger, disabled}]. */
+function openSheet(title, items, subtitle = '') {
+  sheetItems = items.filter(Boolean);
+  const dialog = $('#dialog');
+  dialog.innerHTML = `
+    <div class="sheet">
+      <div class="form-head"><div><h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}</div><button type="button" class="btn small" data-action="close-dialog">Fechar</button></div>
+      <div class="sheet-items">
+        ${sheetItems.map(([label, , opts = {}], index) => `<button class="sheet-item ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${index}" ${opts.disabled ? 'disabled' : ''}>${opts.html ? label : escapeHtml(label)}</button>`).join('')}
+      </div>
+    </div>`;
+  if (!dialog.open) dialog.showModal();
+  dialog.querySelector('.sheet-item:not(:disabled)')?.focus();
+}
+
+function openTaskMenu(id) {
+  const task = findTask(id);
+  if (!task) return;
+  const open = task.status === 'open';
+  const close = () => $('#dialog').close();
+  const tomorrow = addDays(today(), 1);
+  openSheet(task.title, [
+    open ? [task.repeat ? 'Concluir e ir para a próxima' : 'Concluir', async () => { close(); await complete(id); }]
+      : ['Reabrir', async () => { close(); await reopen(id); }],
+    ['Abrir detalhes', () => openTask(id)],
+    open && [task.important ? 'Tirar a estrela' : 'Marcar como importante', async () => { close(); await saveTask({ ...task, important: !task.important }); render(); }],
+    open && task.when !== today() && ['Fazer hoje', async () => { close(); if (await editTask(id, { when: today() })) { render(); showToast('Movida para hoje.'); } }],
+    open && task.when !== tomorrow && ['Fazer amanhã', async () => { close(); if (await editTask(id, { when: tomorrow })) { render(); showToast('Movida para amanhã.'); } }],
+    open && task.when && !task.repeat && ['Tirar a data', async () => { close(); if (await editTask(id, { when: null })) render(); }],
+    ['Mover para outra lista', () => openMoveSheet([id])],
+    ['Duplicar', async () => { close(); await duplicateTask(id); }],
+    ['Selecionar várias', () => { close(); state.selecting = true; state.selected = new Set([id]); render(); }],
+    ['Excluir', async () => { close(); await trashWithConfirm(id); }, { danger: true }],
+  ]);
+}
+
+function openMoveSheet(ids) {
+  const tasks = ids.map(findTask).filter(Boolean);
+  const current = tasks.length === 1 ? tasks[0].listId : null;
+  openSheet(tasks.length === 1 ? 'Mover para' : `Mover ${tasks.length} tarefas para`, [
+    ...sortedLists().map((list) => [`${listLabel(list)}${list.group ? ` <span class="sheet-hint">${escapeHtml(list.group)}</span>` : ''}`, async () => {
+      $('#dialog').close();
+      state.selecting = false;
+      state.selected.clear();
+      await bulkApply(ids, `Movida${tasks.length === 1 ? '' : 's'} para ${list.name}.`, (task) => saveTask({ ...task, listId: list.id }));
+    }, { html: true, on: list.id === current, disabled: list.id === current }]),
+    ['+ Nova lista…', () => openListDialog(null, { moveIds: ids }), {}],
+  ]);
+}
+
+async function trashWithConfirm(id) {
+  const task = findTask(id);
+  if (!task) return;
+  if (state.settings.confirmDelete && !confirm(`Mandar "${task.title}" para a lixeira?`)) return;
+  await moveToTrash(id);
+}
+
+function openListMenu(id) {
+  const list = findList(id);
+  if (!list) return;
+  const close = () => $('#dialog').close();
+  const isInbox = id === INBOX;
+  const doneCount = state.tasks.filter((t) => t.listId === id && t.status === 'done' && !t.deletedAt).length;
+  const openN = openCount(id);
+  openSheet(list.name, [
+    currentRoute().id !== id && ['Abrir', () => { close(); location.hash = `#list/${id}`; }],
+    !isInbox && ['Editar nome, emoji, cor e grupo', () => openListDialog(id)],
+    ['Ordenar tarefas por…', () => openSortSheet(id)],
+    doneCount && [state.doneOpen.has(id) ? 'Esconder concluídas' : `Mostrar concluídas (${doneCount})`, () => { close(); toggleDoneSection(id); }],
+    doneCount && [`Limpar concluídas (${doneCount})`, async () => { close(); await clearListDone(id); }],
+    openN && ['Selecionar tarefas', () => { close(); location.hash = `#list/${id}`; state.selecting = true; state.selected.clear(); render(); }],
+    !isInbox && ['Duplicar lista (sem as tarefas)', async () => { close(); await duplicateList(id); }],
+    !isInbox && ['Organizar listas', () => { close(); location.hash = '#organize'; }],
+    !isInbox && ['Excluir lista', () => openDeleteList(id), { danger: true }],
+    isInbox && ['A Entrada não pode ser renomeada nem excluída.', () => {}, { disabled: true }],
+  ], list.group ? `Grupo: ${escapeHtml(list.group)}` : '');
+}
+
+function openSortSheet(id) {
+  const list = findList(id);
+  const current = list.sort || 'manual';
+  openSheet(`Ordenar ${list.name}`, LIST_SORTS.map(([key, name]) => [
+    `${key === current ? '✓ ' : ''}${name}`,
+    async () => { $('#dialog').close(); await setListSort(id, key); },
+    { on: key === current },
+  ]));
+}
+
+async function setListSort(id, sort) {
+  await saveList({ ...findList(id), sort });
+  render();
+}
+
+function toggleDoneSection(id) {
+  if (state.doneOpen.has(id)) state.doneOpen.delete(id); else state.doneOpen.add(id);
+  render();
+}
+
+async function clearListDone(id) {
+  const done = state.tasks.filter((t) => t.listId === id && t.status === 'done' && !t.deletedAt);
+  const now = new Date().toISOString();
+  await bulkApply(done.map((t) => t.id), `${done.length} concluída(s) na lixeira.`, (task) => saveTask({ ...task, deletedAt: now }));
+}
+
+async function duplicateList(id) {
+  const list = findList(id);
+  const copy = { ...list, id: newId(), name: `${list.name} (cópia)`, order: Number.isFinite(list.order) ? list.order + 0.5 : list.order };
+  delete copy._t;
+  delete copy._dirty;
+  await saveList(copy);
+  location.hash = `#list/${copy.id}`;
+  showToast('Lista duplicada.');
+}
+
+/** Muda a ordem de uma lista dentro da sua seção (sem grupo ou o mesmo grupo). */
+async function moveList(id, step) {
+  const list = findList(id);
+  const section = sortedLists().filter((l) => l.id !== INBOX && (l.group || '') === (list.group || ''));
+  const from = section.findIndex((l) => l.id === id);
+  const to = from + step;
+  if (to < 0 || to >= section.length) return;
+  section.splice(to, 0, section.splice(from, 1)[0]);
+  // Numera a lista inteira, mantendo as outras seções onde estavam.
+  const all = sortedLists().filter((l) => l.id !== INBOX);
+  const queue = [...section];
+  const ordered = all.map((l) => ((l.group || '') === (list.group || '') ? queue.shift() : l));
+  for (const [index, item] of ordered.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    if (item.order !== index + 1) await saveList({ ...item, order: index + 1 });
+  }
+  render();
+  document.querySelector(`[data-action="move-list"][data-id="${id}"][data-step="${step}"]:not(:disabled)`)?.focus();
+}
+
+function openGroupMenu(name) {
+  const lists = state.lists.filter((l) => l.group === name);
+  openSheet(`Grupo ${name}`, [
+    ['Renomear grupo', () => openGroupDialog(name)],
+    ['Nova lista neste grupo', () => openListDialog(null, { group: name })],
+    ['Desfazer o grupo (as listas continuam)', async () => {
+      $('#dialog').close();
+      for (const list of lists) await saveList({ ...list, group: '' }); // eslint-disable-line no-await-in-loop
+      render();
+      showToast(`Grupo ${name} desfeito.`, async () => {
+        for (const list of lists) await saveList({ ...findList(list.id), group: name }); // eslint-disable-line no-await-in-loop
+        render();
+      });
+    }, { danger: true }],
+  ], `${lists.length} lista(s): ${escapeHtml(lists.map((l) => l.name).join(', '))}`);
+}
+
+function openGroupDialog(name = '') {
+  const lists = sortedLists().filter((l) => l.id !== INBOX);
+  const dialog = $('#dialog');
+  dialog.innerHTML = `
+    <form class="form" data-form="group" data-old="${escapeHtml(name)}">
+      <div class="form-head"><h2>${name ? 'Renomear grupo' : 'Novo grupo'}</h2><button type="button" class="btn small" data-action="close-dialog">Fechar</button></div>
+      <div class="field"><label for="g-name">Nome do grupo</label><input id="g-name" name="name" required value="${escapeHtml(name)}" autocomplete="off"></div>
+      ${name ? '' : `<div class="field"><span class="label-text">Listas do grupo</span>
+        ${lists.length ? lists.map((l) => `<label class="check-line"><input type="checkbox" name="lists" value="${l.id}"> ${listLabel(l)}${l.group ? ` <span class="sheet-hint">(hoje em ${escapeHtml(l.group)})</span>` : ''}</label>`).join('') : '<p class="help">Crie uma lista primeiro.</p>'}
+      </div>`}
+      <div class="form-foot"><div></div><div><button class="btn primary">Salvar</button></div></div>
+    </form>`;
+  if (!dialog.open) dialog.showModal();
+  $('#g-name').focus();
+}
+
+async function submitGroup(form) {
+  const data = new FormData(form);
+  const name = data.get('name').trim();
+  if (!name) return;
+  const old = form.dataset.old;
+  const targets = old ? state.lists.filter((l) => l.group === old) : data.getAll('lists').map(findList).filter(Boolean);
+  if (!old && !targets.length) {
+    showToast('Marque ao menos uma lista para o grupo.');
+    return;
+  }
+  for (const list of targets) await saveList({ ...list, group: name }); // eslint-disable-line no-await-in-loop
+  $('#dialog').close();
+  render();
+  showToast(old ? 'Grupo renomeado.' : `Grupo ${name} criado.`);
 }
 
 /* ---------- Janela da tarefa ---------- */
@@ -894,9 +1404,14 @@ function openTask(id) {
   if (!task) return;
   draftSteps = (task.steps || []).map((step) => ({ ...step }));
   const repeat = task.repeat || {};
-  const options = (selected) => state.lists
-    .slice().sort((a, b) => (a.id === INBOX ? -1 : b.id === INBOX ? 1 : a.name.localeCompare(b.name, 'pt-BR')))
-    .map((l) => `<option value="${l.id}" ${l.id === selected ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+  const options = (selected) => sortedLists()
+    .map((l) => `<option value="${l.id}" ${l.id === selected ? 'selected' : ''}>${escapeHtml(`${l.emoji ? `${l.emoji} ` : ''}${l.name}${l.group ? ` · ${l.group}` : ''}`)}</option>`).join('');
+  const stampText = (iso) => (iso ? `${formatDate(localDate(new Date(iso))).toLowerCase()} às ${new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : '');
+  const info = [
+    task.createdAt && `Criada ${stampText(task.createdAt)}`,
+    task.status === 'done' && task.completedAt && `Concluída ${stampText(task.completedAt)}`,
+    task.deletedAt && `Na lixeira desde ${stampText(task.deletedAt)}`,
+  ].filter(Boolean).join(' · ');
   const granted = 'Notification' in window && Notification.permission === 'granted';
   let notifyHint = 'Sinal visual no app. Para receber notificação, ative em Config.';
   if (granted) {
@@ -990,20 +1505,38 @@ function openTask(id) {
         <div class="quick-add" style="margin:0"><div class="field" style="flex:1"><input id="step-input" aria-label="Nova etapa" placeholder="Nova etapa" autocomplete="off"></div><button type="button" class="btn" data-action="add-step">Adicionar</button></div>
       </div>
       <div class="field"><label for="f-notes">Notas</label><textarea id="f-notes" name="notes">${escapeHtml(task.notes)}</textarea></div>
+      ${info ? `<p class="help task-info">${escapeHtml(info)}</p>` : ''}
       <div class="form-foot">
         <div>
-          <button type="button" class="btn danger" data-action="trash" data-id="${task.id}">Excluir</button>
-          ${task.status === 'open' ? `<button type="button" class="btn primary" data-action="complete-from-dialog" data-id="${task.id}">${task.repeat ? 'Concluir e ir para a próxima' : 'Concluir'}</button>` : ''}
-          ${task.repeat ? `<button type="button" class="btn" data-action="skip" data-id="${task.id}">Pular ocorrência</button>` : ''}
-          <button type="button" class="btn" data-action="move-up" data-id="${task.id}" aria-label="Mover para cima">↑</button>
-          <button type="button" class="btn" data-action="move-down" data-id="${task.id}" aria-label="Mover para baixo">↓</button>
+          ${task.deletedAt
+    ? `<button type="button" class="btn" data-action="restore" data-id="${task.id}">Restaurar</button>`
+    : `<button type="button" class="btn danger" data-action="trash" data-id="${task.id}">Excluir</button>`}
+          ${task.status === 'open' ? `<button type="button" class="btn primary" data-action="complete-from-dialog" data-id="${task.id}">${task.repeat ? 'Concluir e ir para a próxima' : 'Concluir'}</button>`
+    : `<button type="button" class="btn" data-action="reopen-from-dialog" data-id="${task.id}">Reabrir</button>`}
+          ${task.repeat && task.status === 'open' ? `<button type="button" class="btn" data-action="skip" data-id="${task.id}">Pular ocorrência</button>` : ''}
+          <button type="button" class="btn" data-action="duplicate-from-dialog" data-id="${task.id}">Duplicar</button>
         </div>
         <div><button class="btn primary">Salvar</button></div>
       </div>
     </form>`;
   renderSteps();
   updateFormHints();
-  dialog.showModal();
+  if (!dialog.open) dialog.showModal();
+  dialogSnapshot = formSnapshot();
+}
+
+// Para avisar antes de fechar os detalhes com alterações não salvas.
+let dialogSnapshot = null;
+function formSnapshot() {
+  const form = $('form[data-form="task"]');
+  return form ? JSON.stringify({ ...readForm(form), steps: draftSteps }) : null;
+}
+const hasUnsavedChanges = () => dialogSnapshot !== null && formSnapshot() !== null && formSnapshot() !== dialogSnapshot;
+
+function closeDialog() {
+  if (hasUnsavedChanges() && !confirm('Descartar as alterações desta tarefa?')) return;
+  dialogSnapshot = null;
+  $('#dialog').close();
 }
 
 function extraReminderRow(value = '') {
@@ -1106,6 +1639,7 @@ async function submitTask(form) {
     return;
   }
   await saveTask(result.task);
+  dialogSnapshot = null;
   $('#dialog').close();
   render();
   await checkReminders();
@@ -1114,47 +1648,122 @@ async function submitTask(form) {
 
 /* ---------- Janela da lista ---------- */
 
-function openListDialog(id) {
-  const list = state.lists.find((l) => l.id === id);
-  const groupNames = [...new Set(state.lists.map((l) => l.group).filter(Boolean))];
+const EMOJI_SUGGESTIONS = ['🏠', '💼', '🛒', '💰', '❤️', '📚', '🎯', '✈️', '🔧', '🐾', '🎉', '🧘'];
+
+function openListDialog(id, { moveIds = null, group = '' } = {}) {
+  const list = findList(id);
+  const groupNames = [...new Set(state.lists.map((l) => l.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const color = list?.color || '';
   const dialog = $('#dialog');
   dialog.innerHTML = `
-    <form class="form" data-form="list" data-id="${id || ''}">
+    <form class="form" data-form="list" data-id="${id || ''}" data-move="${moveIds ? escapeHtml(moveIds.join(',')) : ''}">
       <div class="form-head"><h2>${list ? 'Editar lista' : 'Nova lista'}</h2><button type="button" class="btn small" data-action="close-dialog">Fechar</button></div>
-      <div class="field"><label for="l-name">Nome</label><input id="l-name" name="name" required value="${escapeHtml(list ? list.name : '')}"></div>
+      <div class="error" id="list-error" role="alert" hidden></div>
+      <div class="field"><label for="l-name">Nome</label><input id="l-name" name="name" required maxlength="60" value="${escapeHtml(list ? list.name : '')}" autocomplete="off"></div>
+      <div class="field">
+        <label for="l-emoji">Emoji (opcional)</label>
+        <div class="emoji-row">
+          <input id="l-emoji" name="emoji" maxlength="8" value="${escapeHtml(list?.emoji || '')}" autocomplete="off" placeholder="—">
+          ${EMOJI_SUGGESTIONS.map((e) => `<button type="button" class="emoji-pick" data-action="pick-emoji" data-emoji="${e}" aria-label="Usar ${e}">${e}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field">
+        <span class="label-text">Cor</span>
+        <div class="color-row" role="radiogroup" aria-label="Cor da lista">
+          ${LIST_COLORS.map(([value, name]) => `<label class="color-pick" title="${name}"><input type="radio" name="color" value="${value}" ${value === color ? 'checked' : ''} aria-label="${name}"><span style="--dot:${value || 'transparent'}" class="${value ? '' : 'no-color'}"></span></label>`).join('')}
+        </div>
+      </div>
       <div class="field">
         <label for="l-group">Grupo (opcional)</label>
-        <input id="l-group" name="group" list="group-names" value="${escapeHtml(list ? list.group : '')}" autocomplete="off">
+        <input id="l-group" name="group" list="group-names" maxlength="40" value="${escapeHtml(list ? list.group : group)}" autocomplete="off" placeholder="Ex.: Casa, Trabalho">
         <datalist id="group-names">${groupNames.map((name) => `<option value="${escapeHtml(name)}">`).join('')}</datalist>
+        <div class="help">Listas com o mesmo grupo aparecem juntas. ${groupNames.length ? `Grupos atuais: ${escapeHtml(groupNames.join(', '))}.` : ''}</div>
       </div>
       <div class="form-foot">
         <div>${list ? `<button type="button" class="btn danger" data-action="delete-list" data-id="${id}">Excluir lista</button>` : ''}</div>
-        <div><button class="btn primary">Salvar</button></div>
+        <div><button class="btn primary">${list ? 'Salvar' : 'Criar lista'}</button></div>
       </div>
     </form>`;
-  dialog.showModal();
+  if (!dialog.open) dialog.showModal();
+  $('#l-name').focus();
 }
 
 async function submitList(form) {
   const data = new FormData(form);
   const name = data.get('name').trim();
-  if (!name) return;
+  const error = $('#list-error');
+  if (!name) {
+    error.textContent = 'Dê um nome à lista.';
+    error.hidden = false;
+    return;
+  }
   const id = form.dataset.id || newId();
-  await saveList({ id, name, group: data.get('group').trim() });
+  const twin = state.lists.find((l) => l.id !== id && l.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'));
+  if (twin && !form.dataset.confirmed) {
+    error.textContent = `Já existe uma lista chamada ${twin.name}. Toque em ${form.dataset.id ? 'Salvar' : 'Criar lista'} de novo para manter o nome.`;
+    error.hidden = false;
+    form.dataset.confirmed = '1';
+    return;
+  }
+  const prev = findList(id);
+  const order = prev ? prev.order : Math.max(0, ...state.lists.map((l) => (Number.isFinite(l.order) ? l.order : 0))) + 1;
+  await saveList({
+    ...(prev || {}), id, name, group: data.get('group').trim(), emoji: data.get('emoji').trim(), color: data.get('color') || '', order,
+  });
+  const moveIds = form.dataset.move ? form.dataset.move.split(',') : null;
   $('#dialog').close();
-  if (form.dataset.id) render(); else location.hash = `#list/${id}`;
+  if (moveIds) {
+    state.selecting = false;
+    state.selected.clear();
+    await bulkApply(moveIds, `Movida(s) para ${name}.`, (task) => saveTask({ ...task, listId: id }));
+    return;
+  }
+  if (prev) {
+    render();
+    showToast('Lista salva.');
+  } else {
+    location.hash = `#list/${id}`;
+  }
 }
 
-async function deleteList(id) {
-  const count = state.tasks.filter((t) => t.listId === id).length;
-  if (!confirm(`Excluir esta lista? ${count ? `${count} tarefa(s) irão para a Entrada.` : ''}`)) return;
+/** Excluir lista: escolher o que acontece com as tarefas dela. */
+function openDeleteList(id) {
+  const list = findList(id);
+  const tasks = state.tasks.filter((t) => t.listId === id && !t.deletedAt);
+  const open = tasks.filter((t) => t.status === 'open').length;
+  const dialog = $('#dialog');
+  dialog.innerHTML = `
+    <form class="form" data-form="delete-list" data-id="${id}">
+      <div class="form-head"><h2>Excluir ${escapeHtml(list.name)}?</h2><button type="button" class="btn small" data-action="close-dialog">Cancelar</button></div>
+      ${tasks.length ? `
+      <p class="help">A lista tem ${tasks.length} tarefa(s), ${open} aberta(s). O que fazer com elas?</p>
+      <label class="check-line"><input type="radio" name="fate" value="inbox" checked> Mover para a Entrada</label>
+      <label class="check-line"><input type="radio" name="fate" value="other"> Mover para outra lista:</label>
+      <div class="field"><select name="target" aria-label="Lista de destino">${sortedLists().filter((l) => l.id !== id).map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}</select></div>
+      <label class="check-line"><input type="radio" name="fate" value="trash"> Mandar para a Lixeira (dá para restaurar)</label>` : '<p class="help">A lista está vazia.</p>'}
+      <div class="form-foot"><div></div><div><button class="btn danger">Excluir lista</button></div></div>
+    </form>`;
+  if (!dialog.open) dialog.showModal();
+}
+
+async function deleteList(form) {
+  const id = form.dataset.id;
+  const list = findList(id);
+  const data = new FormData(form);
+  const fate = data.get('fate') || 'inbox';
+  const target = fate === 'other' ? data.get('target') : INBOX;
+  const now = new Date().toISOString();
   for (const task of state.tasks.filter((t) => t.listId === id)) {
-    await saveTask({ ...task, listId: INBOX });
+    // Na lixeira, a tarefa guarda a Entrada como destino de quando for restaurada.
+    // eslint-disable-next-line no-await-in-loop
+    await saveTask(fate === 'trash' && !task.deletedAt ? { ...task, listId: INBOX, deletedAt: now } : { ...task, listId: target });
   }
+  if (state.settings.defaultList === id) await saveSettings({ defaultList: INBOX });
   await forget('lists', id);
   $('#dialog').close();
   location.hash = '#lists';
   render();
+  showToast(`Lista ${list.name} excluída.`);
 }
 
 /* ---------- Backup ---------- */
@@ -1353,10 +1962,114 @@ const clickActions = {
     await saveTask(dismissReminder(findTask(el.dataset.id), localDateTime()));
     render();
   },
-  'close-dialog': () => $('#dialog').close(),
+  'close-dialog': () => closeDialog(),
   'complete-from-dialog': async (el) => {
     $('#dialog').close();
     await complete(el.dataset.id);
+  },
+  'reopen-from-dialog': async (el) => {
+    $('#dialog').close();
+    await reopen(el.dataset.id);
+  },
+  'duplicate-from-dialog': async (el) => {
+    if (hasUnsavedChanges() && !confirm('Duplicar sem salvar as alterações desta tarefa?')) return;
+    $('#dialog').close();
+    const id = await duplicateTask(el.dataset.id);
+    if (id) openTask(id);
+  },
+  noop: () => {},
+  'task-menu': (el) => openTaskMenu(el.dataset.id),
+  'list-menu': (el) => openListMenu(el.dataset.id),
+  'group-menu': (el) => openGroupMenu(el.dataset.group),
+  'new-group': () => openGroupDialog(''),
+  'organize-lists': () => { location.hash = '#organize'; },
+  'move-list': (el) => moveList(el.dataset.id, Number(el.dataset.step)),
+  'set-list-sort': (el) => setListSort(el.dataset.id, el.dataset.sort),
+  'toggle-done-section': (el) => toggleDoneSection(el.dataset.id),
+  'pick-emoji': (el) => {
+    const input = $('#l-emoji');
+    input.value = input.value === el.dataset.emoji ? '' : el.dataset.emoji;
+  },
+  sheet: (el) => {
+    const item = sheetItems[Number(el.dataset.index)];
+    if (item) item[1]();
+  },
+  'select-start': () => {
+    state.selecting = true;
+    state.selected.clear();
+    render();
+  },
+  'select-end': () => endSelection(),
+  'toggle-select': (el) => {
+    const { id } = el.dataset;
+    if (state.selected.has(id)) state.selected.delete(id); else state.selected.add(id);
+    render();
+  },
+  'select-all': () => {
+    const visible = [...document.querySelectorAll('#view .task.selectable')].map((row) => row.dataset.id);
+    const allOn = visible.every((id) => state.selected.has(id));
+    visible.forEach((id) => (allOn ? state.selected.delete(id) : state.selected.add(id)));
+    render();
+  },
+  bulk: (el) => runBulk(el.dataset.op),
+  'forget-log': async (el) => {
+    const entry = state.log.find((item) => item.id === el.dataset.id);
+    if (!entry) return;
+    await forget('log', entry.id);
+    render();
+    showToast('Apagado do histórico.', async () => {
+      const { _t, _dirty, ...clean } = entry;
+      await saveLogEntry(clean);
+      render();
+    });
+  },
+  'clear-done': async () => {
+    const done = activeTasks().filter((t) => t.status === 'done');
+    const logs = state.log.slice();
+    if (!done.length && !logs.length) return showToast('Não há concluídas para limpar.');
+    if (!confirm(`Mandar ${done.length} tarefa(s) concluída(s) para a Lixeira${logs.length ? ` e apagar ${logs.length} registro(s) do histórico das repetições` : ''}?`)) return undefined;
+    const now = new Date().toISOString();
+    for (const task of done) await saveTask({ ...task, deletedAt: now }); // eslint-disable-line no-await-in-loop
+    for (const entry of logs) await forget('log', entry.id); // eslint-disable-line no-await-in-loop
+    render();
+    return showToast('Concluídas limpas. As tarefas estão na Lixeira.');
+  },
+  'restore-all': async () => {
+    const trashed = state.tasks.filter((t) => t.deletedAt);
+    for (const task of trashed) await restoreTask(task.id); // eslint-disable-line no-await-in-loop
+    render();
+    showToast(`${trashed.length} tarefa(s) restaurada(s).`);
+  },
+  'empty-trash': async () => {
+    const trashed = state.tasks.filter((t) => t.deletedAt);
+    if (!trashed.length) return showToast('A lixeira já está vazia.');
+    if (!confirm(`Excluir de vez ${trashed.length} tarefa(s) da lixeira? Isso não pode ser desfeito, e vale para todos os aparelhos.`)) return undefined;
+    for (const task of trashed) await forget('tasks', task.id); // eslint-disable-line no-await-in-loop
+    render();
+    return showToast('Lixeira esvaziada.');
+  },
+  'set-start-view': async (el) => {
+    await saveSettings({ startView: el.dataset.value });
+    render();
+  },
+  'set-week-start': async (el) => {
+    await saveSettings({ weekStart: Number(el.dataset.value) });
+    render();
+  },
+  jump: (el) => {
+    document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  'check-update': async () => {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    if (!registration) return showToast('Sem o modo offline ativo; recarregue a página.');
+    await registration.update().catch(() => {});
+    if (registration.installing || registration.waiting) {
+      showToast('Atualização encontrada. Reabrindo...');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast(`Você já está na versão mais nova (${APP_VERSION}).`);
+    }
+    return undefined;
   },
   'set-when': (el) => {
     $('#f-when').value = addDays(today(), Number(el.dataset.days));
@@ -1393,6 +2106,8 @@ const clickActions = {
     renderSteps();
   },
   trash: async (el) => {
+    if (state.settings.confirmDelete && !confirm(`Mandar "${findTask(el.dataset.id).title}" para a lixeira?`)) return;
+    dialogSnapshot = null;
     $('#dialog').close();
     await moveToTrash(el.dataset.id);
   },
@@ -1413,8 +2128,10 @@ const clickActions = {
   'move-up': (el) => moveTask(el.dataset.id, -1),
   'move-down': (el) => moveTask(el.dataset.id, 1),
   restore: async (el) => {
-    await saveTask({ ...findTask(el.dataset.id), deletedAt: null });
+    if ($('#dialog').open) $('#dialog').close();
+    await restoreTask(el.dataset.id);
     render();
+    showToast('Tarefa restaurada.');
   },
   purge: async (el) => {
     const task = findTask(el.dataset.id);
@@ -1433,7 +2150,7 @@ const clickActions = {
   },
   'new-list': () => openListDialog(null),
   'edit-list': (el) => openListDialog(el.dataset.id),
-  'delete-list': (el) => deleteList(el.dataset.id),
+  'delete-list': (el) => openDeleteList(el.dataset.id),
   'enable-notifications': async () => {
     await Notification.requestPermission();
     render();
@@ -1514,7 +2231,17 @@ document.addEventListener('submit', async (event) => {
     await submitTask(form);
   } else if (form.dataset.form === 'list') {
     await submitList(form);
+  } else if (form.dataset.form === 'group') {
+    await submitGroup(form);
+  } else if (form.dataset.form === 'delete-list') {
+    await deleteList(form);
   }
+});
+
+// Esc nos detalhes: avisa se há alterações não salvas.
+$('#dialog').addEventListener('cancel', (event) => {
+  if (hasUnsavedChanges() && !confirm('Descartar as alterações desta tarefa?')) event.preventDefault();
+  else dialogSnapshot = null;
 });
 
 document.addEventListener('input', (event) => {
@@ -1551,6 +2278,14 @@ document.addEventListener('change', async (event) => {
     await changePushSettings({ digestTime: target.value });
   } else if (target.id === 'parse-dates') {
     await saveSettings({ parseDates: target.checked });
+  } else if (target.id === 'confirm-delete') {
+    await saveSettings({ confirmDelete: target.checked });
+  } else if (target.id === 'default-list') {
+    await saveSettings({ defaultList: target.value });
+    showToast(`Tarefas novas vão para ${listName(target.value)}.`);
+  } else if (target.id === 'search-done') {
+    await saveSettings({ searchDone: target.checked });
+    $('#search-results').innerHTML = searchResults();
   } else if (target.id === 'import-file' && target.files[0]) {
     await importData(target.files[0]);
     target.value = '';
@@ -1591,6 +2326,10 @@ document.addEventListener('keydown', async (event) => {
     return;
   }
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || event.target.isContentEditable;
+  if (event.key === 'Escape' && state.selecting && !$('#dialog').open) {
+    endSelection();
+    return;
+  }
   if (typing || event.ctrlKey || event.metaKey || event.altKey || $('#dialog').open) return;
   if (event.key === 'n' || event.key === 'N') {
     event.preventDefault();
@@ -1654,7 +2393,84 @@ async function endDrag() {
 document.addEventListener('pointerup', endDrag);
 document.addEventListener('pointercancel', endDrag);
 
-window.addEventListener('hashchange', handleRoute);
+/* ---------- Deslizar (celular) e menu do botão direito / toque longo ---------- */
+
+const SWIPE_DONE = 90;
+let swipe = null;
+let suppressClick = false;
+
+document.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'touch' || state.selecting || drag) return;
+  const row = event.target.closest('#view .task[data-id]');
+  if (!row || event.target.closest('[data-drag]')) return;
+  swipe = { row, id: row.dataset.id, x: event.clientX, y: event.clientY, dx: 0, active: false, pointerId: event.pointerId };
+});
+
+document.addEventListener('pointermove', (event) => {
+  if (!swipe || event.pointerId !== swipe.pointerId) return;
+  const dx = event.clientX - swipe.x;
+  const dy = event.clientY - swipe.y;
+  if (!swipe.active) {
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+    if (Math.abs(dx) < 14) return;
+    swipe.active = true;
+    swipe.row.classList.add('swiping');
+  }
+  swipe.dx = dx;
+  const task = findTask(swipe.id);
+  const canComplete = task?.status === 'open';
+  const shown = dx > 0 && !canComplete ? Math.min(dx, 24) : dx;
+  swipe.row.style.transform = `translateX(${shown}px)`;
+  swipe.row.dataset.swipe = dx > SWIPE_DONE && canComplete ? 'complete' : dx < -SWIPE_DONE ? 'trash' : '';
+});
+
+async function endSwipe() {
+  if (!swipe) return;
+  const { row, id, dx, active } = swipe;
+  swipe = null;
+  if (!active) return;
+  suppressClick = true;
+  setTimeout(() => { suppressClick = false; }, 350);
+  row.classList.remove('swiping');
+  row.style.transform = '';
+  delete row.dataset.swipe;
+  const task = findTask(id);
+  if (dx > SWIPE_DONE && task?.status === 'open') await complete(id);
+  else if (dx < -SWIPE_DONE) await trashWithConfirm(id);
+}
+
+document.addEventListener('pointerup', endSwipe);
+document.addEventListener('pointercancel', () => {
+  if (!swipe) return;
+  swipe.row.classList.remove('swiping');
+  swipe.row.style.transform = '';
+  swipe = null;
+});
+
+// Um toque logo depois de deslizar não deve abrir a tarefa.
+document.addEventListener('click', (event) => {
+  if (suppressClick) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+}, true);
+
+// Botão direito no note e toque longo no celular abrem o menu da tarefa.
+document.addEventListener('contextmenu', (event) => {
+  const row = event.target.closest('#view .task[data-id]');
+  if (!row || state.selecting || swipe?.active) return;
+  event.preventDefault();
+  openTaskMenu(row.dataset.id);
+});
+
+window.addEventListener('hashchange', () => {
+  // Trocar de tela encerra a seleção de várias tarefas.
+  if (state.selecting && !currentRoute().name.startsWith('notif')) {
+    state.selecting = false;
+    state.selected.clear();
+  }
+  handleRoute();
+});
 matchMedia('(max-width: 799px)').addEventListener('change', renderNav);
 darkScheme.addEventListener('change', () => {
   applyTheme();
@@ -1722,7 +2538,7 @@ async function createFromShare(title, text, url) {
   const [first, ...rest] = source.split('\n');
   const notes = [title ? text : rest.join('\n'), text.includes(url) ? '' : url]
     .map((part) => part.trim()).filter(Boolean).join('\n');
-  const id = await addTask(first.trim().slice(0, 200) || 'Compartilhado', { listId: INBOX }, null, { notes });
+  const id = await addTask(first.trim().slice(0, 200) || 'Compartilhado', { listId: defaultListId() }, null, { notes });
   if (!id) return;
   openTask(id);
   showToast('Tarefa criada a partir do compartilhamento.');
@@ -1737,6 +2553,12 @@ async function start() {
   const shared = ['share-title', 'share-text', 'share-url'].map((key) => (params.get(key) || '').trim());
   const wantsNew = params.has('novo');
   if (wantsNew || shared.some(Boolean)) history.replaceState(null, '', `${location.pathname}${location.hash || '#today'}`);
+  else if (!location.hash) {
+    // Tela inicial escolhida em Config.
+    const start = state.settings.startView;
+    const hash = { upcoming: '#upcoming', lists: '#lists', inbox: `#list/${INBOX}` }[start];
+    if (hash) history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);
+  }
   handleRoute();
   if (shared.some(Boolean)) await createFromShare(...shared);
   else if (wantsNew) focusQuickAdd();

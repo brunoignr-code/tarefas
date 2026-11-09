@@ -46,7 +46,7 @@ No Marca-texto, dá para trocar a cor do destaque por uma das oito sugestões ou
 
 As fontes ficam em `fonts/` para funcionar offline: Bitter, Manrope, Nunito, Figtree e Bricolage Grotesque, do Google Fonts (licença SIL Open Font License).
 
-Botões em cinza são funções planejadas, ainda sem ação.
+Os botões de funções que não serão feitas (Google Agenda, Importar do To Do, Hábitos, Pomodoro, listas compartilhadas) saíram na v12.
 
 ## Sincronização
 
@@ -72,6 +72,21 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
 ## Estado do projeto (9 de novembro de 2026)
+
+### v12, 9 de novembro: listas, ações e Config.
+
+- **Listas:** menu ⋯ em cada lista (na tela Listas e no topo da lista) com editar, ordenar, mostrar e limpar concluídas, selecionar, duplicar, organizar e excluir. A lista ganhou emoji e cor. Ao excluir, você escolhe se as tarefas vão para a Entrada, para outra lista ou para a Lixeira. Aviso de nome repetido.
+- **Organizar listas:** mudar a ordem com ↑ e ↓, criar grupo marcando as listas, renomear grupo, desfazer grupo (as listas ficam) e nova lista já dentro do grupo.
+- **Dentro da lista:** ordenar por minha ordem, data, prazo, importância, título ou criação; seção "Concluídas (n)" recolhível, com reabrir.
+- **Tarefas:** botão ⋯ em cada tarefa (também botão direito no note e toque longo no celular) com concluir, abrir, estrela, fazer hoje, fazer amanhã, tirar a data, mover para outra lista (ou para uma lista nova), duplicar, selecionar várias e excluir. No celular, deslizar para a direita conclui e para a esquerda manda para a Lixeira, sempre com Desfazer.
+- **Seleção de várias tarefas:** botão "Selecionar" em Hoje, nas listas, Importantes, tags e Concluídas; concluir, mandar para hoje, estrela, mover e excluir de uma vez.
+- **Detalhes da tarefa:** mostra quando foi criada e concluída, tem Duplicar e Reabrir, e avisa antes de fechar com alterações não salvas.
+- **Concluídas:** abrir a tarefa, reabrir, apagar registros do histórico das repetições e "Limpar" tudo. **Lixeira:** mostra a data e a lista, "Restaurar tudo" e "Esvaziar"; tarefa de lista excluída volta para a Entrada.
+- **Busca:** também procura no nome da lista e pode incluir as concluídas.
+- **Config.:** dividida em Geral, Aparência, Avisos, Conta e Dados, com atalhos no topo. Novas opções: tela inicial, lista das tarefas novas, semana começando no domingo ou na segunda (calendário), perguntar antes de excluir, limpeza de concluídas e lixeira, e "Buscar atualização agora".
+- Saíram os botões cinza sem função e o "Sincronizar agora" de Hoje (a sincronização é automática; o botão continua em Config.).
+- **Formato dos dados:** as listas ganharam os campos opcionais `order`, `color`, `emoji` e `sort`. Nada foi removido nem renomeado; o login e o servidor não mudaram. As opções novas de Config. ficam só no aparelho, como as que já existiam.
+- Testado no navegador, em tamanho de celular e de note, numa origem local vazia e sem login (nada chegou à sua conta), com os dados apagados depois. Os 62 testes automáticos passaram.
 
 ### APK Android (TWA) 1.0, 9 de novembro
 
@@ -136,6 +151,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Uso sem internet no endereço publicado.
 - Compartilhar de outro app, atalhos no ícone e arrastar com o dedo.
 - Todo o lote B com o app fechado num celular real: chegada do push, atraso, Android em economia de bateria, Concluir e Adiar.
+- A v12 no celular de verdade: deslizar com o dedo, toque longo abrindo o menu e a barra de seleção acima das abas (testados só com toque simulado).
 - O APK (TWA) inteiro: não foi instalado em nenhum celular (nenhum estava no cabo). Falta ver tela cheia sem barra de endereço, ícone, tela de abertura, notificações com o ícone e o nome do app, atalhos, Compartilhar e o pedido de permissão de notificação no Android 13 ou mais novo.
 
 ### Próximos passos conhecidos
