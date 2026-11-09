@@ -16,6 +16,8 @@ import { stamp, stampAll } from './sync-core.js';
 import { authenticate, changePassword, createSync, endSession } from './sync.js';
 
 const INBOX = 'inbox';
+// Atualize junto com CACHE em sw.js a cada publicação.
+const APP_VERSION = 'v9 · 09/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -810,7 +812,8 @@ function settingsView() {
         <button class="row-link" disabled>Google Agenda</button>
         <button class="row-link" disabled>Importar do To Do</button>
       </div>
-    </section>`;
+    </section>
+    <p class="help" style="text-align:center;margin:8px 0 24px">Versão ${APP_VERSION}</p>`;
 }
 
 function currentRoute() {

@@ -1,5 +1,5 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v8';
+const CACHE = 'tarefas-v9';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
   './',

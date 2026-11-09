@@ -125,6 +125,6 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - `js/theme.js`: temas e cálculos de cor do marca-texto.
 - `js/db.js`: armazenamento local em IndexedDB.
 - `js/app.js`: telas e interações.
-- `sw.js`: cache offline, avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`.
+- `sw.js`: cache offline, avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config.
 - `tests/`: testes das regras, executados no navegador.
 - `tools/make_icons.py`: gera os ícones em `icons/`.
