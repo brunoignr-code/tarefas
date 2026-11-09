@@ -62,12 +62,13 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (6 de novembro de 2026)
 
-### Lote B, app publicado em 6 de novembro
+### Lote B, publicado em 6 de novembro (app) e 9 de novembro (servidor)
 
 - Lembretes com o app fechado (push enviado pelo servidor), ativados por aparelho em Config.
 - Vários lembretes por tarefa, lembrete insistente e resumo diário.
 - Formato dos dados: as tarefas ganharam os campos opcionais `extraReminders`, `insist` e `snoozedFor`. Nada foi removido nem renomeado. O login não mudou.
-- **Pendente:** implantar o novo `server/worker.js` e o Cron Trigger. Até lá, o app avisa que o servidor ainda não foi atualizado, e o resto funciona normalmente.
+- Servidor implantado em 9/11 com o Cron Trigger `* * * * *`. O cron roda por volta do segundo 18 de cada minuto, o que dá cerca de 20 segundos de atraso.
+- Medido na Cloudflare, numa cópia descartável do Worker: 6 ms de CPU no minuto com envio (incluindo a assinatura VAPID) e 2 ms nos minutos sem aviso. Chamadas normais ficam em torno de 4 ms.
 
 ### Lote A, publicado em 6 de novembro
 
@@ -81,13 +82,14 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Correção do modo offline, que podia guardar arquivos antigos e exigir várias recargas para mostrar uma versão nova.
 
 - **Publicado:** https://brunoignr-code.github.io/tarefas/, com o tema Barquinho como padrão e os temas Diamante, Folha e Marca-texto em Config.
-- **Servidor:** Cloudflare Worker `tarefas-sync`, com banco D1 `tarefas`, no plano gratuito. Este PC não tem Node, então o deploy de `server/worker.js` é feito pela API do painel da Cloudflare, no Chrome do usuário. O Worker precisa ser reimplantado à parte: publicar no GitHub não o atualiza.
+- **Servidor:** Cloudflare Worker `tarefas-sync`, com banco D1 `tarefas` e Cron Trigger a cada minuto, no plano gratuito (sem custo; passar do limite faz o pedido falhar, não gera cobrança). Este PC não tem Node, então o deploy de `server/worker.js` é feito pela API do painel da Cloudflare, no Chrome do usuário. O Worker precisa ser reimplantado à parte: publicar no GitHub não o atualiza.
 - **Migração:** as tarefas abertas do To Do foram para um JSON, fora do repositório, sem as tarefas de senha. Com o lembrete como referência, a data dele virou Quando.
 - **Aparelhos:** 1 notebook e 2 celulares Android, um deles A55. O note é a base da sincronização.
 
 ### Testado
 
 - Regras, cores, datas digitadas e agenda dos avisos em 57 testes automáticos.
+- Ciclo completo do push numa cópia descartável do Worker e do D1, apagadas depois: agenda, cron, envio ao FCM e remoção da inscrição recusada.
 - Servidor do lote B em 21 testes, no navegador, com SQLite em memória no lugar do D1: chaves VAPID, assinatura do JWT, inscrições, agenda, envio pelo cron sem repetição e remoção de aparelhos que saíram.
 - Vários lembretes, insistência, adiamento e o painel de Config. no navegador, com dados de teste.
 - Lote A no navegador, em tamanho de celular e de note, com dados de teste.
@@ -101,12 +103,13 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Notificações e os botões Concluir e Adiar.
 - Uso sem internet no endereço publicado.
 - Compartilhar de outro app, atalhos no ícone e arrastar com o dedo.
-- Todo o lote B com o app fechado: push real pelo FCM, atraso, Android em economia de bateria, CPU real do Worker na Cloudflare.
+- Todo o lote B com o app fechado num celular real: chegada do push, atraso, Android em economia de bateria, Concluir e Adiar.
 
 ### Próximos passos conhecidos
 
 - Coletar os feedbacks de uso real e ajustar.
-- Implantar o Worker do lote B com o Cron Trigger e conferir o tempo de CPU nas métricas da Cloudflare.
+- Ativar "Receber neste aparelho" nos celulares e fazer o "Testar com o app fechado".
+- Congelar funções novas e, depois de 1 ou 2 semanas de uso, retirar o que não foi usado (candidatos: Kanban, Matriz e os modos B e C do Até). Hábitos, Pomodoro, Google Agenda, listas compartilhadas e importação do To Do foram desaconselhados por fugirem do objetivo.
 - Definir o nome do app. Hoje ele aparece como "Tarefas" na capa e no ícone instalado.
 - Atualizar o canvas de temas, que ainda mostra "Ajustes" e não tem o Barquinho.
 - Escopo e decisões: [documento de escopo](https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY). O catálogo ainda traz a ordem antiga de algumas fases.

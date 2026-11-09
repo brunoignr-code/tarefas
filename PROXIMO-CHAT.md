@@ -9,8 +9,9 @@ Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Est
 
 Onde paramos:
 - Lotes A e B publicados no app. O lote B traz lembretes com o app fechado (push enviado pelo servidor), vários lembretes por tarefa, lembrete insistente e resumo diário, ativados por aparelho em Config.
-- Se o README ainda disser "Pendente: implantar o novo server/worker.js e o Cron Trigger", faça isso primeiro, pelo painel da Cloudflare no meu Chrome, e confira o tempo de CPU nas métricas.
-- Ainda dependem da minha decisão: Listas compartilhadas, Hábitos, Pomodoro, Google Agenda, Importar do To Do direto e o nome do app.
+- O servidor do lote B está implantado, com o cron a cada minuto. Medido: 6 ms de CPU com envio e 2 ms sem.
+- Combinado: congelar funções novas, corrigir o que aparecer no uso e, depois de 1 ou 2 semanas, retirar o que não usei (Kanban, Matriz, modos B e C do Até). O objetivo é um app simples de lembrete e recorrência, com listas, grupos e etapas.
+- Ainda depende da minha decisão: o nome do app. Hábitos, Pomodoro, Google Agenda, listas compartilhadas e importar do To Do foram desaconselhados.
 
 Regras:
 - App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome. Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.
