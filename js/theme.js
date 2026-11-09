@@ -1,8 +1,8 @@
 // Temas do app e cálculos de cor do marca-texto.
 
 export const THEMES = [
-  { id: 'barquinho', name: 'Barquinho', chrome: '#EAF2F5' },
   { id: 'diamante', name: 'Diamante', chrome: '#0E1218' },
+  { id: 'barquinho', name: 'Barquinho', chrome: '#EAF2F5' },
   { id: 'folha', name: 'Folha', chrome: '#F3F8F3' },
   { id: 'marca-texto', name: 'Marca-texto', chrome: '#FFFFFF' },
 ];

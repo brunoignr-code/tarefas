@@ -111,6 +111,14 @@ export function parseQuickAdd(text, today, nowTime = '00:00') {
     return true;
   });
 
+  // "todo sábado": a primeira vez é o próximo sábado, não hoje.
+  if (found.repeat?.weekdays && !found.when) {
+    const target = found.repeat.weekdays[0];
+    let day = addDays(today, (target - weekday(today) + 7) % 7);
+    if (day === today && found.time && found.time <= nowTime) day = addDays(today, 7);
+    found.when = day;
+  }
+
   if (found.time) {
     let day = found.when || today;
     if (!found.when && found.time <= nowTime) day = addDays(today, 1);

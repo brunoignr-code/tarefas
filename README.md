@@ -62,6 +62,14 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (6 de novembro de 2026)
 
+### v11, 9 de novembro
+
+- Diamante virou o tema padrão, com capa própria ("lapide o dia, uma tarefa por vez") e ícone de diamante no app instalado. Os temas claros continuam com a capa do barquinho, e o ícone da aba acompanha o tema.
+- O botão de concluir virou um check, que acende com a cor do tema ao concluir.
+- Concluir uma tarefa que repete vai direto para a próxima, e o botão diz para quando: "a cada 3 dias às 17h", feita em 9/11, vai para 12/11 às 17h; "todo sábado 6h30" vai para o próximo sábado. Também há "Concluir e ir para a próxima" nos detalhes da tarefa. Pular ocorrência segue o calendário da série.
+- Letra menor por padrão e 5 tamanhos em Config. > Aparência.
+- Correção: "todo sábado 6h30" digitado criava o lembrete para o dia seguinte; agora começa no próximo sábado.
+
 ### Nome do app, 9 de novembro
 
 - O app passou a se chamar "Minha lista de afazeres" (capa, aba e notificações). No ícone do Android aparece "Afazeres", porque o nome inteiro seria cortado. O Android pode demorar para trocar o nome de um app já instalado; reinstalar resolve.
@@ -92,7 +100,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### Testado
 
-- Regras, cores, datas digitadas e agenda dos avisos em 57 testes automáticos.
+- Regras, cores, datas digitadas e agenda dos avisos em 62 testes automáticos.
 - Ciclo completo do push numa cópia descartável do Worker e do D1, apagadas depois: agenda, cron, envio ao FCM e remoção da inscrição recusada.
 - Servidor do lote B em 21 testes, no navegador, com SQLite em memória no lugar do D1: chaves VAPID, assinatura do JWT, inscrições, agenda, envio pelo cron sem repetição e remoção de aparelhos que saíram.
 - Vários lembretes, insistência, adiamento e o painel de Config. no navegador, com dados de teste.
@@ -130,4 +138,4 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - `js/app.js`: telas e interações.
 - `sw.js`: cache offline, avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config.
 - `tests/`: testes das regras, executados no navegador.
-- `tools/make_icons.py`: gera os ícones em `icons/`.
+- `icons/`: capas (`diamante.svg`, `barco.svg`) e ícones. Os PNG do Diamante são gerados de `icon-diamante.svg` com o Chrome sem janela (`--headless --screenshot`). `tools/make_icons.py` é o gerador antigo, do primeiro ícone.

@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="pt-BR" data-theme="barquinho">
+<html lang="pt-BR" data-theme="diamante">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Minha lista de afazeres</title>
   <meta name="description" content="Gerenciador pessoal de tarefas que funciona offline.">
-  <meta name="theme-color" content="#EAF2F5">
+  <meta name="theme-color" content="#0E1218">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/icon-diamante-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-diamante-192.png">
   <link rel="stylesheet" href="styles.css">
   <script>
     // Aplica o último tema antes da primeira pintura, para evitar um lampejo de outro tema.
@@ -18,16 +18,26 @@
         document.documentElement.dataset.theme = saved.theme;
         document.documentElement.style.setProperty('--hi', saved.hi);
         document.documentElement.style.setProperty('--on-hi', saved.onHi);
+        if (saved.fs) document.documentElement.style.fontSize = `${saved.fs}px`;
       }
     } catch { /* O tema salvo é só uma conveniência. */ }
   </script>
 </head>
 <body>
-  <div class="splash" id="splash" role="img" aria-label="Minha lista de afazeres: a lista navega, você descansa">
-    <img src="icons/barco.svg" alt="" width="326" height="326">
+  <div class="splash" id="splash" role="img" aria-label="Minha lista de afazeres">
+    <img src="icons/diamante.svg" alt="" width="326" height="326">
     <strong>Minha lista de afazeres</strong>
-    <span>a lista navega, você descansa</span>
+    <span>lapide o dia, uma tarefa por vez</span>
   </div>
+  <script>
+    // Capa do tema: Diamante no escuro (padrão); o barquinho nos temas claros.
+    if (document.documentElement.dataset.theme !== 'diamante') {
+      const splash = document.getElementById('splash');
+      splash.classList.add('splash-claro');
+      splash.querySelector('img').src = 'icons/barco.svg';
+      splash.querySelector('span').textContent = 'a lista navega, você descansa';
+    }
+  </script>
   <div class="app">
     <nav class="nav" id="nav" aria-label="Navegação principal"></nav>
     <main class="main">

@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import {
   applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue, isUrgent,
-  INSIST_MAX, activeReminder, insistStep, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze,
+  INSIST_MAX, activeReminder, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze,
   todayTasks, upcomingTasks,
 } from './rules.js';
 import { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey } from './push-core.js';
@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v10 · 09/11/2026';
+const APP_VERSION = 'v11 · 09/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -26,7 +26,7 @@ const FREQ_LABELS = {
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
 
-const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'barquinho', themeChosen: true, highlight: DEFAULT_HIGHLIGHT }, search: '' };
+const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'diamante', themeChosen: true, themeV2: true, highlight: DEFAULT_HIGHLIGHT, fontSize: 3 }, search: '' };
 const $ = (selector, root = document) => root.querySelector(selector);
 const today = () => localDate();
 const newId = () => crypto.randomUUID();
@@ -62,9 +62,14 @@ const UNTIL_MODES = {
 };
 const untilMode = () => (UNTIL_MODES[state.settings.untilMode] ? state.settings.untilMode : 'A');
 
+// Tamanhos da letra em Config.; o 3 é o padrão.
+const FONT_SIZES = [[1, 12.5, 'Muito pequena'], [2, 13.5, 'Pequena'], [3, 14.5, 'Normal'], [4, 16, 'Grande'], [5, 17.5, 'Muito grande']];
+const fontSizePx = () => (FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize)) || FONT_SIZES[2])[1];
+
 const UPCOMING_MODES = [['list', 'Lista'], ['calendar', 'Calendário'], ['kanban', 'Kanban'], ['matrix', 'Matriz']];
 
 const STAR_ICON = (on) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"></path></svg>`;
+const MARK = '<span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8"></path></svg></span>';
 const GRIP_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>';
 
 /* ---------- Persistência ---------- */
@@ -218,7 +223,7 @@ async function complete(id) {
 
   let message = 'Tarefa concluída.';
   if (updated.status === 'ended') message = 'Concluída. A repetição terminou.';
-  else if (task.repeat) message = `Concluída. Próxima: ${formatDate(updated.when).toLowerCase()}.`;
+  else if (task.repeat) message = `Concluída. Próxima: ${nextLabel(updated, updated.when)}.`;
   showToast(message, async () => {
     if (logEntry) await forget('log', logEntry.id);
     await saveTask(task);
@@ -267,8 +272,8 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
     body,
     tag: task.id,
     renotify: step > 0,
-    icon: 'icons/icon-192.png',
-    badge: 'icons/icon-192.png',
+    icon: 'icons/icon-diamante-192.png',
+    badge: 'icons/icon-diamante-192.png',
     data: { id: task.id },
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -382,9 +387,21 @@ function taskChips(task, { showWhen = true, showList = false } = {}) {
   return chips.length ? `<span class="chips">${chips.join('')}</span>` : '';
 }
 
+/** Texto do botão de concluir: nas repetições, diz para quando vai a próxima. */
+function completeLabel(task) {
+  if (!task.repeat) return `Concluir ${task.title}`;
+  return `Concluir e ir para a próxima (${nextLabel(task, nextDate(task, today()))}): ${task.title}`;
+}
+
+/** "sex, 12/11 às 17:00", com o horário do lembrete quando houver. */
+function nextLabel(task, date) {
+  const time = task.remindAt && task.remindEach !== false ? ` às ${task.remindAt.slice(11)}` : '';
+  return `${formatDate(date).toLowerCase()}${time}`;
+}
+
 const taskRow = (task, options = {}) => `
   <li class="task" data-id="${task.id}">
-    <button class="check" data-action="complete" data-id="${task.id}" aria-label="Concluir ${escapeHtml(task.title)}"><span class="mark"></span></button>
+    <button class="check${task.repeat ? ' repeats' : ''}" data-action="complete" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}" title="${escapeHtml(task.repeat ? 'Concluir e ir para a próxima' : 'Concluir')}">${MARK}</button>
     <button class="task-body" data-action="open" data-id="${task.id}">
       <span class="task-title">${escapeHtml(task.title)}</span>
       ${taskChips(task, options)}
@@ -601,8 +618,8 @@ function doneView() {
   const row = (item) => `
     <li class="task is-done">
       ${item.reopen
-        ? `<button class="check done" data-action="reopen" data-id="${item.taskId}" aria-label="Reabrir ${escapeHtml(item.title)}"><span class="mark"></span></button>`
-        : '<span class="check done" aria-hidden="true"><span class="mark"></span></span>'}
+        ? `<button class="check done" data-action="reopen" data-id="${item.taskId}" aria-label="Reabrir ${escapeHtml(item.title)}">${MARK}</button>`
+        : `<span class="check done" aria-hidden="true">${MARK}</span>`}
       <div class="task-body">
         <span class="task-title">${escapeHtml(item.title)}</span>
         <span class="chips"><span>${item.at ? `Concluída ${escapeHtml(formatDate(localDate(new Date(item.at))).toLowerCase())}` : ''}</span>${item.occurrence ? `<span>↻ ocorrência de ${escapeHtml(formatDate(item.occurrence).toLowerCase())}</span>` : ''}</span>
@@ -794,7 +811,12 @@ function settingsView() {
       <div class="segments themes" role="group" aria-label="Tema">
         ${themeOptions.map((item) => `<button class="${item.id === theme ? 'on' : ''}" data-action="set-theme" data-theme-id="${item.id}" aria-pressed="${item.id === theme}">${item.name}</button>`).join('')}
       </div>
-      <p style="margin:0">Em Sistema, o app usa Diamante no modo escuro e Barquinho no modo claro.</p>
+      <p>Em Sistema, o app usa Diamante no modo escuro e Barquinho no modo claro.</p>
+      <h3 style="margin-top:6px">Tamanho da letra</h3>
+      <div class="segments font-sizes" role="group" aria-label="Tamanho da letra">
+        ${FONT_SIZES.map(([id, px, name]) => `<button class="${id === Number(state.settings.fontSize || 3) ? 'on' : ''}" data-action="set-font-size" data-size="${id}" aria-pressed="${id === Number(state.settings.fontSize || 3)}" aria-label="${name}" title="${name}"><span style="font-size:${px}px">Aa</span></button>`).join('')}
+      </div>
+      <p style="margin:0">${(FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize || 3)) || FONT_SIZES[2])[2]}.</p>
     </section>
     ${highlightPanel}
     <section class="panel">
@@ -971,6 +993,7 @@ function openTask(id) {
       <div class="form-foot">
         <div>
           <button type="button" class="btn danger" data-action="trash" data-id="${task.id}">Excluir</button>
+          ${task.status === 'open' ? `<button type="button" class="btn primary" data-action="complete-from-dialog" data-id="${task.id}">${task.repeat ? 'Concluir e ir para a próxima' : 'Concluir'}</button>` : ''}
           ${task.repeat ? `<button type="button" class="btn" data-action="skip" data-id="${task.id}">Pular ocorrência</button>` : ''}
           <button type="button" class="btn" data-action="move-up" data-id="${task.id}" aria-label="Mover para cima">↑</button>
           <button type="button" class="btn" data-action="move-down" data-id="${task.id}" aria-label="Mover para baixo">↓</button>
@@ -1305,13 +1328,24 @@ function applyTheme(highlight = state.settings.highlight) {
   root.style.setProperty('--hi', highlight);
   root.style.setProperty('--on-hi', onHi);
   $('meta[name="theme-color"]').content = THEMES.find((item) => item.id === theme).chrome;
+  const fs = fontSizePx();
+  root.style.fontSize = `${fs}px`;
+  const icon = theme === 'diamante' ? 'icons/icon-diamante-192.png' : 'icons/icon-barco-192.png';
+  document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((link) => { link.href = icon; });
   try {
-    localStorage.setItem('tarefas-tema', JSON.stringify({ theme, hi: highlight, onHi }));
+    localStorage.setItem('tarefas-tema', JSON.stringify({ theme, hi: highlight, onHi, fs }));
   } catch { /* O tema salvo é só uma conveniência. */ }
 }
 
 const clickActions = {
-  complete: (el) => complete(el.dataset.id),
+  complete: async (el) => {
+    // Mostra o check aceso por um instante antes de a tarefa sair da lista.
+    if (el.classList.contains('check')) {
+      el.classList.add('done');
+      await new Promise((resolve) => { setTimeout(resolve, 220); });
+    }
+    complete(el.dataset.id);
+  },
   open: (el) => openTask(el.dataset.id),
   reopen: (el) => reopen(el.dataset.id),
   snooze: (el) => handleReminderAction('snooze', el.dataset.id),
@@ -1320,6 +1354,10 @@ const clickActions = {
     render();
   },
   'close-dialog': () => $('#dialog').close(),
+  'complete-from-dialog': async (el) => {
+    $('#dialog').close();
+    await complete(el.dataset.id);
+  },
   'set-when': (el) => {
     $('#f-when').value = addDays(today(), Number(el.dataset.days));
     updateFormHints();
@@ -1405,6 +1443,11 @@ const clickActions = {
   },
   'set-theme': async (el) => {
     await saveSettings({ theme: el.dataset.themeId });
+    applyTheme();
+    render();
+  },
+  'set-font-size': async (el) => {
+    await saveSettings({ fontSize: Number(el.dataset.size) });
     applyTheme();
     render();
   },
@@ -1664,9 +1707,9 @@ async function load() {
   state.sync = sync?.token ? sync : null;
   state.push = meta.find((item) => item.id === 'push') || null;
   state.settings.theme = normalizeTheme(state.settings.theme);
-  if (!state.settings.themeChosen) {
-    // Aparelhos que já usavam o app recebem uma vez o tema escolhido.
-    await saveSettings({ theme: 'barquinho', themeChosen: true });
+  if (!state.settings.themeV2) {
+    // Aparelhos que já usavam o app recebem uma vez o novo tema padrão.
+    await saveSettings({ theme: 'diamante', themeChosen: true, themeV2: true });
   }
   if (!isHexColor(state.settings.highlight)) state.settings.highlight = DEFAULT_HIGHLIGHT;
   if (!state.lists.some((l) => l.id === INBOX)) await saveList({ id: INBOX, name: 'Entrada', group: '' });

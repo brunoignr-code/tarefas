@@ -452,6 +452,35 @@ test('Push com o app aberto: não repete o que o app já avisou', () => {
   eq(alreadyNotified(undefined, 'a|2026-11-02T09:00|0'), false);
 });
 
+test('Concluir e ir para a próxima: a cada 3 dias conta a partir de hoje, com o mesmo horário', () => {
+  const late = make({ when: '2026-10-30', repeat: { freq: 'daily', interval: 3 }, remindAt: '2026-10-30T17:00' });
+  const next = completeTask(late, TODAY, 'x').task;
+  eq([next.when, next.remindAt], ['2026-11-05', '2026-11-05T17:00']);
+  eq(completeTask(next, TODAY, 'x').task.when, '2026-11-08');
+});
+
+test('Concluir e ir para a próxima: adiantada não volta para antes da data marcada', () => {
+  eq(completeTask(make({ when: '2026-11-03', repeat: { freq: 'daily', interval: 3 } }), TODAY, 'x').task.when, '2026-11-05');
+  eq(completeTask(make({ when: '2026-11-10', repeat: { freq: 'daily', interval: 3 } }), TODAY, 'x').task.when, '2026-11-13');
+});
+
+test('Concluir e ir para a próxima: semanal vai para o próximo dia da semana', () => {
+  const saturday = make({ when: '2026-10-31', repeat: { freq: 'weekly', weekdays: [6] }, remindAt: '2026-10-31T06:30' });
+  eq([completeTask(saturday, TODAY, 'x').task.when, completeTask(saturday, TODAY, 'x').task.remindAt], ['2026-11-07', '2026-11-07T06:30']);
+});
+
+test('Datas digitadas: "todo sábado 6h30" começa no próximo sábado', () => {
+  eq([parse('Faxina todo sábado 6h30').when, parse('Faxina todo sábado 6h30').remindAt], ['2026-11-07', '2026-11-07T06:30']);
+  eq(parse('Reunião toda segunda 9h').remindAt, '2026-11-09T09:00');
+  eq(parse('Reunião toda segunda 11h').remindAt, '2026-11-02T11:00');
+});
+
+test('Pular ocorrência segue o calendário da série', () => {
+  const task = make({ when: '2026-11-02', repeat: { freq: 'daily', interval: 3 } });
+  eq(skipOccurrence(task, TODAY).when, '2026-11-05');
+  eq(skipOccurrence(make({ when: '2026-10-30', repeat: { freq: 'daily', interval: 3 } }), TODAY).when, '2026-11-05');
+});
+
 const failed = results.filter((r) => !r.ok);
 document.title = failed.length ? `FALHOU ${failed.length}/${results.length}` : `OK ${results.length}/${results.length}`;
 const pre = document.getElementById('results');

@@ -36,7 +36,7 @@
   --font: Bitter, Georgia, serif; --font-title: Bitter, Georgia, serif;
   --radius: 12px; --radius-button: 10px; --radius-field: 10px;
   --task-line: #D3E1E8; --gap: 6px;
-  --mark-size: 20px; --mark-radius: 3px 3px 10px 10px; --mark-rotate: 0deg; --mark-line: #17324D; --mark-fill: #D9543C;
+  --mark-size: 20px; --mark-radius: 3px 3px 10px 10px; --mark-rotate: 0deg; --mark-line: #17324D; --mark-fill: #D9543C; --on-mark: #FFFFFF;
   --dot-size: 7px; --dot-radius: 50%; --dot-rotate: 0deg;
 }
 :root[data-theme="diamante"] {
@@ -77,12 +77,13 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
+/* O tamanho da letra vem de Config.; todo o resto é medido em rem. */
+html { -webkit-text-size-adjust: 100%; font-size: 14.5px; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15.5px/1.42 var(--font);
+  font: 1rem/1.42 var(--font);
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -254,15 +255,19 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   padding: 0;
 }
 .mark {
-  display: block;
-  width: var(--mark-size);
-  height: var(--mark-size);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   border: 2px solid var(--mark-line);
-  border-radius: var(--mark-radius);
-  transform: rotate(var(--mark-rotate));
+  border-radius: 50%;
+  color: var(--mark-line);
+  transition: background .15s, color .15s, border-color .15s;
 }
-.check:hover .mark { background: var(--surface-2); }
-.check.done .mark, .check.done:hover .mark { background: var(--mark-fill); }
+.mark svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; opacity: .28; transition: opacity .15s; }
+.check:hover .mark svg, .check:focus-visible .mark svg { opacity: 1; }
+.check.done .mark, .check.done:hover .mark { background: var(--mark-fill); border-color: var(--mark-fill); color: var(--on-mark, var(--on-primary)); }
+.check.done .mark svg { opacity: 1; }
 .task-body {
   flex: 1;
   min-width: 0;
@@ -554,14 +559,16 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   justify-content: center;
   gap: 8px;
   padding: 32px;
-  background: #EAF2F5;
-  color: #17324D;
-  font-family: Bitter, Georgia, serif;
+  background: #0E1218;
+  color: #E8EDF3;
+  font-family: Manrope, system-ui, sans-serif;
   transition: opacity .25s;
 }
+.splash.splash-claro { background: #EAF2F5; color: #17324D; font-family: Bitter, Georgia, serif; }
 .splash img { width: min(326px, 80vw); height: auto; }
 .splash strong { font-size: clamp(34px, 9vw, 52px); line-height: 1.1; font-weight: 700; margin-top: 20px; text-align: center; padding: 0 16px; }
-.splash span { font-size: 18px; font-weight: 500; color: #2B4A66; text-align: center; }
+.splash span { font-size: 18px; font-weight: 500; color: #A9D6F5; text-align: center; }
+.splash.splash-claro span { color: #2B4A66; }
 .splash.hide { opacity: 0; pointer-events: none; }
 .segments.themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 

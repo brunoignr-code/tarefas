@@ -172,20 +172,27 @@ export function cleanTags(tags) {
   });
 }
 
-function advance(task, today) {
+/** Próxima data da série. Ao concluir, "a cada N dias" conta a partir de hoje. */
+export function nextDate(task, today, completing = true) {
+  const repeat = task.repeat;
+  if (repeat.fromCompletion) return intervalAfter(today, repeat);
+  if (completing && repeat.freq === 'daily') {
+    // Feita hoje: a próxima vem N dias depois. Se foi adiantada, não volta para antes da data marcada.
+    const next = addDays(today, repeat.interval);
+    return task.when > today && next <= task.when ? addDays(task.when, repeat.interval) : next;
+  }
+  return nextOccurrence(repeat, task.when > today ? task.when : today);
+}
+
+function advance(task, today, completing) {
   const done = (task.repeat.done || 0) + 1;
   if (task.repeat.count && done >= task.repeat.count) {
     return { ...task, status: 'ended', endedAt: today, repeat: { ...task.repeat, done } };
   }
   let repeat = { ...task.repeat, done };
-  let next;
-  if (repeat.fromCompletion) {
-    // Conta a partir do dia em que foi concluída ou pulada.
-    next = intervalAfter(today, repeat);
-    repeat = { ...repeat, anchor: next };
-  } else {
-    next = nextOccurrence(repeat, task.when > today ? task.when : today);
-  }
+  const next = nextDate(task, today, completing);
+  // Contando a partir da conclusão, a série passa a seguir a nova data.
+  if (repeat.fromCompletion || (completing && repeat.freq === 'daily')) repeat = { ...repeat, anchor: next };
   // R4: Até é o último dia possível, inclusive.
   if (task.seriesEnd && next > task.seriesEnd) {
     return { ...task, status: 'ended', endedAt: today, repeat };
@@ -218,13 +225,13 @@ export function completeTask(task, today, completedAt) {
     return { task: { ...task, status: 'done', completedAt }, log: null };
   }
   return {
-    task: advance(task, today),
+    task: advance(task, today, true),
     log: { taskId: task.id, title: task.title, occurrence: task.when, completedAt },
   };
 }
 
 /** Pula a ocorrência aberta sem registrá-la como concluída. */
-export const skipOccurrence = (task, today) => advance(task, today);
+export const skipOccurrence = (task, today) => advance(task, today, false);
 
 // R1: Hoje mostra tarefas abertas com Quando igual ou anterior a hoje.
 const isOpen = (task) => task.status === 'open' && !task.deletedAt;

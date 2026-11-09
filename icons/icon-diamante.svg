@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="brilho" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#2A4560"/>
+      <stop offset="1" stop-color="#0E1218"/>
+    </radialGradient>
+    <linearGradient id="mesa" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EAF6FE"/>
+      <stop offset="1" stop-color="#BFE2F8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#brilho)"/>
+  <!-- Diamante dentro da área segura dos ícones adaptáveis (80% central) -->
+  <g transform="translate(256 262) scale(1.1) translate(-256 -278)">
+    <g stroke="#E8F4FD" stroke-width="3" stroke-linejoin="round">
+      <path d="M186 132 H326 L408 214 H104 Z" fill="#7FB6E0"/>
+      <path d="M186 132 L222 214 H104 Z" fill="#A9D6F5"/>
+      <path d="M186 132 H326 L290 214 H222 Z" fill="url(#mesa)"/>
+      <path d="M326 132 L408 214 H290 Z" fill="#5E95C2"/>
+      <path d="M104 214 H222 L256 424 Z" fill="#8EC4EA"/>
+      <path d="M222 214 H290 L256 424 Z" fill="#CFE9FA"/>
+      <path d="M290 214 H408 L256 424 Z" fill="#4C80AE"/>
+    </g>
+    <path d="M234 252 l9 10 l17 -21" fill="none" stroke="#E0A63A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
