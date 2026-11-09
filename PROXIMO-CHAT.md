@@ -9,7 +9,7 @@ Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Est
 
 Onde paramos:
 - v11 publicada: Diamante como tema padrão (capa e ícone próprios), check que acende ao concluir, "concluir e ir para a próxima" contando a partir de hoje, 5 tamanhos de letra. Lembretes com o app fechado funcionando pelo servidor (cron a cada minuto).
-- Pedi para começar do zero (apagar todas as tarefas) em 9/11; confira no README se já foi feito.
+- Comecei do zero: todas as tarefas foram apagadas em 9/11 (as 16 listas ficaram, vazias).
 - Próximo passo: o PLANO-ANDROID-E-USABILIDADE.md desta pasta. Item 7 (virar app Android, reaproveitando o que fiz no Sentinela em C:\Python - local\safe-at-home) e item 8 (usabilidade do zero).
 - Combinado: app simples (lembrete, recorrência, listas, grupos, etapas), custo zero, sem funções novas fora do plano.
 

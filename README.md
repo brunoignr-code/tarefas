@@ -69,6 +69,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir uma tarefa que repete vai direto para a próxima, e o botão diz para quando: "a cada 3 dias às 17h", feita em 9/11, vai para 12/11 às 17h; "todo sábado 6h30" vai para o próximo sábado. Também há "Concluir e ir para a próxima" nos detalhes da tarefa. Pular ocorrência segue o calendário da série.
 - Letra menor por padrão e 5 tamanhos em Config. > Aparência.
 - Correção: "todo sábado 6h30" digitado criava o lembrete para o dia seguinte; agora começa no próximo sábado.
+- Recomeço do zero: em 9/11 todas as tarefas (135, incluindo a Lixeira) foram apagadas no servidor, a pedido, para o teste real. As 16 listas ficaram, vazias. As tarefas abertas continuam no Microsoft To Do.
 
 ### Nome do app, 9 de novembro
 
