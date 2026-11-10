@@ -73,6 +73,27 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (10 de novembro de 2026)
 
+### v14.5, 10 de novembro: janela da tarefa, seleção e telas de lista
+
+- **Janela da tarefa nova** (prancheta "Tarefa"):
+  - o título fica grande, com a marca de concluir ao lado;
+  - Quando tem botões de um toque (Hoje, Amanhã, Próx. semana, Sem data), que acendem conforme a data escolhida;
+  - Lembrar virou uma linha com chave ("Lembrar amanhã às 09:00 · segue Quando e Hora"). O campo de data e hora do lembrete só aparece quando ele não segue Quando e Hora, ou em "Outro dia ou horário para lembrar";
+  - Repetir ficou compacto, com "Lembrar em cada repetição" junto;
+  - Lista e Importante ficam lado a lado;
+  - as etapas têm marca em folha e contagem ("1 de 3");
+  - "Mais opções" virou uma linha que abre;
+  - no rodapé: Lixeira e Duplicar como ícones, "Pular esta" e o botão Concluir com "próxima: qui, 10/12" nas repetições.
+- **Seleção de várias tarefas:** o topo mostra "2 selecionadas" com Todas e Pronto. Embaixo há uma barra com 5 botões com ícones: Concluir, Amanhã, Estrela, Mover, Excluir. O botão "Hoje" da barra antiga virou "Amanhã", como no design.
+- **Telas de lista:**
+  - Nova lista e Editar lista têm prévia da lista, emojis em grade (com "Outro"), cores em folha e grupo por botões (Nenhum, grupos existentes, Novo grupo);
+  - Excluir lista mostra três cartões (Entrada, outra lista, Lixeira);
+  - o menu da lista tem ícones e mostra a ordem atual e quantas concluídas;
+  - Organizar ganhou setas e "Grupo" no título de cada grupo;
+  - Mover mostra as listas com emoji, separadas por grupo, e "uma está aqui".
+- **Adiar com prazo vencido:** o app não deixa Quando passar do prazo (Até), regra que já existia. Agora ele explica ("Não dá para mudar: o prazo era ontem. Mude o prazo nos detalhes.") e, na seleção, conta só as que mudaram, em vez de dizer que todas foram adiadas.
+- Sem mudança no formato dos dados nem no login. 63 testes passando; testado no navegador em tamanho de celular, com dados descartáveis apagados depois.
+
 ### v14.4, 10 de novembro
 
 - **Próximos dias inclui Hoje:** na visão Lista, a primeira seção é "Hoje", com as tarefas de hoje e as que ficaram de dias anteriores (as atrasadas primeiro), seguida de Amanhã e dos outros dias. Calendário, Kanban e Matriz não mudaram.

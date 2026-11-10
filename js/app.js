@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v14.4 · 10/11/2026';
+const APP_VERSION = 'v14.5 · 10/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -109,6 +109,11 @@ const ICONS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   sort: '<path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M14 6h7M14 12h5M14 18h3"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  dn: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  organize: '<path d="M8 4v16M4.5 7.5L8 4l3.5 3.5M16 20V4M12.5 16.5L16 20l3.5-3.5"/>',
+  folderPlus: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/>',
 };
 const ico = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -679,7 +684,7 @@ function taskRow(task, options = {}) {
     return `
   <li class="task selectable ${on ? 'selected' : ''} ${done ? 'is-done' : ''}" data-id="${task.id}">
     <button class="task-body select-body" data-action="toggle-select" data-id="${task.id}" aria-pressed="${on}">
-      <span class="select-box" aria-hidden="true">${on ? '✓' : ''}</span>
+      <span class="select-box" aria-hidden="true">${on ? ico('check') : ''}</span>
       <span class="select-text"><span class="task-title">${escapeHtml(task.title)}</span>${taskChips(task, options)}</span>
     </button>
   </li>`;
@@ -1043,20 +1048,20 @@ function listsView() {
 /** Organizar: mudar a ordem das listas e cuidar dos grupos. */
 function organizeView() {
   const { ungrouped, groups } = groupedLists();
-  const section = (lists) => `<div class="rows">${lists.map((list, index) => `
-    <div class="row-wrap organize-row">
-      <span class="row-link"><span class="list-label">${listLabel(list)}</span></span>
-      <button class="icon" data-action="move-list" data-id="${list.id}" data-step="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${escapeHtml(list.name)}">↑</button>
-      <button class="icon" data-action="move-list" data-id="${list.id}" data-step="1" ${index === lists.length - 1 ? 'disabled' : ''} aria-label="Descer ${escapeHtml(list.name)}">↓</button>
-      <button class="icon more" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}">${MORE_ICON}</button>
-    </div>`).join('')}</div>`;
+  const section = (lists) => lists.map((list, index) => `
+    <div class="lr organize-row">
+      ${listSquare(list)}
+      <span class="nm"><span>${escapeHtml(list.name)}</span></span>
+      <button class="ib" data-action="move-list" data-id="${list.id}" data-step="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${escapeHtml(list.name)}">${ico('up')}</button>
+      <button class="ib" data-action="move-list" data-id="${list.id}" data-step="1" ${index === lists.length - 1 ? 'disabled' : ''} aria-label="Descer ${escapeHtml(list.name)}">${ico('dn')}</button>
+    </div>`).join('');
   return `
     <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head"><div><h1><span>Organizar listas</span></h1><div class="subtitle">Ordem das listas e grupos</div></div><a class="btn small primary btn-link" href="#lists">Pronto</a></div>
-    <p class="empty-tip">Use ↑ e ↓ para mudar a ordem. A Entrada fica sempre em primeiro. Os grupos aparecem em ordem alfabética; use ⋯ no grupo para renomear ou desfazer.</p>
-    ${ungrouped.length ? `<h2>Sem grupo</h2>${section(ungrouped)}` : ''}
-    ${groups.map(([name, lists]) => `<h2 class="group-head"><span>${escapeHtml(name)}</span><button class="icon more small-more" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}">${MORE_ICON}</button></h2>${section(lists)}`).join('')}
-    <div class="actions" style="margin-top:14px"><button class="btn" data-action="new-list">Nova lista</button><button class="btn" data-action="new-group">Novo grupo</button></div>`;
+    <div class="view-head" style="align-items:center"><div><h1><span>Organizar</span></h1><div class="subtitle">Ordem das listas e grupos</div></div><a class="btn small primary" href="#lists">Pronto</a></div>
+    <p class="help" style="margin:-4px 2px 6px">Use as setas para mudar a ordem. A Entrada fica sempre em primeiro; os grupos, em ordem alfabética.</p>
+    ${ungrouped.length ? `<div class="grp"><span>Sem grupo</span></div><div class="rows">${section(ungrouped)}</div>` : ''}
+    ${groups.map(([name, lists]) => `<div class="grp"><span>${escapeHtml(name)}</span><button class="btn small text" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}">${ico('edit')}Grupo</button></div><div class="rows">${section(lists)}</div>`).join('')}
+    <div class="actions" style="margin-top:14px"><button class="btn" data-action="new-list" style="flex:1">${ico('plus')}Nova lista</button><button class="btn" data-action="new-group" style="flex:1">${ico('folderPlus')}Novo grupo</button></div>`;
 }
 
 /** Grupo de uma data já passada: Hoje, Ontem, Esta semana, Semana passada ou o mês. */
@@ -1517,6 +1522,7 @@ function render() {
 
 function renderSelectionBar() {
   let bar = $('#select-bar');
+  $('#select-head')?.remove();
   if (!state.selecting) {
     bar?.remove();
     document.body.classList.remove('selecting');
@@ -1525,7 +1531,7 @@ function renderSelectionBar() {
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'select-bar';
-    bar.className = 'select-bar';
+    bar.className = 'selbar';
     bar.setAttribute('role', 'toolbar');
     bar.setAttribute('aria-label', 'Ações das tarefas selecionadas');
     document.body.append(bar);
@@ -1535,17 +1541,18 @@ function renderSelectionBar() {
   const n = state.selected.size;
   const off = n ? '' : 'disabled';
   const allOn = visible.length && visible.every((id) => state.selected.has(id));
+  // Cabeçalho da seleção no topo da tela, no lugar do título.
+  $('#view').insertAdjacentHTML('afterbegin', `
+    <div class="selhd" id="select-head" role="status"><span class="grow"><b>${n}</b> selecionada${n === 1 ? '' : 's'}</span>
+      <button class="btn small text" data-action="select-all">${allOn ? 'Nenhuma' : 'Todas'}</button>
+      <button class="btn small primary" data-action="select-end">Pronto</button></div>`);
+  const allImportant = n && [...state.selected].every((id) => findTask(id)?.important);
   bar.innerHTML = `
-    <div class="select-count"><span><strong>${n}</strong> selecionada${n === 1 ? '' : 's'}</span>
-      <button class="link-btn" data-action="select-all">${allOn ? 'Nenhuma' : 'Todas'}</button>
-      <button class="btn small primary" data-action="select-end">Pronto</button></div>
-    <div class="select-actions">
-      <button class="btn small" data-action="bulk" data-op="complete" ${off}>Concluir</button>
-      <button class="btn small" data-action="bulk" data-op="today" ${off}>Hoje</button>
-      <button class="btn small" data-action="bulk" data-op="important" ${off} aria-label="Importante">★</button>
-      <button class="btn small" data-action="bulk" data-op="move" ${off}>Mover</button>
-      <button class="btn small danger" data-action="bulk" data-op="trash" ${off}>Excluir</button>
-    </div>`;
+    <button data-action="bulk" data-op="complete" ${off}>${ico('check')}Concluir</button>
+    <button data-action="bulk" data-op="tomorrow" ${off}>${ico('next')}Amanhã</button>
+    <button data-action="bulk" data-op="important" ${off}>${ico('star', allImportant ? 'fill' : '')}${allImportant ? 'Sem estrela' : 'Estrela'}</button>
+    <button data-action="bulk" data-op="move" ${off}>${ico('folder')}Mover</button>
+    <button data-action="bulk" data-op="trash" class="dg" ${off}>${ico('trash')}Excluir</button>`;
 }
 
 function endSelection() {
@@ -1587,14 +1594,35 @@ async function runBulk(op) {
     });
     return;
   }
+  if (op === 'today' || op === 'tomorrow') {
+    const date = op === 'today' ? today() : addDays(today(), 1);
+    const before = ids.map(findTask).filter(Boolean);
+    const moved = [];
+    for (const task of before) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!blockedByDeadline(task, date) && await editTask(task.id, dateChanges(task, date))) moved.push(task);
+    }
+    render();
+    const skipped = before.length - moved.length;
+    const done = op === 'today' ? `${moved.length} para hoje` : `${moved.length} adiada${moved.length === 1 ? '' : 's'} para amanhã`;
+    let message = skipped ? `${done}. ${skipped} não ${skipped === 1 ? 'mudou' : 'mudaram'}: o prazo vem antes.` : `${done}.`;
+    if (!moved.length) message = before.length === 1 ? deadlineMessage(before[0]) : 'Nenhuma mudou: o prazo delas vem antes.';
+    showToast(message, moved.length ? async () => {
+      for (const task of moved) await saveTask(task); // eslint-disable-line no-await-in-loop
+      render();
+    } : undefined);
+    return;
+  }
   const allImportant = ids.every((id) => findTask(id)?.important);
   const changes = {
-    today: (task) => editTask(task.id, { when: today() }),
+    today: (task) => editTask(task.id, dateChanges(task, today())),
+    tomorrow: (task) => editTask(task.id, dateChanges(task, addDays(today(), 1))),
     important: (task) => saveTask({ ...task, important: !allImportant }),
     trash: (task) => saveTask({ ...task, deletedAt: now }),
   };
   const labels = {
     today: `${ids.length} tarefa(s) para hoje.`,
+    tomorrow: `${ids.length} tarefa(s) adiada(s) para amanhã.`,
     important: allImportant ? 'Estrela retirada.' : 'Marcadas como importantes.',
     trash: `${ids.length} tarefa(s) na lixeira.`,
   };
@@ -1606,7 +1634,7 @@ async function runBulk(op) {
 let sheetItems = [];
 
 /** Abre uma folha com opções; cada item é [rótulo, função, {danger, disabled}]. */
-function openSheet(title, items, subtitle = '', { tiles = [], meta = '' } = {}) {
+function openSheet(title, items, subtitle = '', { tiles = [], meta = '', lead = '' } = {}) {
   const tileItems = tiles.filter(Boolean);
   sheetItems = [...tileItems, ...items.filter(Boolean)];
   const offset = tileItems.length;
@@ -1614,10 +1642,10 @@ function openSheet(title, items, subtitle = '', { tiles = [], meta = '' } = {}) 
   dialog.innerHTML = `
     <div class="sheet">
       <div class="grab" aria-hidden="true"></div>
-      <div class="form-head"><div><h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}${meta ? `<div class="sheet-meta">${meta}</div>` : ''}</div><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar" title="Fechar">${ico('x')}</button></div>
+      <div class="form-head">${lead}<div><h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}${meta ? `<div class="sheet-meta">${meta}</div>` : ''}</div><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar" title="Fechar">${ico('x')}</button></div>
       ${offset ? `<div class="tiles">${tileItems.map(([label, , opts = {}], index) => `<button class="tile" data-action="sheet" data-index="${index}">${opts.icon ? ico(opts.icon, opts.fill ? 'fill' : '') : ''}${escapeHtml(label)}</button>`).join('')}</div>` : ''}
       <div class="sheet-items">
-        ${sheetItems.slice(offset).map(([label, , opts = {}], i) => (opts.sep ? '<div class="sheet-sep" role="separator"></div>' : `<button class="sheet-item ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${i + offset}" ${opts.disabled ? 'disabled' : ''}>${opts.icon ? ico(opts.icon) : ''}${opts.html ? label : escapeHtml(label)}</button>`)).join('')}
+        ${sheetItems.slice(offset).map(([label, , opts = {}], i) => (opts.sep ? '<div class="sheet-sep" role="separator"></div>' : opts.header ? `<div class="grp sheet-grp">${escapeHtml(label)}</div>` : `<button class="sheet-item ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${i + offset}" ${opts.disabled ? 'disabled' : ''}>${opts.icon ? ico(opts.icon) : ''}${opts.html ? label : escapeHtml(label)}${opts.hint ? `<span class="sheet-hint">${escapeHtml(opts.hint)}</span>` : ''}</button>`)).join('')}
       </div>
     </div>`;
   if (!dialog.open) dialog.showModal();
@@ -1625,12 +1653,25 @@ function openSheet(title, items, subtitle = '', { tiles = [], meta = '' } = {}) 
 }
 
 /** Muda a data (Quando) e leva junto o lembrete marcado para o mesmo dia. */
+function dateChanges(task, date) {
+  const changes = { when: date };
+  if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
+  return changes;
+}
+
+/** O prazo (Até) não deixa Quando passar dele: explica em vez de só recusar. */
+const blockedByDeadline = (task, date) => !!(date && task.deadline && date > task.deadline);
+const deadlineMessage = (task) => `Não dá para mudar: o prazo era ${formatDate(task.deadline).toLowerCase()}. Mude o prazo nos detalhes.`;
+
 async function moveToDate(id, date) {
   const task = findTask(id);
   if (!task) return;
-  const changes = { when: date };
-  if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
-  if (!(await editTask(id, changes))) return;
+  if (blockedByDeadline(task, date)) {
+    render();
+    showToast(deadlineMessage(task));
+    return;
+  }
+  if (!(await editTask(id, dateChanges(task, date)))) return;
   render();
   let message = date ? `Movida para ${formatDate(date).toLowerCase()}.` : 'Data retirada.';
   if (date === addDays(today(), 1)) message = 'Adiada para amanhã.';
@@ -1682,18 +1723,31 @@ function openTaskMenu(id) {
   ], '', { tiles, meta: taskChips(task, { showList: true }) });
 }
 
+/** Quadradinho da lista com o emoji (ou um ícone) na cor dela. */
+const listSquare = (list, size = 36) => `<span class="em" style="--c:${escapeHtml(list?.color || '#7E8A99')};width:${size}px;height:${size}px">${list?.emoji ? escapeHtml(list.emoji) : ico(list?.id === INBOX ? 'inbox' : 'list')}</span>`;
+
 function openMoveSheet(ids) {
   const tasks = ids.map(findTask).filter(Boolean);
-  const current = tasks.length === 1 ? tasks[0].listId : null;
-  openSheet(tasks.length === 1 ? 'Mover para' : `Mover ${tasks.length} tarefas para`, [
-    ...sortedLists().map((list) => [`${listLabel(list)}${list.group ? ` <span class="sheet-hint">${escapeHtml(list.group)}</span>` : ''}`, async () => {
+  const { ungrouped, groups } = groupedLists();
+  const item = (list) => {
+    const here = tasks.filter((t) => t.listId === list.id).length;
+    let hint = '';
+    if (here) hint = tasks.length === 1 ? 'está aqui' : `${here === 1 ? 'uma está' : `${here} estão`} aqui`;
+    return [`${listSquare(list, 32)}${escapeHtml(list.name)}`, async () => {
       $('#dialog').close();
       state.selecting = false;
       state.selected.clear();
       await bulkApply(ids, `Movida${tasks.length === 1 ? '' : 's'} para ${list.name}.`, (task) => saveTask({ ...task, listId: list.id }));
-    }, { html: true, on: list.id === current, disabled: list.id === current }]),
-    ['+ Nova lista…', () => openListDialog(null, { moveIds: ids }), {}],
-  ]);
+    }, { html: true, on: here > 0, disabled: here === tasks.length, hint }];
+  };
+  const inbox = findList(INBOX);
+  openSheet(tasks.length === 1 ? 'Mover para' : `Mover ${tasks.length} tarefas para`, [
+    inbox && item(inbox),
+    ...ungrouped.map(item),
+    ...groups.flatMap(([name, lists]) => [[name, null, { header: true }], ...lists.map(item)]),
+    ['', null, { sep: true }],
+    ['Nova lista…', () => openListDialog(null, { moveIds: ids }), { icon: 'plus' }],
+  ], escapeHtml(tasks.map((t) => t.title).join(', ')));
 }
 
 async function trashWithConfirm(id) {
@@ -1710,27 +1764,30 @@ function openListMenu(id) {
   const isInbox = id === INBOX;
   const doneCount = state.tasks.filter((t) => t.listId === id && t.status === 'done' && !t.deletedAt).length;
   const openN = openCount(id);
+  const sortName = (LIST_SORTS.find(([key]) => key === (list.sort || 'manual')) || LIST_SORTS[0])[1];
+  const sub = [`${openN} ${openN === 1 ? 'aberta' : 'abertas'}`, doneCount && `${doneCount} ${doneCount === 1 ? 'concluída' : 'concluídas'}`, isInbox ? '' : (list.group || 'sem grupo')].filter(Boolean).join(' · ');
   openSheet(list.name, [
-    currentRoute().id !== id && ['Abrir', () => { close(); location.hash = `#list/${id}`; }],
-    !isInbox && ['Editar nome, emoji, cor e grupo', () => openListDialog(id)],
-    ['Ordenar tarefas por…', () => openSortSheet(id)],
-    doneCount && [state.doneOpen.has(id) ? 'Esconder concluídas' : `Mostrar concluídas (${doneCount})`, () => { close(); toggleDoneSection(id); }],
-    doneCount && [`Limpar concluídas (${doneCount})`, async () => { close(); await clearListDone(id); }],
-    openN && ['Selecionar tarefas', () => { close(); location.hash = `#list/${id}`; state.selecting = true; state.selected.clear(); render(); }],
-    !isInbox && ['Duplicar lista (sem as tarefas)', async () => { close(); await duplicateList(id); }],
-    !isInbox && ['Organizar listas', () => { close(); location.hash = '#organize'; }],
-    !isInbox && ['Excluir lista', () => openDeleteList(id), { danger: true }],
+    currentRoute().id !== id && ['Abrir', () => { close(); location.hash = `#list/${id}`; }, { icon: 'right' }],
+    !isInbox && ['Editar nome, emoji, cor e grupo', () => openListDialog(id), { icon: 'edit' }],
+    ['Ordenar tarefas', () => openSortSheet(id), { icon: 'sort', hint: sortName }],
+    doneCount && [state.doneOpen.has(id) ? 'Esconder concluídas' : 'Mostrar concluídas', () => { close(); if (currentRoute().id !== id) { state.doneOpen.add(id); location.hash = `#list/${id}`; } else toggleDoneSection(id); }, { icon: 'eye', hint: String(doneCount) }],
+    doneCount && ['Limpar concluídas', async () => { close(); await clearListDone(id); }, { icon: 'done', hint: String(doneCount) }],
+    openN && ['Selecionar tarefas', () => { close(); location.hash = `#list/${id}`; state.selecting = true; state.selected.clear(); render(); }, { icon: 'select' }],
+    !isInbox && ['Duplicar lista (sem as tarefas)', async () => { close(); await duplicateList(id); }, { icon: 'copy' }],
+    !isInbox && ['Organizar listas', () => { close(); location.hash = '#organize'; }, { icon: 'organize' }],
+    !isInbox && ['', null, { sep: true }],
+    !isInbox && ['Excluir lista…', () => openDeleteList(id), { danger: true, icon: 'trash' }],
     isInbox && ['A Entrada não pode ser renomeada nem excluída.', () => {}, { disabled: true }],
-  ], list.group ? `Grupo: ${escapeHtml(list.group)}` : '');
+  ], escapeHtml(sub), { lead: listSquare(list, 40) });
 }
 
 function openSortSheet(id) {
   const list = findList(id);
   const current = list.sort || 'manual';
   openSheet(`Ordenar ${list.name}`, LIST_SORTS.map(([key, name]) => [
-    `${key === current ? '✓ ' : ''}${name}`,
+    name,
     async () => { $('#dialog').close(); await setListSort(id, key); },
-    { on: key === current },
+    { on: key === current, icon: key === current ? 'check' : 'sort' },
   ]));
 }
 
@@ -1847,12 +1904,14 @@ function openTask(id) {
     task.deletedAt && `Na lixeira desde ${stampText(task.deletedAt)}`,
   ].filter(Boolean).join(' · ');
   const granted = 'Notification' in window && Notification.permission === 'granted';
-  let notifyHint = 'Sinal visual no app. Para receber notificação, ative em Config.';
+  notifyHint = 'Só um sinal no app. Para receber notificação, ative em Config. › Avisos.';
   if (granted) {
     notifyHint = state.push?.enabled
-      ? 'Avisa mesmo com o app fechado.'
-      : 'Avisa com o app aberto. Para avisar com ele fechado, ative em Config.';
+      ? 'Avisa com o app fechado.'
+      : 'Avisa com o app aberto. Para avisar com ele fechado, ative em Config. › Avisos.';
   }
+  showRemindField = false;
+  const next = task.repeat && task.status === 'open' ? nextDate(task, today()) : null;
   const mode = untilMode();
   const untilField = mode === 'A' ? `
         <div class="field">
@@ -1884,39 +1943,45 @@ function openTask(id) {
       <div class="form-head sticky-head">
         <button type="button" class="btn small" data-action="close-dialog">Fechar</button>
         <h2>Tarefa</h2>
-        <button class="btn small primary">Salvar</button>
+        <button class="btn small primary" style="min-width:88px">Salvar</button>
       </div>
       <div class="error" id="form-error" role="alert" hidden></div>
-      <div class="field"><label for="f-title" class="visually-hidden">Título</label><input id="f-title" class="title-input" name="title" value="${escapeHtml(task.title)}" placeholder="O que fazer?" required autocomplete="off"></div>
+      <div class="title-row">
+        ${task.status === 'open' && !task.deletedAt
+    ? `<button type="button" class="check${isOverdue(task, today()) ? ' late' : ''}" data-action="complete-from-dialog" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}">${MARK}</button>`
+    : `<span class="check done" aria-hidden="true">${MARK}</span>`}
+        <div class="field"><label for="f-title" class="visually-hidden">Título</label><input id="f-title" class="title-input" name="title" value="${escapeHtml(task.title)}" placeholder="O que fazer?" required autocomplete="off"></div>
+      </div>
 
       <section class="form-block" aria-label="Quando e lembrete">
+        <div class="shortcuts">
+          <button type="button" class="chip" data-action="set-when" data-days="0">Hoje</button>
+          <button type="button" class="chip" data-action="set-when" data-days="1">Amanhã</button>
+          <button type="button" class="chip" data-action="set-when" data-days="7">Próx. semana</button>
+          <button type="button" class="chip" data-action="clear-when">Sem data</button>
+        </div>
         <div class="when-row">
           <div class="field"><label for="f-when">Quando</label><input id="f-when" type="date" name="when" value="${task.when || ''}"></div>
           <div class="field field-time"><label for="f-time">Hora</label><input id="f-time" type="time" value="${whenTime}"></div>
         </div>
-        <div class="shortcuts">
-          <button type="button" class="link-btn" data-action="set-when" data-days="0">Hoje</button>
-          <button type="button" class="link-btn" data-action="set-when" data-days="1">Amanhã</button>
-          <button type="button" class="link-btn" data-action="set-when" data-days="7">Daqui a 1 semana</button>
-          <button type="button" class="link-btn" data-action="clear-when">Sem data</button>
-        </div>
-        <label class="check-line remind-toggle"><input type="checkbox" id="f-remind-on" ${task.remindAt ? 'checked' : ''}> Lembrar</label>
+        <label class="remind-row">
+          ${ico('bell')}
+          <span class="grow"><b id="remind-title">Lembrar</b><small id="remind-help"></small></span>
+          <input type="checkbox" class="sw" role="switch" id="f-remind-on" ${task.remindAt ? 'checked' : ''} aria-label="Lembrar">
+        </label>
         <div class="field" id="remind-field">
           <input id="f-remind" type="datetime-local" name="remindAt" value="${task.remindAt || ''}" aria-label="Data e hora do lembrete">
-          <div class="help" id="remind-help"></div>
-          <div class="help">${notifyHint}</div>
         </div>
-        <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada repetição</label>
+        <button type="button" class="link" id="remind-other" data-action="show-remind-field" hidden>${ico('clock')}Outro dia ou horário para lembrar</button>
       </section>
 
       <section class="form-block" aria-label="Repetição">
-        <div class="field">
-          <label for="f-freq">Repetir</label>
+        <div class="repeat-head">
+          ${ico('repeat')}<label for="f-freq">Repetir</label>
           <select id="f-freq" name="freq">
             <option value="">Não repete</option>
             ${Object.entries(FREQ_LABELS).map(([value, [name]]) => `<option value="${value}" ${repeat.freq === value ? 'selected' : ''}>${name}</option>`).join('')}
           </select>
-          <div class="help" id="repeat-help"></div>
         </div>
         <div id="repeat-options" class="inline-field" hidden>
           <label for="f-interval">A cada</label>
@@ -1929,6 +1994,8 @@ function openTask(id) {
             ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${name}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
           </div>
         </div>
+        <div class="help" id="repeat-help"></div>
+        <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada repetição</label>
         <details id="repeat-extra" class="more" ${repeatMoreOpen ? 'open' : ''} hidden>
           <summary>Mais opções da repetição</summary>
           <label class="check-line"><input type="checkbox" name="fromCompletion" ${repeat.fromCompletion ? 'checked' : ''}> Contar a partir da conclusão</label>
@@ -1941,25 +2008,26 @@ function openTask(id) {
         </details>
       </section>
 
-      <section class="form-block list-row" aria-label="Lista e importância">
+      <div class="list-row">
         <div class="field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
         <label class="star-toggle"><input type="checkbox" name="important" ${task.important ? 'checked' : ''}><span>${STAR_ICON(true)} Importante</span></label>
-      </section>
-
-      <div class="field">
-        <span class="label-text">Etapas</span>
-        <div id="steps" class="rows"></div>
-        <div class="quick-add" style="margin:0"><div class="field" style="flex:1"><input id="step-input" aria-label="Nova etapa" placeholder="Adicionar etapa" autocomplete="off"></div><button type="button" class="btn" data-action="add-step">Adicionar</button></div>
       </div>
+
+      <section class="form-block steps-block" aria-label="Etapas">
+        <div class="steps-head"><span>Etapas</span><span class="help" id="steps-count"></span></div>
+        <div id="steps"></div>
+        <div class="step-add">${ico('plus')}<input id="step-input" aria-label="Adicionar etapa" placeholder="Adicionar etapa" autocomplete="off" enterkeyhint="enter"><button type="button" class="btn small text" data-action="add-step">Adicionar</button></div>
+      </section>
       <div class="field"><label for="f-notes">Notas</label><textarea id="f-notes" name="notes" placeholder="Detalhes, links, endereço...">${escapeHtml(task.notes)}</textarea></div>
 
-      <details class="more" id="more-options" ${moreOpen ? 'open' : ''}>
-        <summary>Mais opções: prazo, outros lembretes, insistir, tags</summary>
+      <details class="more-row" id="more-options" ${moreOpen ? 'open' : ''}>
+        <summary>${ico('sliders')}<span class="grow">Mais opções<small>Prazo, outros lembretes, insistir, tags</small></span>${ico('right')}</summary>
+        <div class="more-body">
         ${untilField}
         <div class="field">
           <span class="label-text">Outros lembretes</span>
           <div id="extra-reminders" class="rows">${(task.extraReminders || []).map(extraReminderRow).join('')}</div>
-          <button type="button" class="btn small" data-action="add-reminder">Adicionar outro lembrete</button>
+          <button type="button" class="btn small" data-action="add-reminder">${ico('plus')}Adicionar outro lembrete</button>
         </div>
         <label class="check-line" id="insist-line"><input type="checkbox" name="insist" ${task.insist ? 'checked' : ''}> Insistir até eu reagir (a cada ${pushSettings().insistMinutes} min, até ${INSIST_MAX} vezes)</label>
         <div class="field">
@@ -1968,21 +2036,19 @@ function openTask(id) {
           <datalist id="tag-names">${allTags().map(([tag]) => `<option value="${escapeHtml(tag)}">`).join('')}</datalist>
           <div class="help">Separe por vírgula.</div>
         </div>
+        </div>
       </details>
       ${info ? `<p class="help task-info">${escapeHtml(info)}</p>` : ''}
 
       <div class="form-foot sticky-foot">
-        <div>
-          ${task.deletedAt
-    ? `<button type="button" class="btn small" data-action="restore" data-id="${task.id}">Restaurar</button>`
-    : `<button type="button" class="btn small danger" data-action="trash" data-id="${task.id}">Excluir</button>`}
-          <button type="button" class="btn small" data-action="duplicate-from-dialog" data-id="${task.id}">Duplicar</button>
-          ${task.repeat && task.status === 'open' ? `<button type="button" class="btn small" data-action="skip" data-id="${task.id}">Pular esta</button>` : ''}
-        </div>
-        <div>
-          ${task.status === 'open' ? `<button type="button" class="btn small primary" data-action="complete-from-dialog" data-id="${task.id}">${task.repeat ? 'Concluir e ir para a próxima' : 'Concluir'}</button>`
-    : `<button type="button" class="btn small" data-action="reopen-from-dialog" data-id="${task.id}">Reabrir</button>`}
-        </div>
+        ${task.deletedAt
+    ? `<button type="button" class="btn small" data-action="restore" data-id="${task.id}">${ico('undo')}Restaurar</button>`
+    : `<button type="button" class="ib danger-ib" data-action="trash" data-id="${task.id}" aria-label="Mandar para a Lixeira" title="Mandar para a Lixeira">${ico('trash')}</button>`}
+        <button type="button" class="ib" data-action="duplicate-from-dialog" data-id="${task.id}" aria-label="Duplicar" title="Duplicar">${ico('copy')}</button>
+        ${task.repeat && task.status === 'open' ? `<button type="button" class="btn small text" data-action="skip" data-id="${task.id}">Pular esta</button>` : ''}
+        ${task.status === 'open'
+    ? `<button type="button" class="btn primary done-btn" data-action="complete-from-dialog" data-id="${task.id}"><span>${ico('check')}Concluir</span>${next ? `<small>próxima: ${escapeHtml(formatDate(next).toLowerCase())}</small>` : ''}</button>`
+    : `<button type="button" class="btn done-btn" data-action="reopen-from-dialog" data-id="${task.id}">${ico('undo')}Reabrir</button>`}
       </div>
     </form>`;
   renderSteps();
@@ -1992,6 +2058,10 @@ function openTask(id) {
 }
 
 /* ---------- Quando + Hora sugerem o lembrete ---------- */
+
+let notifyHint = '';
+// O campo de data e hora do lembrete só aparece quando ele não segue Quando e Hora, ou a pedido.
+let showRemindField = false;
 
 // Enquanto o lembrete seguir Quando e Hora, mudar a data ou a hora muda o lembrete junto.
 let remindLinked = true;
@@ -2072,7 +2142,7 @@ function extraReminderRow(value = '') {
   return `
     <div class="step field" style="display:flex">
       <input type="datetime-local" name="extraReminder" aria-label="Outro lembrete" value="${escapeHtml(value)}">
-      <button type="button" class="step-remove" data-action="remove-reminder" aria-label="Remover lembrete">×</button>
+      <button type="button" class="step-remove" data-action="remove-reminder" aria-label="Remover lembrete">${ico('x')}</button>
     </div>`;
 }
 
@@ -2080,11 +2150,13 @@ function renderSteps() {
   const container = $('#steps');
   if (!container) return;
   container.innerHTML = draftSteps.map((step, index) => `
-    <div class="step field" style="display:flex">
-      <input type="checkbox" aria-label="Etapa feita" data-step-done="${index}" ${step.done ? 'checked' : ''}>
+    <div class="step ${step.done ? 'done' : ''}">
+      <input type="checkbox" class="leaf" aria-label="Etapa feita" data-step-done="${index}" ${step.done ? 'checked' : ''}>
       <input type="text" aria-label="Título da etapa" data-step-title="${index}" value="${escapeHtml(step.title)}">
-      <button type="button" class="step-remove" data-action="remove-step" data-index="${index}" aria-label="Remover etapa">×</button>
+      <button type="button" class="step-remove" data-action="remove-step" data-index="${index}" aria-label="Remover etapa">${ico('x')}</button>
     </div>`).join('');
+  const count = $('#steps-count');
+  if (count) count.textContent = draftSteps.length ? `${draftSteps.filter((s) => s.done).length} de ${draftSteps.length}` : '';
 }
 
 function readForm(form) {
@@ -2143,15 +2215,23 @@ function updateFormHints() {
   $('#repeat-options').hidden = !freq;
   $('#weekday-field').hidden = freq !== 'weekly';
   const remindOn = $('#f-remind-on').checked;
-  $('#remind-field').hidden = !remindOn;
   const remindValue = form.elements.remindAt.value;
-  let remindText = '';
-  if (remindOn && remindValue) {
-    remindText = remindLinked && form.elements.when.value
-      ? `Avisa ${formatDateTime(remindValue).toLowerCase()}, junto com Quando e Hora.`
-      : `Avisa ${formatDateTime(remindValue).toLowerCase()}.`;
-  }
-  $('#remind-help').textContent = remindText;
+  const whenValue = form.elements.when.value;
+  const followsWhen = remindLinked && !!whenValue;
+  $('#remind-field').hidden = !remindOn || (followsWhen && !showRemindField);
+  $('#remind-other').hidden = !remindOn || !$('#remind-field').hidden;
+  $('#remind-title').textContent = remindOn && remindValue
+    ? `Lembrar ${formatDate(remindValue.slice(0, 10)).toLowerCase()} às ${remindValue.slice(11)}` : 'Lembrar';
+  $('#remind-help').textContent = remindOn ? `${followsWhen ? 'Segue Quando e Hora. ' : ''}${notifyHint}` : 'Desligado.';
+  const shortcutDates = { 0: today(), 1: addDays(today(), 1), 7: addDays(today(), 7) };
+  form.querySelectorAll('[data-action="set-when"]').forEach((chip) => {
+    const on = whenValue === shortcutDates[chip.dataset.days];
+    chip.classList.toggle('on', on);
+    chip.setAttribute('aria-pressed', on);
+  });
+  const noDate = form.querySelector('[data-action="clear-when"]');
+  noDate.classList.toggle('on', !whenValue);
+  noDate.setAttribute('aria-pressed', !whenValue);
   const hasReminder = (remindOn && !!remindValue) || [...form.querySelectorAll('[name="extraReminder"]')].some((input) => input.value);
   $('#remind-each-line').hidden = !freq || !hasReminder;
   $('#insist-line').hidden = !hasReminder;
@@ -2193,18 +2273,25 @@ function openListDialog(id, { moveIds = null, group = '' } = {}) {
   const list = findList(id);
   const groupNames = [...new Set(state.lists.map((l) => l.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const color = list?.color || '';
+  const emoji = list?.emoji || '';
+  const currentGroup = list ? list.group || '' : group;
+  const otherEmoji = emoji && !EMOJI_SUGGESTIONS.includes(emoji);
   const dialog = $('#dialog');
   dialog.innerHTML = `
-    <form class="form" data-form="list" data-id="${id || ''}" data-move="${moveIds ? escapeHtml(moveIds.join(',')) : ''}">
+    <form class="form sheet-form" data-form="list" data-id="${id || ''}" data-move="${moveIds ? escapeHtml(moveIds.join(',')) : ''}">
+      <div class="grab" aria-hidden="true"></div>
       <div class="form-head"><h2>${list ? 'Editar lista' : 'Nova lista'}</h2><button type="button" class="btn small" data-action="close-dialog">Fechar</button></div>
+      <div class="lr list-preview" aria-hidden="true"><span class="em" id="lp-em"></span><span class="nm"><span id="lp-name"></span></span><span class="help" id="lp-group"></span></div>
       <div class="error" id="list-error" role="alert" hidden></div>
       <div class="field"><label for="l-name">Nome</label><input id="l-name" name="name" required maxlength="60" value="${escapeHtml(list ? list.name : '')}" autocomplete="off"></div>
       <div class="field">
-        <label for="l-emoji">Emoji (opcional)</label>
-        <div class="emoji-row">
-          <input id="l-emoji" name="emoji" maxlength="8" value="${escapeHtml(list?.emoji || '')}" autocomplete="off" placeholder="—">
-          ${EMOJI_SUGGESTIONS.map((e) => `<button type="button" class="emoji-pick" data-action="pick-emoji" data-emoji="${e}" aria-label="Usar ${e}">${e}</button>`).join('')}
+        <span class="label-text">Emoji</span>
+        <div class="emoji-grid">
+          <button type="button" class="chip ${emoji ? '' : 'on'}" data-action="pick-emoji" data-emoji="" aria-label="Sem emoji">—</button>
+          ${EMOJI_SUGGESTIONS.map((item) => `<button type="button" class="chip ${item === emoji ? 'on' : ''}" data-action="pick-emoji" data-emoji="${item}" aria-label="Usar ${item}">${item}</button>`).join('')}
+          <button type="button" class="chip ${otherEmoji ? 'on' : ''}" data-action="pick-emoji-other">Outro</button>
         </div>
+        <input id="l-emoji" name="emoji" maxlength="8" value="${escapeHtml(emoji)}" autocomplete="off" placeholder="Digite um emoji" aria-label="Emoji" ${otherEmoji ? '' : 'hidden'}>
       </div>
       <div class="field">
         <span class="label-text">Cor</span>
@@ -2213,18 +2300,35 @@ function openListDialog(id, { moveIds = null, group = '' } = {}) {
         </div>
       </div>
       <div class="field">
-        <label for="l-group">Grupo (opcional)</label>
-        <input id="l-group" name="group" list="group-names" maxlength="40" value="${escapeHtml(list ? list.group : group)}" autocomplete="off" placeholder="Ex.: Casa, Trabalho">
-        <datalist id="group-names">${groupNames.map((name) => `<option value="${escapeHtml(name)}">`).join('')}</datalist>
-        <div class="help">Listas com o mesmo grupo aparecem juntas. ${groupNames.length ? `Grupos atuais: ${escapeHtml(groupNames.join(', '))}.` : ''}</div>
+        <span class="label-text">Grupo</span>
+        <div class="shortcuts">
+          <button type="button" class="chip ${currentGroup ? '' : 'on'}" data-action="pick-group" data-group="">Nenhum</button>
+          ${groupNames.map((name) => `<button type="button" class="chip ${name === currentGroup ? 'on' : ''}" data-action="pick-group" data-group="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join('')}
+          <button type="button" class="chip" data-action="pick-group-new">${ico('plus')}Novo grupo</button>
+        </div>
+        <input id="l-group" name="group" maxlength="40" value="${escapeHtml(currentGroup)}" autocomplete="off" placeholder="Nome do grupo novo" aria-label="Nome do grupo" hidden>
       </div>
       <div class="form-foot">
-        <div>${list ? `<button type="button" class="btn danger" data-action="delete-list" data-id="${id}">Excluir lista</button>` : ''}</div>
-        <div><button class="btn primary">${list ? 'Salvar' : 'Criar lista'}</button></div>
+        ${list ? `<button type="button" class="btn text danger" data-action="delete-list" data-id="${id}">${ico('trash')}Excluir lista</button>` : '<span></span>'}
+        <button class="btn primary" style="min-width:130px">${list ? 'Salvar' : 'Criar lista'}</button>
       </div>
     </form>`;
   if (!dialog.open) dialog.showModal();
+  updateListPreview();
   $('#l-name').focus();
+}
+
+/** Prévia da lista no topo da janela: emoji, cor, nome e grupo. */
+function updateListPreview() {
+  const form = $('form[data-form="list"]');
+  if (!form) return;
+  const emoji = form.elements.emoji.value.trim();
+  const color = form.querySelector('[name="color"]:checked')?.value || '';
+  const em = $('#lp-em');
+  em.style.setProperty('--c', color || '#7E8A99');
+  em.innerHTML = emoji ? escapeHtml(emoji) : ico('list');
+  $('#lp-name').textContent = form.elements.name.value.trim() || 'Nova lista';
+  $('#lp-group').textContent = form.elements.group.value.trim();
 }
 
 async function submitList(form) {
@@ -2270,17 +2374,22 @@ function openDeleteList(id) {
   const list = findList(id);
   const tasks = state.tasks.filter((t) => t.listId === id && !t.deletedAt);
   const open = tasks.filter((t) => t.status === 'open').length;
+  const others = sortedLists().filter((l) => l.id !== id && l.id !== INBOX);
   const dialog = $('#dialog');
   dialog.innerHTML = `
-    <form class="form" data-form="delete-list" data-id="${id}">
-      <div class="form-head"><h2>Excluir ${escapeHtml(list.name)}?</h2><button type="button" class="btn small" data-action="close-dialog">Cancelar</button></div>
+    <form class="form sheet-form" data-form="delete-list" data-id="${id}">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="form-head" style="justify-content:flex-start;gap:12px">${listSquare(list)}<h2>Excluir ${escapeHtml(list.name)}?</h2></div>
       ${tasks.length ? `
-      <p class="help">A lista tem ${tasks.length} tarefa(s), ${open} aberta(s). O que fazer com elas?</p>
-      <label class="check-line"><input type="radio" name="fate" value="inbox" checked> Mover para a Entrada</label>
-      <label class="check-line"><input type="radio" name="fate" value="other"> Mover para outra lista:</label>
-      <div class="field"><select name="target" aria-label="Lista de destino">${sortedLists().filter((l) => l.id !== id).map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}</select></div>
-      <label class="check-line"><input type="radio" name="fate" value="trash"> Mandar para a Lixeira (dá para restaurar)</label>` : '<p class="help">A lista está vazia.</p>'}
-      <div class="form-foot"><div></div><div><button class="btn danger">Excluir lista</button></div></div>
+      <p class="help" style="font-size:.97rem;margin:0">A lista tem ${tasks.length} ${tasks.length === 1 ? 'tarefa' : 'tarefas'}, ${open} ${open === 1 ? 'aberta' : 'abertas'}. Para onde elas vão?</p>
+      <label class="radio-card"><input type="radio" name="fate" value="inbox" checked><span><strong>Para a Entrada</strong><small>Ficam esperando você decidir.</small></span></label>
+      ${others.length ? `<label class="radio-card"><input type="radio" name="fate" value="other"><span class="grow"><strong>Para outra lista</strong><small>Escolha a lista:</small>
+        <select name="target" aria-label="Lista de destino">${others.map((l) => `<option value="${l.id}">${escapeHtml(`${l.emoji ? `${l.emoji} ` : ''}${l.name}`)}</option>`).join('')}</select></span></label>` : ''}
+      <label class="radio-card"><input type="radio" name="fate" value="trash"><span><strong>Para a Lixeira</strong><small>Dá para restaurar depois.</small></span></label>` : '<p class="help" style="font-size:.97rem;margin:0">A lista está vazia.</p>'}
+      <div class="actions">
+        <button type="button" class="btn" data-action="close-dialog" style="flex:1">Cancelar</button>
+        <button class="btn danger-fill" style="flex:1.4">${ico('trash')}Excluir lista</button>
+      </div>
     </form>`;
   if (!dialog.open) dialog.showModal();
 }
@@ -2525,9 +2634,33 @@ const clickActions = {
   'move-list': (el) => moveList(el.dataset.id, Number(el.dataset.step)),
   'set-list-sort': (el) => setListSort(el.dataset.id, el.dataset.sort),
   'toggle-done-section': (el) => toggleDoneSection(el.dataset.id),
+  'pick-emoji-other': (el) => {
+    const input = $('#l-emoji');
+    input.hidden = false;
+    el.closest('.emoji-grid').querySelectorAll('.chip').forEach((chip) => chip.classList.toggle('on', chip === el));
+    input.focus();
+  },
+  'pick-group': (el) => {
+    const input = $('#l-group');
+    input.value = el.dataset.group;
+    input.hidden = true;
+    el.parentElement.querySelectorAll('.chip').forEach((chip) => chip.classList.toggle('on', chip === el));
+    updateListPreview();
+  },
+  'pick-group-new': (el) => {
+    const input = $('#l-group');
+    input.value = '';
+    input.hidden = false;
+    el.parentElement.querySelectorAll('.chip').forEach((chip) => chip.classList.toggle('on', chip === el));
+    updateListPreview();
+    input.focus();
+  },
   'pick-emoji': (el) => {
     const input = $('#l-emoji');
-    input.value = input.value === el.dataset.emoji ? '' : el.dataset.emoji;
+    input.value = el.dataset.emoji;
+    input.hidden = true;
+    el.closest('.emoji-grid').querySelectorAll('.chip').forEach((chip) => chip.classList.toggle('on', chip === el));
+    updateListPreview();
   },
   sheet: (el) => {
     const item = sheetItems[Number(el.dataset.index)];
@@ -2617,6 +2750,11 @@ const clickActions = {
   'clear-when': () => {
     $('#f-when').value = '';
     syncReminderFromWhen();
+  },
+  'show-remind-field': () => {
+    showRemindField = true;
+    updateFormHints();
+    $('#f-remind').focus();
   },
   'add-step': () => {
     const input = $('#step-input');
@@ -2846,6 +2984,8 @@ document.addEventListener('input', (event) => {
     }
   } else if (target.id === 'quick-input') {
     renderQuickPreview();
+  } else if (target.closest('form[data-form="list"]')) {
+    updateListPreview();
   } else if (target.id === 'f-when') {
     syncReminderFromWhen(true);
   } else if (target.id === 'f-time') {
@@ -2870,8 +3010,11 @@ document.addEventListener('change', async (event) => {
     showToast(`Lembrete sugerido às ${target.value} quando você escolher só a data.`);
   } else if (target.id === 'f-when' || target.id === 'f-time' || target.id === 'f-remind') {
     // Já tratado no evento input.
+  } else if (target.name === 'color' && target.closest('form[data-form="list"]')) {
+    updateListPreview();
   } else if (target.dataset.stepDone !== undefined) {
     draftSteps[Number(target.dataset.stepDone)].done = target.checked;
+    renderSteps();
   } else if (target.id === 'push-enabled') {
     await togglePush(target.checked);
   } else if (target.id === 'push-digest') {
