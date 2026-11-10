@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v14.1 · 10/11/2026';
+const APP_VERSION = 'v14.2 · 10/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -439,9 +439,10 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
     icon: 'icons/icon-folha-192.png',
     badge: 'icons/badge-folha-96.png',
     data: { id: task.id },
+    // O Chrome mostra no máximo dois botões: Concluir e o escolhido em Config. › Avisos.
     actions: [
       { action: 'done', title: 'Concluir' },
-      { action: 'snooze', title: `Adiar ${SNOOZE_MINUTES} min` },
+      notifySecond() === 'snooze' ? { action: 'snooze', title: `Adiar ${SNOOZE_MINUTES} min` } : { action: 'tomorrow', title: 'Amanhã' },
     ],
   };
   const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
@@ -591,8 +592,27 @@ async function handleReminderAction(action, id) {
     await saveTask(snooze(task, new Date(), SNOOZE_MINUTES));
     render();
     showToast(`Adiado por ${SNOOZE_MINUTES} minutos.`);
+  } else if (action === 'tomorrow') {
+    await tomorrowFromReminder(id);
   } else if (action === 'open') {
     openTask(id);
+  }
+}
+
+const notifySecond = () => (state.settings.notifySecond === 'snooze' ? 'snooze' : 'tomorrow');
+
+/** Botão "Amanhã" do aviso: a tarefa vai para amanhã e o lembrete de hoje volta amanhã, no mesmo horário. */
+async function tomorrowFromReminder(id) {
+  const task = findTask(id);
+  if (!task) return;
+  const now = localDateTime();
+  const active = activeReminder(task, now);
+  const tomorrow = addDays(today(), 1);
+  await moveToDate(id, tomorrow);
+  const moved = findTask(id);
+  if (active && moved && activeReminder(moved, localDateTime())) {
+    await saveTask(snoozeTo(moved, `${tomorrow}T${active.slice(11)}`, now));
+    render();
   }
 }
 
@@ -1006,7 +1026,7 @@ function listsView() {
       <button class="btn small" data-action="organize-lists" ${ungrouped.length + groups.length ? '' : 'disabled'}>Organizar</button>
       <button class="btn small primary" data-action="new-list">${ico('plus')}Nova</button>
     </div>
-    <div class="rows">${row(inbox)}${ungrouped.map(row).join('')}</div>
+    <div class="rows">${inbox ? row(inbox) : ''}${ungrouped.map(row).join('')}</div>
     ${groups.map(([name, lists]) => `<div class="grp"><span>${escapeHtml(name)}</span><button class="ib" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}" title="Opções do grupo">${MORE_ICON}</button></div><div class="rows">${lists.map(row).join('')}</div>`).join('')}
     ${ungrouped.length + groups.length ? '' : '<p class="empty-tip">Crie listas para separar assuntos (Casa, Trabalho, Mercado). Para juntar listas, dê o mesmo nome de grupo a elas.</p>'}
     <div class="tiles">
@@ -1367,6 +1387,9 @@ function settingsView(page) {
     <section class="panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span class="list-dot" style="--dot:${status[1]}"></span><strong>${status[0]}</strong></div>
       <p>${permission === 'denied' ? 'Libere nas configurações do navegador. ' : ''}Com o app aberto, os avisos chegam na hora. Os atrasados aparecem em destaque em Hoje.</p>
+      <div class="sr" style="display:block;border-top:1px solid var(--line);border-bottom:0;margin-bottom:6px"><span>Segundo botão do aviso</span><small>O Android mostra só dois botões: Concluir e este.</small>
+        <div style="margin-top:8px">${segmented('Segundo botão do aviso', 'set-notify-second', [['tomorrow', 'Amanhã'], [
+          'snooze', `Adiar ${SNOOZE_MINUTES} min`]], notifySecond())}</div></div>
       <div class="actions">
         ${permission === 'default' ? `<button class="btn small primary" data-action="enable-notifications">${ico('bell')}Ativar notificações</button>` : ''}
         ${permission === 'granted' ? `<button class="btn small" data-action="test-notification">${ico('bell')}Enviar teste</button>` : ''}
@@ -1458,7 +1481,7 @@ function renderNav() {
     ${item('#today', 'Hoje', route.name === 'today', { icon: 'sun', count: dueCount, badge: true })}
     ${item('#upcoming', 'Próximos', route.name === 'upcoming', { icon: 'calendar' })}
     ${item('#important', 'Importantes', route.name === 'important', { icon: 'star', count: openTasks().filter((t) => t.important).length, extra: 'nav-only-desktop' })}
-    ${desktopList(inbox)}
+    ${inbox ? desktopList(inbox) : ''}
     ${ungrouped.map(desktopList).join('')}
     ${groups.map(([name, lists]) => `<span class="nav-group">${escapeHtml(name)}</span>${lists.map(desktopList).join('')}`).join('')}
     ${item('#lists', 'Listas', route.name === 'lists' || (isLists && mobile), { icon: 'list' })}
@@ -2715,6 +2738,10 @@ const clickActions = {
     render();
   },
   'snooze-menu': (el) => openSnoozeSheet(el.dataset.id),
+  'set-notify-second': async (el) => {
+    await saveSettings({ notifySecond: el.dataset.value });
+    render();
+  },
   'set-swipe-left': async (el) => {
     await saveSettings({ swipeLeft: el.dataset.value });
     render();

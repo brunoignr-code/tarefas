@@ -73,6 +73,12 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (10 de novembro de 2026)
 
+### v14.2 e APK 1.3, lote 3, 10 de novembro
+
+- **APK 1.3** (`versionCode` 4), mesma chave do 1.2 (certificado SHA-256 `453fd2e0…`): `C:\Python - localpk-afazeresfazeres-1.3-twa.apk`. Precisa instalar por cima do 1.2 para trocar o ícone: ícone adaptável da logo 3 (fundo verde em degradê, folha de papel na frente), silhueta branca no ícone temático do Android 13+ e nas notificações, tela de abertura com a logo nova e barras do Android na Folha escura quando o celular está no modo escuro. `android/tools/gerar_icones.py` agora desenha tudo a partir dos SVGs de `icons/` (usa o Chrome e o Pillow).
+- **Botão "Amanhã" na notificação:** a tarefa vai para amanhã e o lembrete de hoje volta amanhã, no mesmo horário. O Chrome mostra no máximo **dois** botões por notificação, então o padrão passou a ser Concluir + Amanhã; em Config. › Avisos › "Segundo botão do aviso" dá para voltar a Concluir + Adiar 10 min. Vale para os avisos com o app aberto e com ele fechado (o service worker lê a escolha no aparelho). O Worker não mudou.
+- Correção: a navegação e a tela Listas não quebram mais se forem desenhadas antes de os dados carregarem.
+
 ### v14.1, lote 2, 10 de novembro
 
 - **Deslizar para a esquerda adia para amanhã** (com uma faixa amarela "Amanhã" por baixo e Desfazer). Em Config. › Geral dá para voltar a "Mandar para a Lixeira". Deslizar para a direita continua concluindo. O lembrete marcado para o mesmo dia vai junto para amanhã.

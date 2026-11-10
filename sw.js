@@ -1,5 +1,5 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v14-1';
+const CACHE = 'tarefas-v14-2';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -121,7 +121,7 @@ function localDue(tasks, now) {
   });
 }
 
-function notify(item, quiet) {
+function notify(item, quiet, second = 'tomorrow') {
   const options = {
     body: item.body,
     icon: 'icons/icon-folha-192.png',
@@ -132,7 +132,11 @@ function notify(item, quiet) {
     data: { id: item.taskId || null },
   };
   if (item.taskId) {
-    options.actions = [{ action: 'done', title: 'Concluir' }, { action: 'snooze', title: 'Adiar 10 min' }];
+    // O Chrome mostra no máximo dois botões: Concluir e o escolhido em Config. › Avisos.
+    options.actions = [
+      { action: 'done', title: 'Concluir' },
+      second === 'snooze' ? { action: 'snooze', title: 'Adiar 10 min' } : { action: 'tomorrow', title: 'Amanhã' },
+    ];
   }
   return self.registration.showNotification(item.title, options);
 }
@@ -148,6 +152,8 @@ async function onPush() {
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const record = database ? await idb(database, 'meta', 'readonly', (s) => s.get('pushShown')).catch(() => null) : null;
   const shown = new Set((record && record.keys) || []);
+  const settings = database ? await idb(database, 'meta', 'readonly', (s) => s.get('settings')).catch(() => null) : null;
+  const second = settings && settings.notifySecond === 'snooze' ? 'snooze' : 'tomorrow';
 
   let items = null;
   try {
@@ -167,7 +173,7 @@ async function onPush() {
   // Um aviso por tarefa: o mais recente.
   const latest = new Map();
   fresh.forEach((item) => latest.set(item.taskId || item.key, item));
-  await Promise.all([...latest.values()].map((item) => notify(item, false)));
+  await Promise.all([...latest.values()].map((item) => notify(item, false, second)));
 
   if (fresh.length && database) {
     const keys = [...shown, ...fresh.map((item) => item.key)].slice(-SHOWN_MAX);
@@ -176,7 +182,7 @@ async function onPush() {
   if (!latest.size && !visible) {
     // O navegador exige um aviso a cada push. Repete em silêncio o último, ou um aviso genérico.
     const last = items[items.length - 1];
-    await notify(last || { key: 'generic', kind: 'generic', title: APP_NAME, body: 'Você tem um lembrete. Toque para abrir.' }, true);
+    await notify(last || { key: 'generic', kind: 'generic', title: APP_NAME, body: 'Você tem um lembrete. Toque para abrir.' }, true, second);
   }
 }
 

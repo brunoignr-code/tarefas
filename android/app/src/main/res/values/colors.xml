@@ -2,5 +2,7 @@
 <resources>
     <!-- Fundo da Folha: barra de status, barra de navegação e tela de abertura -->
     <color name="fundo">#F3F8F3</color>
-    <color name="iconeFundo">#DCEFE1</color>
+    <!-- Folha escura: barras do Android quando o celular está no modo escuro -->
+    <color name="fundoEscuro">#0F1714</color>
+    <color name="iconeFundo">#0F6B4C</color>
 </resources>
