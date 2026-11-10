@@ -188,17 +188,18 @@ test('Título vazio é recusado', () => {
   eq(typeof applyEdit(null, { title: '  ' }, TODAY).error, 'string');
 });
 
-test('Tema: Sistema alterna entre Diamante e Barquinho', () => {
-  eq(resolveTheme('system', true), 'diamante');
-  eq(resolveTheme('system', false), 'barquinho');
-  eq(resolveTheme('marca-texto', true), 'marca-texto');
+test('Tema: Sistema e Barquinho saíram e viram a Folha (padrão)', () => {
+  eq(resolveTheme('system'), 'folha');
+  eq(resolveTheme('barquinho'), 'folha');
+  eq(resolveTheme('marca-texto'), 'marca-texto');
+  eq(resolveTheme('diamante'), 'diamante');
 });
 
 test('Tema: valores antigos ou inválidos são convertidos', () => {
-  eq(normalizeTheme('auto'), 'system');
+  eq(normalizeTheme('auto'), 'folha');
   eq(normalizeTheme('dark'), 'diamante');
   eq(normalizeTheme('light'), 'folha');
-  eq(normalizeTheme('qualquer'), 'system');
+  eq(normalizeTheme('qualquer'), 'folha');
   eq(normalizeTheme('marca-texto'), 'marca-texto');
 });
 

@@ -10,7 +10,7 @@ import {
 } from './push.js';
 import { parseQuickAdd } from './parse.js';
 import {
-  DEFAULT_HIGHLIGHT, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
+  DEFAULT_HIGHLIGHT, DEFAULT_THEME, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
 } from './theme.js';
 import { stamp, stampAll } from './sync-core.js';
 import { authenticate, changePassword, createSync, endSession } from './sync.js';
@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v12.2 · 09/11/2026';
+const APP_VERSION = 'v13 · 10/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const FREQ_LABELS = {
@@ -26,7 +26,7 @@ const FREQ_LABELS = {
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
 
-const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: 'diamante', themeChosen: true, themeV2: true, highlight: DEFAULT_HIGHLIGHT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
+const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: DEFAULT_THEME, themeChosen: true, themeV2: true, highlight: DEFAULT_HIGHLIGHT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
 const $ = (selector, root = document) => root.querySelector(selector);
 const today = () => localDate();
 const newId = () => crypto.randomUUID();
@@ -403,8 +403,8 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
     body,
     tag: task.id,
     renotify: step > 0,
-    icon: 'icons/icon-barco-192.png',
-    badge: 'icons/icon-barco-192.png',
+    icon: 'icons/icon-folha-192.png',
+    badge: 'icons/icon-folha-192.png',
     data: { id: task.id },
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -976,7 +976,7 @@ function settingsView() {
     ? `Último backup: ${formatDate(localDate(new Date(state.settings.lastExport))).toLowerCase()}.`
     : 'Nenhum backup feito ainda.';
   const { theme, highlight } = state.settings;
-  const themeOptions = [...THEMES, { id: 'system', name: 'Sistema' }];
+  const themeOptions = THEMES;
   const highlightPanel = resolveTheme(theme, prefersDark()) === 'marca-texto' ? `
     <section class="panel">
       <h3>Cor do marca-texto</h3>
@@ -1010,6 +1010,9 @@ function settingsView() {
       <div class="field"><select id="default-list" aria-label="Lista das tarefas novas">
         ${sortedLists().map((list) => `<option value="${list.id}" ${list.id === defaultListId() ? 'selected' : ''}>${escapeHtml(`${list.emoji ? `${list.emoji} ` : ''}${list.name}`)}</option>`).join('')}
       </select></div>
+      <h3 style="margin-top:12px">Horário sugerido para lembrar</h3>
+      <p>Ao escolher a data em Quando, a Hora e o Lembrar já vêm com este horário. Dá para mudar em cada tarefa.</p>
+      <div class="field" style="max-width:160px"><input type="time" id="default-remind-time" aria-label="Horário sugerido para lembrar" value="${defaultRemindTime()}"></div>
       <h3 style="margin-top:12px">A semana começa no</h3>
       ${segmented('Início da semana', 'set-week-start', [[0, 'Domingo'], [1, 'Segunda']], Number(state.settings.weekStart) === 1 ? 1 : 0)}
       <label class="check-line"><input type="checkbox" id="parse-dates" ${state.settings.parseDates === false ? '' : 'checked'}> Entender datas ao digitar, como "pagar luz sexta 9h"</label>
@@ -1027,7 +1030,6 @@ function settingsView() {
       <div class="segments themes" role="group" aria-label="Tema">
         ${themeOptions.map((item) => `<button class="${item.id === theme ? 'on' : ''}" data-action="set-theme" data-theme-id="${item.id}" aria-pressed="${item.id === theme}">${item.name}</button>`).join('')}
       </div>
-      <p>Em Sistema, o app usa Diamante no modo escuro e Barquinho no modo claro.</p>
       <h3 style="margin-top:6px">Tamanho da letra</h3>
       <div class="segments font-sizes" role="group" aria-label="Tamanho da letra">
         ${FONT_SIZES.map(([id, px, name]) => `<button class="${id === Number(state.settings.fontSize || 3) ? 'on' : ''}" data-action="set-font-size" data-size="${id}" aria-pressed="${id === Number(state.settings.fontSize || 3)}" aria-label="${name}" title="${name}"><span style="font-size:${px}px">Aa</span></button>`).join('')}
@@ -1438,91 +1440,186 @@ function openTask(id) {
         <div class="help" id="series-help"></div>
       </div>`;
 
+  // A hora ao lado de Quando é a do lembrete, quando ele cai no mesmo dia.
+  const whenTime = task.when && task.remindAt && task.remindAt.slice(0, 10) === task.when ? task.remindAt.slice(11, 16) : '';
+  remindLinked = !task.remindAt || (!!task.when && task.remindAt === `${task.when}T${whenTime}`);
+  const moreOpen = !!(task.deadline || task.seriesEnd || (task.tags || []).length || (task.extraReminders || []).length || task.insist);
+  const repeatMoreOpen = !!(repeat.fromCompletion || repeat.count);
+
   const dialog = $('#dialog');
   dialog.innerHTML = `
-    <form class="form" data-form="task" data-id="${task.id}" novalidate>
-      <div class="form-head"><h2>Detalhes da tarefa</h2><button type="button" class="btn small" data-action="close-dialog">Fechar</button></div>
+    <form class="form task-form" data-form="task" data-id="${task.id}" novalidate>
+      <div class="form-head sticky-head">
+        <button type="button" class="btn small" data-action="close-dialog">Fechar</button>
+        <h2>Tarefa</h2>
+        <button class="btn small primary">Salvar</button>
+      </div>
       <div class="error" id="form-error" role="alert" hidden></div>
-      <div class="field"><label for="f-title">Título</label><input id="f-title" name="title" value="${escapeHtml(task.title)}" required></div>
-      <div class="grid-2">
+      <div class="field"><label for="f-title" class="visually-hidden">Título</label><input id="f-title" class="title-input" name="title" value="${escapeHtml(task.title)}" placeholder="O que fazer?" required autocomplete="off"></div>
+
+      <section class="form-block" aria-label="Quando e lembrete">
+        <div class="when-row">
+          <div class="field"><label for="f-when">Quando</label><input id="f-when" type="date" name="when" value="${task.when || ''}"></div>
+          <div class="field field-time"><label for="f-time">Hora</label><input id="f-time" type="time" value="${whenTime}"></div>
+        </div>
+        <div class="shortcuts">
+          <button type="button" class="link-btn" data-action="set-when" data-days="0">Hoje</button>
+          <button type="button" class="link-btn" data-action="set-when" data-days="1">Amanhã</button>
+          <button type="button" class="link-btn" data-action="set-when" data-days="7">Daqui a 1 semana</button>
+          <button type="button" class="link-btn" data-action="clear-when">Sem data</button>
+        </div>
+        <label class="check-line remind-toggle"><input type="checkbox" id="f-remind-on" ${task.remindAt ? 'checked' : ''}> Lembrar</label>
+        <div class="field" id="remind-field">
+          <input id="f-remind" type="datetime-local" name="remindAt" value="${task.remindAt || ''}" aria-label="Data e hora do lembrete">
+          <div class="help" id="remind-help"></div>
+          <div class="help">${notifyHint}</div>
+        </div>
+        <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada repetição</label>
+      </section>
+
+      <section class="form-block" aria-label="Repetição">
         <div class="field">
-          <label for="f-when">Quando</label>
-          <input id="f-when" type="date" name="when" value="${task.when || ''}">
-          <div class="shortcuts">
-            <button type="button" class="link-btn" data-action="set-when" data-days="0">Hoje</button>
-            <button type="button" class="link-btn" data-action="set-when" data-days="1">Amanhã</button>
+          <label for="f-freq">Repetir</label>
+          <select id="f-freq" name="freq">
+            <option value="">Não repete</option>
+            ${Object.entries(FREQ_LABELS).map(([value, [name]]) => `<option value="${value}" ${repeat.freq === value ? 'selected' : ''}>${name}</option>`).join('')}
+          </select>
+          <div class="help" id="repeat-help"></div>
+        </div>
+        <div id="repeat-options" class="inline-field" hidden>
+          <label for="f-interval">A cada</label>
+          <input id="f-interval" type="number" min="1" max="99" name="interval" value="${repeat.interval || 1}" inputmode="numeric">
+          <span id="unit-text"></span>
+        </div>
+        <div class="field" id="weekday-field" hidden>
+          <span class="label-text">Dias da semana</span>
+          <div class="weekdays">
+            ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${name}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
           </div>
         </div>
-        ${untilField}
-      </div>
-      <div class="field">
-        <label for="f-freq">Repetir</label>
-        <select id="f-freq" name="freq">
-          <option value="">Não repete</option>
-          ${Object.entries(FREQ_LABELS).map(([value, [name]]) => `<option value="${value}" ${repeat.freq === value ? 'selected' : ''}>${name}</option>`).join('')}
-        </select>
-        <div class="help" id="repeat-help"></div>
-      </div>
-      <div id="repeat-options" class="grid-2" hidden>
-        <div class="field"><label for="f-interval">A cada</label><input id="f-interval" type="number" min="1" max="99" name="interval" value="${repeat.interval || 1}" inputmode="numeric"></div>
-        <div class="field" id="unit-field"><span class="label-text">Unidade</span><div class="help" id="unit-text" style="min-height:44px;display:flex;align-items:center"></div></div>
-      </div>
-      <div class="field" id="weekday-field" hidden>
-        <span class="label-text">Dias da semana</span>
-        <div class="weekdays">
-          ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${name}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
-        </div>
-      </div>
-      <div id="repeat-extra" hidden>
-        <label class="check-line"><input type="checkbox" name="fromCompletion" ${repeat.fromCompletion ? 'checked' : ''}> Contar a partir da conclusão</label>
-        <div class="field">
-          <label for="f-count">Terminar após (vezes)</label>
-          <input id="f-count" type="number" min="1" max="999" name="count" value="${repeat.count || ''}" placeholder="Sem limite" inputmode="numeric">
-          <div class="help">${repeat.count ? `Feitas ${repeat.done || 0} de ${repeat.count}.` : 'Deixe vazio para repetir sem limite.'}</div>
-        </div>
-      </div>
-      ${seriesField}
-      <div class="field">
-        <label for="f-remind">Lembrar</label>
-        <input id="f-remind" type="datetime-local" name="remindAt" value="${task.remindAt || ''}">
-        <div id="extra-reminders" class="rows">${(task.extraReminders || []).map(extraReminderRow).join('')}</div>
-        <div class="help">${notifyHint}</div>
-        <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada ocorrência</label>
-      </div>
-      <button type="button" class="btn" data-action="add-reminder">Adicionar outro lembrete</button>
-      <label class="check-line" id="insist-line"><input type="checkbox" name="insist" ${task.insist ? 'checked' : ''}> Insistir até eu reagir (a cada ${pushSettings().insistMinutes} min, até ${INSIST_MAX} vezes)</label>
-      <div class="field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
-      <div class="field">
-        <label for="f-tags">Tags</label>
-        <input id="f-tags" name="tags" list="tag-names" value="${escapeHtml((task.tags || []).join(', '))}" placeholder="casa, mercado" autocomplete="off">
-        <datalist id="tag-names">${allTags().map(([tag]) => `<option value="${escapeHtml(tag)}">`).join('')}</datalist>
-        <div class="help">Separe por vírgula.</div>
-      </div>
-      <label class="check-line"><input type="checkbox" name="important" ${task.important ? 'checked' : ''}> Importante</label>
+        <details id="repeat-extra" class="more" ${repeatMoreOpen ? 'open' : ''} hidden>
+          <summary>Mais opções da repetição</summary>
+          <label class="check-line"><input type="checkbox" name="fromCompletion" ${repeat.fromCompletion ? 'checked' : ''}> Contar a partir da conclusão</label>
+          <div class="field">
+            <label for="f-count">Terminar após (vezes)</label>
+            <input id="f-count" type="number" min="1" max="999" name="count" value="${repeat.count || ''}" placeholder="Sem limite" inputmode="numeric">
+            <div class="help">${repeat.count ? `Feitas ${repeat.done || 0} de ${repeat.count}.` : 'Deixe vazio para repetir sem limite.'}</div>
+          </div>
+          ${seriesField}
+        </details>
+      </section>
+
+      <section class="form-block list-row" aria-label="Lista e importância">
+        <div class="field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
+        <label class="star-toggle"><input type="checkbox" name="important" ${task.important ? 'checked' : ''}><span>${STAR_ICON(true)} Importante</span></label>
+      </section>
+
       <div class="field">
         <span class="label-text">Etapas</span>
         <div id="steps" class="rows"></div>
-        <div class="quick-add" style="margin:0"><div class="field" style="flex:1"><input id="step-input" aria-label="Nova etapa" placeholder="Nova etapa" autocomplete="off"></div><button type="button" class="btn" data-action="add-step">Adicionar</button></div>
+        <div class="quick-add" style="margin:0"><div class="field" style="flex:1"><input id="step-input" aria-label="Nova etapa" placeholder="Adicionar etapa" autocomplete="off"></div><button type="button" class="btn" data-action="add-step">Adicionar</button></div>
       </div>
-      <div class="field"><label for="f-notes">Notas</label><textarea id="f-notes" name="notes">${escapeHtml(task.notes)}</textarea></div>
+      <div class="field"><label for="f-notes">Notas</label><textarea id="f-notes" name="notes" placeholder="Detalhes, links, endereço...">${escapeHtml(task.notes)}</textarea></div>
+
+      <details class="more" id="more-options" ${moreOpen ? 'open' : ''}>
+        <summary>Mais opções: prazo, outros lembretes, insistir, tags</summary>
+        ${untilField}
+        <div class="field">
+          <span class="label-text">Outros lembretes</span>
+          <div id="extra-reminders" class="rows">${(task.extraReminders || []).map(extraReminderRow).join('')}</div>
+          <button type="button" class="btn small" data-action="add-reminder">Adicionar outro lembrete</button>
+        </div>
+        <label class="check-line" id="insist-line"><input type="checkbox" name="insist" ${task.insist ? 'checked' : ''}> Insistir até eu reagir (a cada ${pushSettings().insistMinutes} min, até ${INSIST_MAX} vezes)</label>
+        <div class="field">
+          <label for="f-tags">Tags</label>
+          <input id="f-tags" name="tags" list="tag-names" value="${escapeHtml((task.tags || []).join(', '))}" placeholder="casa, mercado" autocomplete="off">
+          <datalist id="tag-names">${allTags().map(([tag]) => `<option value="${escapeHtml(tag)}">`).join('')}</datalist>
+          <div class="help">Separe por vírgula.</div>
+        </div>
+      </details>
       ${info ? `<p class="help task-info">${escapeHtml(info)}</p>` : ''}
-      <div class="form-foot">
+
+      <div class="form-foot sticky-foot">
         <div>
           ${task.deletedAt
-    ? `<button type="button" class="btn" data-action="restore" data-id="${task.id}">Restaurar</button>`
-    : `<button type="button" class="btn danger" data-action="trash" data-id="${task.id}">Excluir</button>`}
-          ${task.status === 'open' ? `<button type="button" class="btn primary" data-action="complete-from-dialog" data-id="${task.id}">${task.repeat ? 'Concluir e ir para a próxima' : 'Concluir'}</button>`
-    : `<button type="button" class="btn" data-action="reopen-from-dialog" data-id="${task.id}">Reabrir</button>`}
-          ${task.repeat && task.status === 'open' ? `<button type="button" class="btn" data-action="skip" data-id="${task.id}">Pular ocorrência</button>` : ''}
-          <button type="button" class="btn" data-action="duplicate-from-dialog" data-id="${task.id}">Duplicar</button>
+    ? `<button type="button" class="btn small" data-action="restore" data-id="${task.id}">Restaurar</button>`
+    : `<button type="button" class="btn small danger" data-action="trash" data-id="${task.id}">Excluir</button>`}
+          <button type="button" class="btn small" data-action="duplicate-from-dialog" data-id="${task.id}">Duplicar</button>
+          ${task.repeat && task.status === 'open' ? `<button type="button" class="btn small" data-action="skip" data-id="${task.id}">Pular esta</button>` : ''}
         </div>
-        <div><button class="btn primary">Salvar</button></div>
+        <div>
+          ${task.status === 'open' ? `<button type="button" class="btn small primary" data-action="complete-from-dialog" data-id="${task.id}">${task.repeat ? 'Concluir e ir para a próxima' : 'Concluir'}</button>`
+    : `<button type="button" class="btn small" data-action="reopen-from-dialog" data-id="${task.id}">Reabrir</button>`}
+        </div>
       </div>
     </form>`;
   renderSteps();
   updateFormHints();
   if (!dialog.open) dialog.showModal();
   dialogSnapshot = formSnapshot();
+}
+
+/* ---------- Quando + Hora sugerem o lembrete ---------- */
+
+// Enquanto o lembrete seguir Quando e Hora, mudar a data ou a hora muda o lembrete junto.
+let remindLinked = true;
+const defaultRemindTime = () => (/^\d{2}:\d{2}$/.test(state.settings.defaultRemindTime || '') ? state.settings.defaultRemindTime : '09:00');
+
+/** Chamado quando Quando ou Hora mudam. `fromDate`: a data acabou de ser escolhida. */
+function syncReminderFromWhen(fromDate = false) {
+  const when = $('#f-when');
+  const time = $('#f-time');
+  const remind = $('#f-remind');
+  const on = $('#f-remind-on');
+  if (!when || !remindLinked) return;
+  if (!when.value) {
+    remind.value = '';
+    on.checked = false;
+  } else {
+    if (fromDate && !time.value) time.value = defaultRemindTime();
+    if (time.value) {
+      remind.value = `${when.value}T${time.value}`;
+      on.checked = true;
+    } else {
+      remind.value = '';
+      on.checked = false;
+    }
+  }
+  updateFormHints();
+}
+
+/** O lembrete foi mudado à mão: deixa de seguir Quando, a não ser que coincida. */
+function reminderEdited() {
+  const when = $('#f-when').value;
+  const time = $('#f-time').value;
+  const value = $('#f-remind').value;
+  remindLinked = !value || (when && value === `${when}T${time}`);
+  if (value) $('#f-remind-on').checked = true;
+  updateFormHints();
+}
+
+function reminderToggled() {
+  const on = $('#f-remind-on').checked;
+  const remind = $('#f-remind');
+  if (on && !remind.value) {
+    const when = $('#f-when').value;
+    const time = $('#f-time').value || defaultRemindTime();
+    if (when) {
+      $('#f-time').value = time;
+      remind.value = `${when}T${time}`;
+      remindLinked = true;
+    } else {
+      // Sem Quando: sugere daqui a uma hora, arredondado.
+      const next = new Date(Date.now() + 60 * 60000);
+      next.setMinutes(0, 0, 0);
+      remind.value = localDateTime(next);
+      remindLinked = false;
+    }
+  } else if (!on) {
+    // Desligado à mão: mudar a data não liga de novo.
+    remindLinked = false;
+  }
+  updateFormHints();
 }
 
 // Para avisar antes de fechar os detalhes com alterações não salvas.
@@ -1564,7 +1661,7 @@ function readForm(form) {
   const fields = {
     title: data.get('title'),
     when: data.get('when'),
-    remindAt: data.get('remindAt'),
+    remindAt: form.querySelector('#f-remind-on')?.checked === false ? '' : data.get('remindAt'),
     remindEach: data.get('remindEach') === 'on',
     extraReminders: data.getAll('extraReminder').filter(Boolean),
     insist: data.get('insist') === 'on',
@@ -1613,7 +1710,17 @@ function updateFormHints() {
   $('#repeat-extra').hidden = !freq;
   $('#repeat-options').hidden = !freq;
   $('#weekday-field').hidden = freq !== 'weekly';
-  const hasReminder = !!form.elements.remindAt.value || [...form.querySelectorAll('[name="extraReminder"]')].some((input) => input.value);
+  const remindOn = $('#f-remind-on').checked;
+  $('#remind-field').hidden = !remindOn;
+  const remindValue = form.elements.remindAt.value;
+  let remindText = '';
+  if (remindOn && remindValue) {
+    remindText = remindLinked && form.elements.when.value
+      ? `Avisa ${formatDateTime(remindValue).toLowerCase()}, junto com Quando e Hora.`
+      : `Avisa ${formatDateTime(remindValue).toLowerCase()}.`;
+  }
+  $('#remind-help').textContent = remindText;
+  const hasReminder = (remindOn && !!remindValue) || [...form.querySelectorAll('[name="extraReminder"]')].some((input) => input.value);
   $('#remind-each-line').hidden = !freq || !hasReminder;
   $('#insist-line').hidden = !hasReminder;
   if (freq) $('#unit-text').textContent = FREQ_LABELS[freq][1];
@@ -1939,8 +2046,8 @@ function applyTheme(highlight = state.settings.highlight) {
   $('meta[name="theme-color"]').content = THEMES.find((item) => item.id === theme).chrome;
   const fs = fontSizePx();
   root.style.fontSize = `${fs}px`;
-  // Ícone do app: barquinho em todos os temas (decisão de 9/11).
-  const icon = 'icons/icon-barco-192.png';
+  // Ícone do app: a folha em todos os temas (decisão de 10/11).
+  const icon = 'icons/icon-folha-192.png';
   document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((link) => { link.href = icon; });
   try {
     localStorage.setItem('tarefas-tema', JSON.stringify({ theme, hi: highlight, onHi, fs }));
@@ -2074,7 +2181,11 @@ const clickActions = {
   },
   'set-when': (el) => {
     $('#f-when').value = addDays(today(), Number(el.dataset.days));
-    updateFormHints();
+    syncReminderFromWhen(true);
+  },
+  'clear-when': () => {
+    $('#f-when').value = '';
+    syncReminderFromWhen();
   },
   'add-step': () => {
     const input = $('#step-input');
@@ -2256,6 +2367,14 @@ document.addEventListener('input', (event) => {
     // Mostra a cor enquanto ela é escolhida; só salva ao confirmar.
     applyTheme(target.value);
     $('#highlight-warning').hidden = !isTooLight(target.value);
+  } else if (target.id === 'f-when') {
+    syncReminderFromWhen(true);
+  } else if (target.id === 'f-time') {
+    syncReminderFromWhen();
+  } else if (target.id === 'f-remind') {
+    reminderEdited();
+  } else if (target.id === 'f-remind-on') {
+    // Tratado no evento change.
   } else if (target.dataset.stepTitle !== undefined) {
     draftSteps[Number(target.dataset.stepTitle)].title = target.value;
   } else if (target.closest('form[data-form="task"]')) {
@@ -2265,7 +2384,14 @@ document.addEventListener('input', (event) => {
 
 document.addEventListener('change', async (event) => {
   const { target } = event;
-  if (target.dataset.stepDone !== undefined) {
+  if (target.id === 'f-remind-on') {
+    reminderToggled();
+  } else if (target.id === 'default-remind-time' && target.value) {
+    await saveSettings({ defaultRemindTime: target.value });
+    showToast(`Lembrete sugerido às ${target.value} quando você escolher só a data.`);
+  } else if (target.id === 'f-when' || target.id === 'f-time' || target.id === 'f-remind') {
+    // Já tratado no evento input.
+  } else if (target.dataset.stepDone !== undefined) {
     draftSteps[Number(target.dataset.stepDone)].done = target.checked;
   } else if (target.id === 'highlight-custom') {
     await saveSettings({ highlight: target.value });
@@ -2540,10 +2666,7 @@ async function load() {
   state.sync = sync?.token ? sync : null;
   state.push = meta.find((item) => item.id === 'push') || null;
   state.settings.theme = normalizeTheme(state.settings.theme);
-  if (!state.settings.themeV2) {
-    // Aparelhos que já usavam o app recebem uma vez o novo tema padrão.
-    await saveSettings({ theme: 'diamante', themeChosen: true, themeV2: true });
-  }
+  if (!state.settings.themeV2) await saveSettings({ theme: DEFAULT_THEME, themeChosen: true, themeV2: true });
   if (!isHexColor(state.settings.highlight)) state.settings.highlight = DEFAULT_HIGHLIGHT;
   if (!state.lists.some((l) => l.id === INBOX)) await saveList({ id: INBOX, name: 'Entrada', group: '' });
   applyTheme();

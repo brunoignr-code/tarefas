@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="pt-BR" data-theme="diamante">
+<html lang="pt-BR" data-theme="folha">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Minha lista de afazeres</title>
   <meta name="description" content="Gerenciador pessoal de tarefas que funciona offline.">
-  <meta name="theme-color" content="#0E1218">
+  <meta name="theme-color" content="#F3F8F3">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon-barco-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-barco-192.png">
+  <link rel="icon" href="icons/icon-folha-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-folha-192.png">
   <link rel="stylesheet" href="styles.css">
   <script>
     // Aplica o último tema antes da primeira pintura, para evitar um lampejo de outro tema.
@@ -25,18 +25,13 @@
 </head>
 <body>
   <div class="splash" id="splash" role="img" aria-label="Minha lista de afazeres">
-    <img src="icons/diamante.svg" alt="" width="326" height="326">
+    <img src="icons/folha.svg" alt="" width="260" height="260">
     <strong>Minha lista de afazeres</strong>
-    <span>lapide o dia, uma tarefa por vez</span>
+    <span>cada dia, uma folha nova</span>
   </div>
   <script>
-    // Capa do tema: Diamante no escuro (padrão); o barquinho nos temas claros.
-    if (document.documentElement.dataset.theme !== 'diamante') {
-      const splash = document.getElementById('splash');
-      splash.classList.add('splash-claro');
-      splash.querySelector('img').src = 'icons/barco.svg';
-      splash.querySelector('span').textContent = 'a lista navega, você descansa';
-    }
+    // Capa: a mesma folha em todos os temas; fundo escuro só no Diamante.
+    if (document.documentElement.dataset.theme === 'diamante') document.getElementById('splash').classList.add('splash-escuro');
   </script>
   <div class="app">
     <nav class="nav" id="nav" aria-label="Navegação principal"></nav>

@@ -1,11 +1,12 @@
 // Temas do app e cálculos de cor do marca-texto.
 
+// Folha é o tema padrão (decisão de 10/11). Barquinho e Sistema saíram.
 export const THEMES = [
-  { id: 'diamante', name: 'Diamante', chrome: '#0E1218' },
-  { id: 'barquinho', name: 'Barquinho', chrome: '#EAF2F5' },
   { id: 'folha', name: 'Folha', chrome: '#F3F8F3' },
+  { id: 'diamante', name: 'Diamante', chrome: '#0E1218' },
   { id: 'marca-texto', name: 'Marca-texto', chrome: '#FFFFFF' },
 ];
+export const DEFAULT_THEME = 'folha';
 
 export const DEFAULT_HIGHLIGHT = '#FFE44D';
 export const HIGHLIGHTS = [
@@ -46,12 +47,11 @@ export function textOn(color) {
 /** Uma cor quase branca não aparece como destaque no papel branco. */
 export const isTooLight = (color) => contrast(color, WHITE) < 1.15;
 
-/** Sistema alterna entre Diamante e Barquinho; valores antigos são convertidos. */
+/** Temas que saíram (Barquinho, Sistema e nomes antigos) viram a Folha. */
 export function normalizeTheme(theme) {
-  const legacy = { auto: 'system', dark: 'diamante', light: 'folha' };
+  const legacy = { dark: 'diamante' };
   const value = legacy[theme] || theme;
-  return value === 'system' || THEMES.some((item) => item.id === value) ? value : 'system';
+  return THEMES.some((item) => item.id === value) ? value : DEFAULT_THEME;
 }
 
-export const resolveTheme = (theme, prefersDark) =>
-  (theme === 'system' ? (prefersDark ? 'diamante' : 'barquinho') : theme);
+export const resolveTheme = (theme) => normalizeTheme(theme);

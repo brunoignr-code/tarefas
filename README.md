@@ -32,19 +32,19 @@ A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o endereço publicado dentro do Chrome, em tela cheia, com ícone, nome e notificações próprios. O conteúdo continua vindo do GitHub Pages, então **cada publicação chega ao celular sozinha, sem reinstalar**. Só é preciso instalar um APK novo quando mudar algo em `android/` (ícone, atalhos, versão).
 
-- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.1-twa.apk` para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
+- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.2-twa.apk` para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
 - **Dados:** o TWA usa o armazenamento do Chrome do próprio celular. Se você já usava o app pelo Chrome nesse celular, o login, as tarefas e "Receber neste aparelho" continuam valendo.
 - **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
 - **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
 - **Compilar:** na pasta `android/`, com `JAVA_HOME` apontando para o Java do Android Studio (`C:\Program Files\Android\Android Studio\jbr`), rode `gradlew.bat assembleRelease`. O APK sai em `android/app/build/outputs/apk/release/`. Suba `versionCode` em `android/app/build.gradle.kts` a cada APK novo.
-- **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-barco-512.png`.
+- **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-folha-512.png`.
 
 ## Temas
 
-Em Config., escolha entre Barquinho (claro, padrão), Diamante (escuro), Folha (claro), Marca-texto (claro) ou Sistema, que alterna entre Diamante e Barquinho.
+Em Config., escolha entre Folha (claro, padrão), Diamante (escuro) e Marca-texto (claro). Barquinho e Sistema saíram em 10/11; quem usava um deles passa para a Folha. O ícone e a capa são a folha em todos os temas.
 No Marca-texto, dá para trocar a cor do destaque por uma das oito sugestões ou por qualquer outra.
 
-As fontes ficam em `fonts/` para funcionar offline: Bitter, Manrope, Nunito, Figtree e Bricolage Grotesque, do Google Fonts (licença SIL Open Font License).
+As fontes ficam em `fonts/` para funcionar offline: Manrope, Nunito, Figtree e Bricolage Grotesque, do Google Fonts (licença SIL Open Font License).
 
 Os botões de funções que não serão feitas (Google Agenda, Importar do To Do, Hábitos, Pomodoro, listas compartilhadas) saíram na v12.
 
@@ -72,6 +72,15 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
 ## Estado do projeto (9 de novembro de 2026)
+
+### v13 e APK 1.2, 10 de novembro
+
+- **Temas:** Folha virou o tema padrão. Barquinho e Sistema foram apagados (quem usava passa para a Folha); ficam Folha, Diamante e Marca-texto. A fonte Bitter, só do Barquinho, saiu.
+- **Ícone:** uma folha verde com o "concluído" como nervura (`icons/icon-folha.svg`), no app instalado, na aba, nas notificações e no APK. A capa de abertura é a mesma folha em todos os temas ("cada dia, uma folha nova"), com fundo escuro só no Diamante. Ícones e capas do Barquinho e do Diamante foram apagados.
+- **Janela da tarefa redesenhada:** Salvar fixo no topo e Concluir fixo no rodapé; título em destaque; bloco Quando + Hora + Lembrar; Repetir compacto ("A cada 1 semanas" numa linha), com "Mais opções da repetição" recolhível; Lista e Importante lado a lado; Etapas e Notas; prazo, outros lembretes, insistir e tags em "Mais opções". Excluir, Duplicar e Pular no rodapé, menores.
+- **Quando sugere o lembrete:** ao escolher a data em Quando, a Hora (ao lado) e o Lembrar já vêm preenchidos com o horário sugerido (09:00, ajustável em Config. > Geral). Mudar a data ou a hora muda o lembrete junto. Mudar o lembrete à mão ou desligar "Lembrar" o solta de Quando. Sem mudança no formato dos dados: a hora é a do próprio lembrete.
+- **APK 1.2** (`versionCode` 3), mesma chave: `C:\Python - local\apk-afazeres\afazeres-1.2-twa.apk`. Ícone da folha, folha branca nas notificações e barras do Android na cor clara da Folha.
+- Testado no navegador em tamanho de celular, com dados descartáveis apagados depois; 62 testes automáticos passando (os dois testes de tema foram atualizados para a regra nova).
 
 ### v12.2 e APK 1.1, 9 de novembro
 
@@ -137,7 +146,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - "Compartilhar para Tarefas" no Android, atalhos no ícone (Nova tarefa, Próximos dias) e teclas N e / no note.
 - Correção do modo offline, que podia guardar arquivos antigos e exigir várias recargas para mostrar uma versão nova.
 
-- **Publicado:** https://brunoignr-code.github.io/tarefas/, com o tema Barquinho como padrão e os temas Diamante, Folha e Marca-texto em Config.
+- **Publicado:** https://brunoignr-code.github.io/tarefas/, com a Folha como tema padrão e Diamante e Marca-texto em Config.
 - **Servidor:** Cloudflare Worker `tarefas-sync`, com banco D1 `tarefas` e Cron Trigger a cada minuto, no plano gratuito (sem custo; passar do limite faz o pedido falhar, não gera cobrança). Este PC não tem Node, então o deploy de `server/worker.js` é feito pela API do painel da Cloudflare, no Chrome do usuário. O Worker precisa ser reimplantado à parte: publicar no GitHub não o atualiza.
 - **Migração:** as tarefas abertas do To Do foram para um JSON, fora do repositório, sem as tarefas de senha. Com o lembrete como referência, a data dele virou Quando.
 - **Aparelhos:** 1 notebook e 2 celulares Android, um deles A55. O note é a base da sincronização.
@@ -170,7 +179,6 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Item 8 do plano (usabilidade do zero).
 - Ativar "Receber neste aparelho" nos celulares e fazer o "Testar com o app fechado".
 - Congelar funções novas e, depois de 1 ou 2 semanas de uso, retirar o que não foi usado (candidatos: Kanban, Matriz e os modos B e C do Até). Hábitos, Pomodoro, Google Agenda, listas compartilhadas e importação do To Do foram desaconselhados por fugirem do objetivo.
-- Atualizar o canvas de temas, que ainda mostra "Ajustes" e não tem o Barquinho.
 - Escopo e decisões: [documento de escopo](https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY). O catálogo ainda traz a ordem antiga de algumas fases.
 
 ## Estrutura
@@ -187,4 +195,4 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - `js/app.js`: telas e interações.
 - `sw.js`: cache offline, avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config.
 - `tests/`: testes das regras, executados no navegador.
-- `icons/`: capas (`diamante.svg`, `barco.svg`) e ícones. Os PNG do Diamante são gerados de `icon-diamante.svg` com o Chrome sem janela (`--headless --screenshot`). `tools/make_icons.py` é o gerador antigo, do primeiro ícone.
+- `icons/`: capa (`folha.svg`) e ícone (`icon-folha.svg`). Os PNG são gerados do SVG com o Chrome sem janela (`--headless --screenshot`); o maskable é o ícone reduzido sobre o mesmo fundo. `tools/make_icons.py` é o gerador antigo, do primeiro ícone.

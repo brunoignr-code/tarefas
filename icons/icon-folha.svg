@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Ícone do app: folha com o "concluído" como nervura, dentro da área segura dos ícones adaptáveis -->
+  <defs>
+    <radialGradient id="fundo" cx="50%" cy="45%" r="65%">
+      <stop offset="0" stop-color="#F6FBF6"/>
+      <stop offset="1" stop-color="#DCEFE1"/>
+    </radialGradient>
+    <linearGradient id="folhaCor" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0F6B4C"/>
+      <stop offset="1" stop-color="#2E9E6B"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#fundo)"/>
+  <g transform="translate(7 -7)">
+    <path d="M150 362 L118 394" stroke="#0F6B4C" stroke-width="15" stroke-linecap="round"/>
+    <path d="M150 362 C150 220 250 140 380 132 C372 262 292 362 150 362 Z" fill="url(#folhaCor)"/>
+    <path d="M150 362 C150 220 250 140 380 132" fill="none" stroke="#7FD3A2" stroke-width="5" stroke-linecap="round" opacity=".55"/>
+    <path d="M205 268 L242 305 L320 205" fill="none" stroke="#F3F8F3" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

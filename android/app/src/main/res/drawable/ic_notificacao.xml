@@ -1,17 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ícone pequeno das notificações e do ícone temático: barquinho branco (o Android pinta conforme o tema) -->
+<!-- Ícone pequeno das notificações e do ícone temático: folha branca com o "concluído" vazado -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <!-- Vela -->
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M11.3,3.2 L11.3,13.4 L5.6,13.4 Z" />
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M12.5,4.2 L17.6,13.4 L12.5,13.4 Z" />
-    <!-- Casco -->
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M3.2,14.6 L20.8,14.6 Q19.6,18.4 16.4,18.6 L7.6,18.6 Q4.6,18.4 3.2,14.6 Z" />
-    <!-- Onda -->
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M3,20.4 Q5.2,19.4 7.5,20.4 T12,20.4 T16.5,20.4 T21,20.4 L21,21.6 Q18.8,20.6 16.5,21.6 T12,21.6 T7.5,21.6 T3,21.6 Z" />
+    android:viewportWidth="512" android:viewportHeight="512">
+    <group android:translateX="7" android:translateY="-7">
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="30" android:strokeLineCap="round"
+            android:pathData="M150,362 L112,400" />
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+            android:pathData="M150,362 C150,220 250,140 380,132 C372,262 292,362 150,362 Z M193,276 L242,325 L333,208 L310,190 L241,281 L215,255 Z" />
+    </group>
 </vector>

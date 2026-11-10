@@ -1,25 +1,25 @@
-"""Gera os ícones do APK a partir de icons/icon-barco-512.png (barquinho, decisão de 9/11).
+"""Gera os ícones do APK a partir de icons/icon-folha-512.png (Folha, decisão de 10/11).
 
 Rodar na pasta android/:  python tools/gerar_icones.py
 """
 import os
 from PIL import Image
 
-src = Image.open('../icons/icon-barco-512.png').convert('RGBA')
+src = Image.open('../icons/icon-folha-512.png').convert('RGBA')
 res = 'app/src/main/res'
-fundo = (234, 242, 245, 255)  # mesma cor das bordas do ícone (#EAF2F5)
+fundo = (220, 239, 225, 255)  # mesma cor das bordas do ícone (#DCEFE1)
 
-# Ícone adaptável: camada da frente com o ícone inteiro em 72% do quadro,
-# para o barco ficar dentro da área que o Android não corta.
+# Ícone adaptável: camada da frente com o ícone inteiro em 74% do quadro,
+# para a folha ficar dentro da área que o Android não corta.
 for d, fg in [('mdpi', 108), ('hdpi', 162), ('xhdpi', 216), ('xxhdpi', 324), ('xxxhdpi', 432)]:
     p = f'{res}/mipmap-{d}'
     os.makedirs(p, exist_ok=True)
     c = Image.new('RGBA', (fg, fg), fundo)
-    s = round(fg * 0.72)
+    s = round(fg * 0.74)
     c.paste(src.resize((s, s), Image.LANCZOS), ((fg - s) // 2, (fg - s) // 2))
     c.save(f'{p}/ic_launcher_foreground.png')
 
-# Tela de abertura: o ícone com cantos arredondados, sobre o fundo escuro do app.
+# Tela de abertura: o ícone com cantos arredondados, sobre o fundo claro da Folha.
 os.makedirs(f'{res}/drawable-nodpi', exist_ok=True)
 size = 288
 splash = src.resize((size, size), Image.LANCZOS)

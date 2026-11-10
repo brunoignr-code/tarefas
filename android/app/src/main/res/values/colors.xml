@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="fundo">#0E1218</color>
-    <color name="iconeFundo">#EAF2F5</color>
+    <!-- Fundo da Folha: barra de status, barra de navegação e tela de abertura -->
+    <color name="fundo">#F3F8F3</color>
+    <color name="iconeFundo">#DCEFE1</color>
 </resources>
