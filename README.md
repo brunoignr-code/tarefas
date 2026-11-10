@@ -73,6 +73,17 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (10 de novembro de 2026)
 
+### v14.1, lote 2, 10 de novembro
+
+- **Deslizar para a esquerda adia para amanhã** (com uma faixa amarela "Amanhã" por baixo e Desfazer). Em Config. › Geral dá para voltar a "Mandar para a Lixeira". Deslizar para a direita continua concluindo. O lembrete marcado para o mesmo dia vai junto para amanhã.
+- **Menu ⋯ da tarefa** com quatro botões grandes no topo (Concluir, Amanhã (ou Hoje, se já for amanhã), Estrela, Mover) e embaixo: abrir detalhes, escolher outra data, tirar a data, duplicar, selecionar várias e mandar para a Lixeira.
+- **Config. virou um índice** com cinco telas: Geral, Aparência, Avisos, Conta e sincronização, Dados. Cada linha mostra um resumo (ex.: "Abre em Hoje · lembrar às 09:00"); com conta, o topo mostra a hora da última sincronização. Opções de ligar e desligar viraram chaves.
+- **Concluídas** agrupadas por dia (Hoje, Ontem, Esta semana, Semana passada, mês), com "Reabrir" em cada tarefa e as repetições no meio, na ordem em que foram feitas.
+- **Lixeira** em cartões, com Restaurar e Excluir de vez em cada um, e Restaurar tudo e Esvaziar no topo.
+- **Busca** destaca o termo no título e mostra o trecho das notas (ou da etapa) onde ele aparece; botão para limpar e chave "Incluir concluídas".
+- Não feito: "Limpar concluídas sozinho depois de 30 dias", que aparece no design de Dados, porque seria uma função nova.
+- Sem mudança no formato dos dados nem no login; a opção nova (deslizar) fica no aparelho. 63 testes passando.
+
 ### v14, lote 1 (design novo), 10 de novembro
 
 - **Logo nova (logo 3, "Folha de papel"):** folha de planta feita de papel pautado, com a ponta dobrada mostrando o verde e o "concluído" em pincel, sobre verde-escuro. Vale para o app instalado pelo Chrome, a aba e a capa de abertura (`icons/icon-folha.svg`, PNGs 192, 512 e maskable). Notificações usam uma silhueta branca própria (`icons/badge-folha-96.png`). O ícone do APK só muda com o APK 1.3 (lote 3).
