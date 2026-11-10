@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR" data-theme="folha">
+<html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -11,27 +11,28 @@
   <link rel="apple-touch-icon" href="icons/icon-folha-192.png">
   <link rel="stylesheet" href="styles.css">
   <script>
-    // Aplica o último tema antes da primeira pintura, para evitar um lampejo de outro tema.
+    // Aplica o modo (claro ou escuro), a cor de destaque e a letra antes da primeira pintura, sem lampejo.
     try {
       const saved = JSON.parse(localStorage.getItem('tarefas-tema') || 'null');
+      const root = document.documentElement;
       if (saved) {
-        document.documentElement.dataset.theme = saved.theme;
-        document.documentElement.style.setProperty('--hi', saved.hi);
-        document.documentElement.style.setProperty('--on-hi', saved.onHi);
-        if (saved.fs) document.documentElement.style.fontSize = `${saved.fs}px`;
+        const mode = saved.mode === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : saved.mode || (saved.theme === 'diamante' ? 'dark' : 'light');
+        root.dataset.mode = mode;
+        Object.entries(saved.vars || {}).forEach(([name, value]) => root.style.setProperty(name, value));
+        if (saved.fs) root.style.fontSize = `${saved.fs}px`;
       }
     } catch { /* O tema salvo é só uma conveniência. */ }
   </script>
 </head>
 <body>
   <div class="splash" id="splash" role="img" aria-label="Minha lista de afazeres">
-    <img src="icons/folha.svg" alt="" width="260" height="260">
-    <strong>Minha lista de afazeres</strong>
-    <span>cada dia, uma folha nova</span>
+    <img src="icons/icon-folha.svg" alt="" width="168" height="168">
+    <div><span class="s1">Minha lista de</span><span class="s2">afazeres</span><span class="s3">cada dia, uma folha nova</span></div>
   </div>
   <script>
-    // Capa: a mesma folha em todos os temas; fundo escuro só no Diamante.
-    if (document.documentElement.dataset.theme === 'diamante') document.getElementById('splash').classList.add('splash-escuro');
+    // Capa: a mesma folha nos dois modos; no escuro, muda só o fundo.
+    if (document.documentElement.dataset.mode === 'dark') document.getElementById('splash').classList.add('splash-escuro');
   </script>
   <div class="app">
     <nav class="nav" id="nav" aria-label="Navegação principal"></nav>

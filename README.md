@@ -71,7 +71,19 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Com o app fechado, tocar em Concluir ou Adiar abre o app para registrar a ação.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (9 de novembro de 2026)
+## Estado do projeto (10 de novembro de 2026)
+
+### v14, lote 1 (design novo), 10 de novembro
+
+- **Logo nova (logo 3, "Folha de papel"):** folha de planta feita de papel pautado, com a ponta dobrada mostrando o verde e o "concluído" em pincel, sobre verde-escuro. Vale para o app instalado pelo Chrome, a aba e a capa de abertura (`icons/icon-folha.svg`, PNGs 192, 512 e maskable). Notificações usam uma silhueta branca própria (`icons/badge-folha-96.png`). O ícone do APK só muda com o APK 1.3 (lote 3).
+- **Um tema só, a Folha:** Diamante e Marca-texto saíram. Em Config. › Aparência: Modo (Claro, Escuro, Automático, que segue o celular) e 8 cores de destaque (Folha, Azul, Roxo, Rosa, Terracota, Âmbar, Petróleo, Grafite), cada uma com versão clara no escuro. Quem usava Diamante passa para a Folha escura; quem usava Marca-texto, para a Folha clara. As fontes Manrope, Figtree e Bricolage foram apagadas.
+- **Abas com ícones** (Hoje com o número de tarefas, Próximos, Listas, Busca, Config.).
+- **Campo "Anotar…" fixo embaixo,** acima das abas, em Hoje, Próximos e dentro de cada lista. Ao digitar, mostra "Entendi assim" (título, data, lembrete, repetição) e botões de um toque: Hoje, Amanhã, Repetir e a lista.
+- **Linha da tarefa enxuta:** título e uma linha com estrela (só quando marcada), data, lembrete, repetição, etapas e lista com a bolinha de cor. O botão de estrela saiu da linha (fica no ⋯ e nos detalhes).
+- **Hoje com seções:** Atrasada (prazo vencido), Para hoje e "Feitas hoje (n)", recolhida. O lembrete em destaque tem Concluir, Adiar (10 minutos, 1 hora, Hoje à noite 19:00, Amanhã no horário sugerido, Escolher…) e × para dispensar.
+- **Listas** com emoji em quadradinho colorido e atalhos para Importantes, Tags (tela nova), Concluídas e Lixeira.
+- Sem mudança no formato dos dados nem no login. As opções novas (modo e cor) ficam no aparelho, como as outras de Config.
+- Testado no navegador em tamanho de celular e de note, numa origem local com dados descartáveis; 63 testes automáticos passando.
 
 ### v13 e APK 1.2, 10 de novembro
 
@@ -146,7 +158,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - "Compartilhar para Tarefas" no Android, atalhos no ícone (Nova tarefa, Próximos dias) e teclas N e / no note.
 - Correção do modo offline, que podia guardar arquivos antigos e exigir várias recargas para mostrar uma versão nova.
 
-- **Publicado:** https://brunoignr-code.github.io/tarefas/, com a Folha como tema padrão e Diamante e Marca-texto em Config.
+- **Publicado:** https://brunoignr-code.github.io/tarefas/, com a Folha como tema único (modo claro, escuro ou automático e 8 cores de destaque).
 - **Servidor:** Cloudflare Worker `tarefas-sync`, com banco D1 `tarefas` e Cron Trigger a cada minuto, no plano gratuito (sem custo; passar do limite faz o pedido falhar, não gera cobrança). Este PC não tem Node, então o deploy de `server/worker.js` é feito pela API do painel da Cloudflare, no Chrome do usuário. O Worker precisa ser reimplantado à parte: publicar no GitHub não o atualiza.
 - **Migração:** as tarefas abertas do To Do foram para um JSON, fora do repositório, sem as tarefas de senha. Com o lembrete como referência, a data dele virou Quando.
 - **Aparelhos:** 1 notebook e 2 celulares Android, um deles A55. O note é a base da sincronização.

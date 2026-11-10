@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="26 26 56 56" width="96" height="96">
+  <!-- Silhueta branca (notificações e ícone temático): a ponta dobrada e o "concluído" ficam vazados -->
+  <defs>
+    <clipPath id="cut"><path d="M-21 -50L160 131L160 160L-50 160L-50 -50Z"/></clipPath>
+    <mask id="vaza" maskUnits="userSpaceOnUse" x="0" y="0" width="108" height="108">
+      <rect width="108" height="108" fill="#fff"/>
+      <path d="M62.3 33.6C61.5 39 61 43.5 60 47C64.5 46.6 70 46.2 74.1 45.6Z" fill="none" stroke="#000" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M41 52C43 51 45 52 47 55L50 59C54 50 60 42 68 36C69 35.5 70 36.5 69.4 37.4C62 44 56 53 51.5 63C50.8 64.5 49 64.6 48.2 63.2L42.5 55.5C41.5 54.2 40.4 52.8 41 52Z" fill="#000" transform="translate(10 24) scale(.72)"/>
+    </mask>
+  </defs>
+  <g fill="#fff" mask="url(#vaza)">
+    <path d="M35 73L37 75L32.8 79.2A1.4 1.4 0 0 1 30.8 77.2Z"/>
+    <g clip-path="url(#cut)"><path d="M36 74C34 50 50 33 76 31C76 57 60 75 36 74Z"/></g>
+    <path d="M62.3 33.6C61.5 39 61 43.5 60 47C64.5 46.6 70 46.2 74.1 45.6Z"/>
+  </g>
+</svg>

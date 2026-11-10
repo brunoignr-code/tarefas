@@ -1,9 +1,9 @@
 import {
   addDays, applyEdit, completeTask, daysWaiting, dismissReminder, dueReminders, firstOccurrence,
-  isOverdue, nextOccurrence, skipOccurrence, snooze, todayTasks, upcomingTasks,
+  isOverdue, nextOccurrence, skipOccurrence, snooze, snoozeTo, todayTasks, upcomingTasks,
 } from '../js/rules.js';
 import {
-  DEFAULT_HIGHLIGHT, HIGHLIGHTS, contrast, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
+  ACCENTS, accentVars, contrast, isHexColor, normalizeAccent, normalizeMode, resolveMode,
 } from '../js/theme.js';
 import { changedSince, merge, stamp, stampAll, toWire } from '../js/sync-core.js';
 import { parseQuickAdd } from '../js/parse.js';
@@ -184,37 +184,52 @@ test('Adiar e dispensar controlam o lembrete', () => {
   eq(dueReminders([dismissReminder(task, 'x')], `${TODAY}T15:00`).length, 0);
 });
 
+test('Adiar para amanhã 09:00 esconde o lembrete até lá', () => {
+  const task = { id: 'a', status: 'open', remindAt: `${TODAY}T14:00` };
+  const later = snoozeTo(task, `${addDays(TODAY, 1)}T09:00`, `${TODAY}T14:02`);
+  eq(later.snoozedFor, `${TODAY}T14:00`);
+  eq(dueReminders([later], `${TODAY}T20:00`).length, 0);
+  eq(dueReminders([later], `${addDays(TODAY, 1)}T09:00`).length, 1);
+});
+
 test('Título vazio é recusado', () => {
   eq(typeof applyEdit(null, { title: '  ' }, TODAY).error, 'string');
 });
 
-test('Tema: Sistema e Barquinho saíram e viram a Folha (padrão)', () => {
-  eq(resolveTheme('system'), 'folha');
-  eq(resolveTheme('barquinho'), 'folha');
-  eq(resolveTheme('marca-texto'), 'marca-texto');
-  eq(resolveTheme('diamante'), 'diamante');
+test('Tema: Diamante vira a Folha escura e Marca-texto a Folha clara (v14)', () => {
+  eq(normalizeMode(undefined, 'diamante'), 'dark');
+  eq(normalizeMode(undefined, 'dark'), 'dark');
+  eq(normalizeMode(undefined, 'marca-texto'), 'light');
+  eq(normalizeMode(undefined, 'folha'), 'light');
+  eq(normalizeMode(undefined, 'barquinho'), 'light');
+  eq(normalizeMode('auto', 'diamante'), 'auto');
+  eq(normalizeMode('qualquer', undefined), 'light');
 });
 
-test('Tema: valores antigos ou inválidos são convertidos', () => {
-  eq(normalizeTheme('auto'), 'folha');
-  eq(normalizeTheme('dark'), 'diamante');
-  eq(normalizeTheme('light'), 'folha');
-  eq(normalizeTheme('qualquer'), 'folha');
-  eq(normalizeTheme('marca-texto'), 'marca-texto');
+test('Tema: Automático segue o celular', () => {
+  eq(resolveMode('auto', true), 'dark');
+  eq(resolveMode('auto', false), 'light');
+  eq(resolveMode('dark', false), 'dark');
+  eq(resolveMode('light', true), 'light');
 });
 
-test('Marca-texto: o texto sobre a cor mantém contraste de 4,5:1', () => {
-  ['#000000', '#FFFFFF', '#777777', '#767676', '#808080', '#FF0000', '#0000FF', '#00FF00', DEFAULT_HIGHLIGHT,
-    ...HIGHLIGHTS.map((h) => h.color)].forEach((color) => {
-    if (contrast(color, textOn(color)) < 4.5) throw new Error(`${color} ficou abaixo de 4,5:1`);
+test('Cor de destaque: 8 opções, Folha é o padrão', () => {
+  eq(ACCENTS.length, 8);
+  eq(normalizeAccent('roxo'), 'roxo');
+  eq(normalizeAccent('qualquer'), 'folha');
+  eq(Object.keys(accentVars('folha', 'light')).length, 0);
+  eq(accentVars('azul', 'light')['--primary'], '#2B5F8E');
+  eq(accentVars('roxo', 'dark')['--primary'], '#C4B2F5');
+});
+
+test('Cor de destaque: botões e fundo mantêm contraste de 4,5:1', () => {
+  ACCENTS.forEach((a) => {
+    eq(isHexColor(a.light) && isHexColor(a.dark) && isHexColor(a.onDark), true);
+    if (contrast(a.light, '#FFFFFF') < 4.5) throw new Error(`${a.name} claro ficou abaixo de 4,5:1`);
+    if (contrast(a.light, '#F3F8F3') < 4.5) throw new Error(`${a.name} claro no fundo ficou abaixo de 4,5:1`);
+    if (contrast(a.dark, a.onDark) < 4.5) throw new Error(`${a.name} escuro ficou abaixo de 4,5:1`);
+    if (contrast(a.dark, '#17221D') < 4.5) throw new Error(`${a.name} escuro no cartão ficou abaixo de 4,5:1`);
   });
-});
-
-test('Marca-texto: valida cores e avisa quando é clara demais', () => {
-  eq(isHexColor('#a1B2c3'), true);
-  eq(isHexColor('red'), false);
-  eq(isTooLight('#FFFFFF'), true);
-  eq(HIGHLIGHTS.some((h) => isTooLight(h.color)), false);
 });
 
 test('Sync: só os campos alterados recebem hora', () => {

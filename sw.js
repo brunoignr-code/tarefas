@@ -1,5 +1,5 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v13';
+const CACHE = 'tarefas-v14';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -16,14 +16,12 @@ const FILES = [
   'js/sync.js',
   'js/push-core.js',
   'js/push.js',
-  'fonts/manrope.woff2',
   'fonts/nunito.woff2',
-  'fonts/figtree.woff2',
-  'fonts/bricolage.woff2',
-  'icons/folha.svg',
+  'icons/icon-folha.svg',
   'icons/icon-folha-192.png',
   'icons/icon-folha-512.png',
   'icons/icon-folha-maskable-512.png',
+  'icons/badge-folha-96.png',
 ];
 
 // 'reload' ignora o cache HTTP do navegador, que poderia guardar uma versão antiga.
@@ -127,7 +125,7 @@ function notify(item, quiet) {
   const options = {
     body: item.body,
     icon: 'icons/icon-folha-192.png',
-    badge: 'icons/icon-folha-192.png',
+    badge: 'icons/badge-folha-96.png',
     tag: item.taskId || item.kind,
     renotify: !quiet && item.kind === 'insist',
     silent: !!quiet,

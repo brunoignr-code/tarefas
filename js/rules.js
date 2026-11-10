@@ -286,12 +286,16 @@ export const reminderTime = (task, now = localDateTime()) => activeReminder(task
 // R10 e R11: o lembrete funciona sem datas e deixa de valer ao concluir.
 export const dueReminders = (tasks, now) => tasks.filter((task) => activeReminder(task, now));
 
-export const snooze = (task, nowDate, minutes) => ({
+/** Adia o lembrete para um horário ("AAAA-MM-DDTHH:MM"): 10 min, hoje à noite, amanhã... */
+export const snoozeTo = (task, until, now) => ({
   ...task,
-  snoozedUntil: localDateTime(new Date(nowDate.getTime() + minutes * 60000)),
-  snoozedFor: activeReminder(task, localDateTime(nowDate)) || task.remindAt || null,
+  snoozedUntil: until,
+  snoozedFor: activeReminder(task, now) || task.remindAt || null,
   notifiedFor: null,
 });
+
+export const snooze = (task, nowDate, minutes) =>
+  snoozeTo(task, localDateTime(new Date(nowDate.getTime() + minutes * 60000)), localDateTime(nowDate));
 
 export const dismissReminder = (task, now) => ({ ...task, ackedAt: now });
 

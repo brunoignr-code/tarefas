@@ -1,28 +1,24 @@
-// Temas do app e cálculos de cor do marca-texto.
+// Tema único Folha (v14): modo claro, escuro ou automático e oito cores de destaque.
 
-// Folha é o tema padrão (decisão de 10/11). Barquinho e Sistema saíram.
-export const THEMES = [
-  { id: 'folha', name: 'Folha', chrome: '#F3F8F3' },
-  { id: 'diamante', name: 'Diamante', chrome: '#0E1218' },
-  { id: 'marca-texto', name: 'Marca-texto', chrome: '#FFFFFF' },
-];
-export const DEFAULT_THEME = 'folha';
+export const DEFAULT_MODE = 'light';
+export const MODES = [['light', 'Claro'], ['dark', 'Escuro'], ['auto', 'Automático']];
 
-export const DEFAULT_HIGHLIGHT = '#FFE44D';
-export const HIGHLIGHTS = [
-  { name: 'Amarelo', color: DEFAULT_HIGHLIGHT },
-  { name: 'Limão', color: '#B8F34A' },
-  { name: 'Menta', color: '#7DF0C0' },
-  { name: 'Céu', color: '#7FE3FF' },
-  { name: 'Lilás', color: '#CDB8FF' },
-  { name: 'Rosa', color: '#FF9FD0' },
-  { name: 'Pêssego', color: '#FFB38A' },
-  { name: 'Coral', color: '#FF8A7A' },
+// Cor de destaque: `light` no modo claro (texto branco por cima) e `dark` no escuro (texto escuro por cima).
+export const DEFAULT_ACCENT = 'folha';
+export const ACCENTS = [
+  { id: 'folha', name: 'Folha', light: '#0F6B4C', dark: '#7FD3A2', onDark: '#0B2A1D' },
+  { id: 'azul', name: 'Azul', light: '#2B5F8E', dark: '#9CC3EC', onDark: '#0D2238' },
+  { id: 'roxo', name: 'Roxo', light: '#5E44A8', dark: '#C4B2F5', onDark: '#221447' },
+  { id: 'rosa', name: 'Rosa', light: '#A3325F', dark: '#F2A7C6', onDark: '#3D0F22' },
+  { id: 'terracota', name: 'Terracota', light: '#B23F26', dark: '#F4AE99', onDark: '#3D140A' },
+  { id: 'ambar', name: 'Âmbar', light: '#8A5A00', dark: '#E8C26A', onDark: '#2E1F00' },
+  { id: 'petroleo', name: 'Petróleo', light: '#0E6E78', dark: '#7FD0D8', onDark: '#062B30' },
+  { id: 'grafite', name: 'Grafite', light: '#4A5560', dark: '#BAC4CE', onDark: '#1C232A' },
 ];
 
-const INK = '#16181A';
-const WHITE = '#FFFFFF';
-const BLACK = '#000000';
+// Cores de fundo da barra do navegador e da capa em cada modo.
+export const CHROME = { light: '#F3F8F3', dark: '#0F1714' };
+export const SURFACE = { light: '#FFFFFF', dark: '#17221D' };
 
 export const isHexColor = (value) => /^#[0-9a-f]{6}$/i.test(value || '');
 
@@ -37,21 +33,41 @@ export function contrast(a, b) {
   return (light + 0.05) / (dark + 0.05);
 }
 
-/** Cor de texto mais legível sobre o marca-texto escolhido. */
-export function textOn(color) {
-  if (contrast(color, INK) >= 4.5) return INK;
-  // Em cores médias, só o preto puro ou o branco garantem 4,5:1.
-  return contrast(color, WHITE) >= contrast(color, BLACK) ? WHITE : BLACK;
+/**
+ * Modo salvo, convertendo os temas que saíram em 10/11 (v14):
+ * Diamante (e o antigo "dark") vira a Folha escura; Marca-texto, Barquinho e o resto, a Folha clara.
+ */
+export function normalizeMode(mode, legacyTheme) {
+  if (MODES.some(([id]) => id === mode)) return mode;
+  return ['diamante', 'dark'].includes(legacyTheme) ? 'dark' : DEFAULT_MODE;
 }
 
-/** Uma cor quase branca não aparece como destaque no papel branco. */
-export const isTooLight = (color) => contrast(color, WHITE) < 1.15;
+export const resolveMode = (mode, prefersDark) => {
+  const value = normalizeMode(mode);
+  if (value === 'auto') return prefersDark ? 'dark' : 'light';
+  return value;
+};
 
-/** Temas que saíram (Barquinho, Sistema e nomes antigos) viram a Folha. */
-export function normalizeTheme(theme) {
-  const legacy = { dark: 'diamante' };
-  const value = legacy[theme] || theme;
-  return THEMES.some((item) => item.id === value) ? value : DEFAULT_THEME;
+export const normalizeAccent = (id) => (ACCENTS.some((item) => item.id === id) ? id : DEFAULT_ACCENT);
+export const findAccent = (id) => ACCENTS.find((item) => item.id === normalizeAccent(id));
+
+/** Variáveis de cor da cor de destaque. A Folha usa as do styles.css (lista vazia). */
+export function accentVars(id, mode) {
+  const accent = findAccent(id);
+  if (accent.id === DEFAULT_ACCENT) return {};
+  const dark = mode === 'dark';
+  const primary = dark ? accent.dark : accent.light;
+  const onPrimary = dark ? accent.onDark : '#FFFFFF';
+  const surface = SURFACE[dark ? 'dark' : 'light'];
+  return {
+    '--primary': primary,
+    '--on-primary': onPrimary,
+    '--accent': primary,
+    '--mark-line': primary,
+    '--mark-fill': primary,
+    '--on-mark': onPrimary,
+    '--soft': `color-mix(in srgb, ${primary} ${dark ? 16 : 11}%, ${surface})`,
+    '--banner': `color-mix(in srgb, ${primary} ${dark ? 20 : 16}%, ${surface})`,
+    '--toast-act': dark ? accent.light : accent.dark,
+  };
 }
-
-export const resolveTheme = (theme) => normalizeTheme(theme);

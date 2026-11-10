@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <!-- Ícone adaptável: o desenho fica no círculo central de 66%, que nenhum formato corta -->
+  <defs>
+    <radialGradient id="bg" cx=".32" cy=".26" r="1"><stop offset="0" stop-color="#1C9064"/><stop offset=".6" stop-color="#0F6B4C"/><stop offset="1" stop-color="#093F2D"/></radialGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFEFA"/><stop offset=".7" stop-color="#F7F3E7"/><stop offset="1" stop-color="#E9E3CF"/></linearGradient>
+    <linearGradient id="flap" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1A7A50"/><stop offset=".5" stop-color="#43B077"/><stop offset="1" stop-color="#9BE0B5"/></linearGradient>
+    <linearGradient id="ink" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0A5A3F"/><stop offset="1" stop-color="#18885D"/></linearGradient>
+    <filter id="drop" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="2.4" stdDeviation="2.4" flood-color="#03231A" flood-opacity=".42"/></filter>
+    <filter id="blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.1"/></filter>
+    <clipPath id="cut"><path d="M-21 -50L160 131L160 160L-50 160L-50 -50Z"/></clipPath>
+    <clipPath id="leaf"><path d="M36 74C34 50 50 33 76 31C76 57 60 75 36 74Z"/></clipPath>
+  </defs>
+  <rect width="108" height="108" fill="url(#bg)"/>
+  <path d="M35 73L37 75L32.8 79.2A1.4 1.4 0 0 1 30.8 77.2Z" fill="#EFEAD8"/>
+  <g filter="url(#drop)"><g clip-path="url(#cut)">
+    <path d="M36 74C34 50 50 33 76 31C76 57 60 75 36 74Z" fill="url(#paper)"/>
+    <g clip-path="url(#leaf)"><path d="M28 48H82M28 54H82M28 60H82M28 66H82M28 72H82" stroke="#D5E3D3" stroke-width=".7"/></g>
+  </g></g>
+  <path d="M41 52C43 51 45 52 47 55L50 59C54 50 60 42 68 36C69 35.5 70 36.5 69.4 37.4C62 44 56 53 51.5 63C50.8 64.5 49 64.6 48.2 63.2L42.5 55.5C41.5 54.2 40.4 52.8 41 52Z" fill="url(#ink)" transform="translate(10 24) scale(.72)"/>
+  <path d="M62.3 33.6C61.5 39 61 43.5 60 47C64.5 46.6 70 46.2 74.1 45.6Z" fill="#03251A" opacity=".45" filter="url(#blur)" transform="translate(-1.4 1.2)"/>
+  <path d="M62.3 33.6C61.5 39 61 43.5 60 47C64.5 46.6 70 46.2 74.1 45.6Z" fill="url(#flap)"/>
+  <path d="M68.2 39.6Q64 43.5 60.6 46.4M65.6 42L63 40.4M65.6 42L66.6 45M63.2 44.2L61.6 42.6M63.2 44.2L63.6 46.4" fill="none" stroke="#0E5A3D" stroke-width=".6" stroke-linecap="round" opacity=".55"/>
+</svg>

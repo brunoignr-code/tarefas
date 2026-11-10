@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import {
   applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue, isUrgent,
-  INSIST_MAX, activeReminder, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze,
+  INSIST_MAX, activeReminder, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
   todayTasks, upcomingTasks,
 } from './rules.js';
 import { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey } from './push-core.js';
@@ -10,7 +10,7 @@ import {
 } from './push.js';
 import { parseQuickAdd } from './parse.js';
 import {
-  DEFAULT_HIGHLIGHT, DEFAULT_THEME, HIGHLIGHTS, THEMES, isHexColor, isTooLight, normalizeTheme, resolveTheme, textOn,
+  ACCENTS, CHROME, DEFAULT_ACCENT, DEFAULT_MODE, MODES, accentVars, normalizeAccent, normalizeMode, resolveMode,
 } from './theme.js';
 import { stamp, stampAll } from './sync-core.js';
 import { authenticate, changePassword, createSync, endSession } from './sync.js';
@@ -18,15 +18,16 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v13 · 10/11/2026';
+const APP_VERSION = 'v14 · 10/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
   daily: ['Diária', 'dias'], weekly: ['Semanal', 'semanas'],
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
 
-const state = { lists: [], tasks: [], log: [], settings: { id: 'settings', theme: DEFAULT_THEME, themeChosen: true, themeV2: true, highlight: DEFAULT_HIGHLIGHT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
+const state = { quick: {}, lists: [], tasks: [], log: [], settings: { id: 'settings', mode: DEFAULT_MODE, accent: DEFAULT_ACCENT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
 const $ = (selector, root = document) => root.querySelector(selector);
 const today = () => localDate();
 const newId = () => crypto.randomUUID();
@@ -78,6 +79,38 @@ const LIST_SORTS = [
   ['title', 'Título (A–Z)'], ['created', 'Criação (mais novas)'],
 ];
 const START_VIEWS = [['today', 'Hoje'], ['upcoming', 'Próximos dias'], ['lists', 'Listas'], ['inbox', 'Entrada']];
+
+// Ícones de traço do design v14 (24×24).
+const ICONS = {
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4 6.5h.01M4 12h.01M4 17.5h.01" stroke-width="3"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+  sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
+  bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  repeat: '<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-2a4 4 0 0 1 4-4h12"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v2a4 4 0 0 1-4 4H4"/>',
+  star: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"/>',
+  check: '<path d="M5.5 12.5l4.2 4.2L18.5 7.8"/>',
+  more: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  right: '<path d="M9 6l6 6-6 6"/>',
+  left: '<path d="M15 6l-6 6 6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  select: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 12.2l2.8 2.8L16 9.5"/>',
+  inbox: '<path d="M3.5 13.5l2.6-7.2A2 2 0 0 1 8 5h8a2 2 0 0 1 1.9 1.3l2.6 7.2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 13.5h5l1.5 2.5h4l1.5-2.5h5"/>',
+  tag: '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3-8.7 8.7z"/><circle cx="8" cy="8" r="1.4"/>',
+  trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/>',
+  done: '<circle cx="12" cy="12" r="8.5"/><path d="M8.2 12.3l2.6 2.6 5-5.4"/>',
+  folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  next: '<path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  sort: '<path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M14 6h7M14 12h5M14 18h3"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+};
+const ico = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
 const STAR_ICON = (on) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"></path></svg>`;
 const MARK = '<span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8"></path></svg></span>';
@@ -404,7 +437,7 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
     tag: task.id,
     renotify: step > 0,
     icon: 'icons/icon-folha-192.png',
-    badge: 'icons/icon-folha-192.png',
+    badge: 'icons/badge-folha-96.png',
     data: { id: task.id },
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -463,16 +496,90 @@ function renderReminders() {
   const now = localDateTime();
   const due = dueReminders(state.tasks, now);
   document.title = due.length ? `(${due.length}) ${APP_NAME}` : APP_NAME;
-  $('#reminders').innerHTML = due.map((task) => `
+  // Em Hoje, o lembrete fica logo abaixo do título; nas outras telas, no topo.
+  const slot = $('#view-reminders');
+  $('#reminders').innerHTML = '';
+  (slot || $('#reminders')).innerHTML = due.map((task) => {
+    const time = activeReminder(task, now);
+    const late = (parseLocalTime(now) - parseLocalTime(time)) / 60000 > 15;
+    const when = time.slice(0, 10) === today() ? time.slice(11) : formatDateTime(time).toLowerCase();
+    const meta = [
+      task.listId !== INBOX && findList(task.listId) ? listChip(findList(task.listId)) : '',
+      task.deadline === today() ? '<span>vence hoje</span>' : '',
+      isOverdue(task, today()) ? `<span class="chip-overdue">Era até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>` : '',
+    ].filter(Boolean).join('');
+    return `
     <section class="reminder" aria-label="Lembrete">
-      <div class="reminder-label">Lembrete: ${escapeHtml(formatDateTime(activeReminder(task, now)).toLowerCase())}</div>
-      <div class="reminder-title">${escapeHtml(task.title)}</div>
-      <div class="reminder-actions">
-        <button class="btn small primary" data-action="complete" data-id="${task.id}">Concluir</button>
-        <button class="btn small" data-action="snooze" data-id="${task.id}">Adiar ${SNOOZE_MINUTES} min</button>
-        <button class="btn small" data-action="dismiss" data-id="${task.id}">Dispensar</button>
+      <div class="reminder-top">
+        <div class="reminder-label">${ico('bell')}${late ? 'Lembrete' : 'Lembrete agora'} · ${escapeHtml(when)}</div>
+        <button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>
       </div>
-    </section>`).join('');
+      <div class="reminder-title">${escapeHtml(task.title)}</div>
+      ${meta ? `<div class="chips">${meta}</div>` : ''}
+      <div class="reminder-actions">
+        <button class="btn primary" data-action="complete" data-id="${task.id}">${ico('check')}Concluir</button>
+        <button class="btn" data-action="snooze-menu" data-id="${task.id}" aria-haspopup="dialog">${ico('clock')}Adiar${ico('down')}</button>
+      </div>
+    </section>`;
+  }).join('');
+}
+
+const parseLocalTime = (value) => {
+  const [date, time = '00:00'] = value.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = time.split(':').map(Number);
+  return new Date(y, m - 1, d, h, min).getTime();
+};
+
+/** "às 10:00" hoje, "amanhã, 09:00" nos outros dias. */
+const timeWords = (time) => (time.slice(0, 10) === today() ? `às ${time.slice(11)}` : formatDateTime(time).toLowerCase());
+
+/** Adiar o lembrete: 10 min, 1 hora, hoje à noite, amanhã ou um horário escolhido. */
+function openSnoozeSheet(id) {
+  const task = findTask(id);
+  if (!task) return;
+  const nowDate = new Date();
+  const plus = (minutes) => localDateTime(new Date(nowDate.getTime() + minutes * 60000));
+  const evening = `${today()}T19:00`;
+  const options = [
+    ['10 minutos', plus(10)],
+    ['1 hora', plus(60)],
+    localDateTime(nowDate) < `${today()}T18:30` && ['Hoje à noite', evening],
+    ['Amanhã', `${addDays(today(), 1)}T${defaultRemindTime()}`],
+  ].filter(Boolean);
+  openSheet('Adiar para', [
+    ...options.map(([label, time]) => [
+      `${label}<span class="sheet-hint">${escapeHtml(time.slice(11))}</span>`,
+      async () => { $('#dialog').close(); await snoozeTask(id, time); },
+      { html: true, icon: 'clock' },
+    ]),
+    ['Escolher…', () => openSnoozePicker(id), { icon: 'calendar' }],
+  ], escapeHtml(task.title));
+}
+
+async function snoozeTask(id, time) {
+  const task = findTask(id);
+  if (!task) return;
+  await saveTask(snoozeTo(task, time, localDateTime()));
+  render();
+  showToast(`Lembro de novo ${timeWords(time)}.`, async () => {
+    await saveTask(task);
+    render();
+  });
+}
+
+function openSnoozePicker(id) {
+  const next = new Date(Date.now() + 60 * 60000);
+  next.setMinutes(0, 0, 0);
+  const dialog = $('#dialog');
+  dialog.innerHTML = `
+    <form class="form" data-form="snooze" data-id="${id}">
+      <div class="form-head"><h2>Lembrar de novo em</h2><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar">${ico('x')}</button></div>
+      <div class="field"><label for="s-at">Data e hora</label><input id="s-at" type="datetime-local" name="at" required value="${localDateTime(next)}"></div>
+      <div class="form-foot"><div></div><div><button class="btn primary">${ico('clock')}Adiar</button></div></div>
+    </form>`;
+  if (!dialog.open) dialog.showModal();
+  $('#s-at').focus();
 }
 
 async function handleReminderAction(action, id) {
@@ -491,31 +598,43 @@ async function handleReminderAction(action, id) {
 
 /* ---------- Telas ---------- */
 
-function taskChips(task, { showWhen = true, showList = false } = {}) {
+/** Lista com a bolinha de cor (a Entrada vai sem bolinha). */
+function listChip(list) {
+  if (!list) return '<span class="lc plain">Entrada</span>';
+  return `<span class="lc${list.color ? '' : ' plain'}" style="--c:${escapeHtml(list.color || '')}">${escapeHtml(list.name)}</span>`;
+}
+
+/** Hora do lembrete: só a hora quando é hoje ou no dia de Quando; senão, dia e hora. */
+function reminderWords(task, time) {
+  const date = time.slice(0, 10);
+  if (date === today() || date === task.when) return time.slice(11);
+  return `${formatDate(date).toLowerCase()} ${time.slice(11)}`;
+}
+
+/** Uma linha com o essencial: estrela, data, lembrete, repetição, etapas e lista. */
+function taskChips(task, { showWhen = true, showList = false, noDate = false } = {}) {
   const now = today();
   const chips = [];
-  const waiting = daysWaiting(task, now);
-  if (waiting > 0) chips.push(`<span>há ${waiting} ${waiting === 1 ? 'dia' : 'dias'}</span>`);
-  else if (showWhen && task.when && task.when !== now) chips.push(`<span>${escapeHtml(formatDate(task.when))}</span>`);
-  if (task.deadline) {
-    chips.push(isOverdue(task, now)
-      ? `<span class="chip-overdue">Atrasada: era até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>`
-      : `<span>Até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>`);
-  }
-  if (task.repeat) {
-    const end = task.seriesEnd ? `, até ${formatDate(task.seriesEnd).toLowerCase()}` : '';
-    chips.push(`<span>↻ ${escapeHtml(repeatLabel(task.repeat) + end)}</span>`);
-  }
+  const open = task.status === 'open';
+  if (task.status === 'done' && task.completedAt) chips.push(`<span>concluída ${escapeHtml(formatDate(localDate(new Date(task.completedAt))).toLowerCase())}</span>`);
+  if (task.important && open) chips.push(`<span class="star" title="Importante">${ico('star', 'fill')}<span class="visually-hidden">Importante</span></span>`);
+  if (isOverdue(task, now)) chips.push(`<span class="chip-overdue">Era até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>`);
+  const waiting = open ? daysWaiting(task, now) : 0;
+  if (waiting > 0 && !isOverdue(task, now)) chips.push(`<span>há ${waiting} ${waiting === 1 ? 'dia' : 'dias'}</span>`);
+  else if (showWhen && task.when && open && !waiting) chips.push(`<span>${escapeHtml(formatDate(task.when).toLowerCase())}</span>`);
+  else if (showWhen && noDate && !task.when && open) chips.push('<span>sem data</span>');
+  if (task.deadline && !isOverdue(task, now) && open) chips.push(`<span>até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>`);
   const reminder = shownReminder(task, localDateTime());
   const more = (task.extraReminders || []).length;
-  if (reminder) chips.push(`<span class="chip-reminder">Lembrar: ${escapeHtml(formatDateTime(reminder).toLowerCase())}${more ? ` +${more}` : ''}${task.insist ? ' · insiste' : ''}</span>`);
-  if (task.steps && task.steps.length) {
-    chips.push(`<span>${task.steps.filter((s) => s.done).length}/${task.steps.length} etapas</span>`);
+  if (reminder) chips.push(`<span class="chip-reminder">${ico('bell')}${escapeHtml(reminderWords(task, reminder))}${more ? ` +${more}` : ''}</span>`);
+  if (task.repeat) {
+    const end = task.seriesEnd ? `, até ${formatDate(task.seriesEnd).toLowerCase()}` : '';
+    chips.push(`<span>${ico('repeat')}${escapeHtml(repeatLabel(task.repeat) + end)}</span>`);
   }
-  (task.tags || []).forEach((tag) => chips.push(`<span class="chip-tag">#${escapeHtml(tag)}</span>`));
+  if (task.steps && task.steps.length) chips.push(`<span>${task.steps.filter((s) => s.done).length}/${task.steps.length} etapas</span>`);
   if (task.notes) chips.push('<span>Nota</span>');
-  if (showList && task.listId !== INBOX) chips.push(`<span class="chip-list">${listLabel(findList(task.listId))}</span>`);
-  if (task.status === 'done' && task.completedAt) chips.unshift(`<span>Concluída ${escapeHtml(formatDate(localDate(new Date(task.completedAt))).toLowerCase())}</span>`);
+  (task.tags || []).forEach((tag) => chips.push(`<span class="chip-tag">#${escapeHtml(tag)}</span>`));
+  if (showList) chips.push(listChip(findList(task.listId)));
   return chips.length ? `<span class="chips">${chips.join('')}</span>` : '';
 }
 
@@ -531,7 +650,7 @@ function nextLabel(task, date) {
   return `${formatDate(date).toLowerCase()}${time}`;
 }
 
-const MORE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg>';
+const MORE_ICON = ico('more');
 
 function taskRow(task, options = {}) {
   const done = task.status !== 'open';
@@ -547,7 +666,7 @@ function taskRow(task, options = {}) {
   }
   const check = done
     ? `<button class="check done" data-action="reopen" data-id="${task.id}" aria-label="Reabrir ${escapeHtml(task.title)}">${MARK}</button>`
-    : `<button class="check${task.repeat ? ' repeats' : ''}" data-action="complete" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}" title="${escapeHtml(task.repeat ? 'Concluir e ir para a próxima' : 'Concluir')}">${MARK}</button>`;
+    : `<button class="check${task.repeat ? ' repeats' : ''}${isOverdue(task, today()) ? ' late' : ''}" data-action="complete" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}" title="${escapeHtml(task.repeat ? 'Concluir e ir para a próxima' : 'Concluir')}">${MARK}</button>`;
   return `
   <li class="task ${done ? 'is-done' : ''}" data-id="${task.id}">
     ${check}
@@ -556,19 +675,21 @@ function taskRow(task, options = {}) {
       ${taskChips(task, options)}
     </button>
     ${options.draggable && !done ? `<button class="drag" data-drag="${task.id}" aria-label="Reordenar ${escapeHtml(task.title)}: arraste ou use as setas do teclado">${GRIP_ICON}</button>` : ''}
-    ${done ? '' : `<button class="icon star ${task.important ? 'on' : ''}" data-action="toggle-important" data-id="${task.id}" aria-pressed="${!!task.important}" aria-label="Importante: ${escapeHtml(task.title)}">${STAR_ICON(task.important)}</button>`}
     <button class="icon more" data-action="task-menu" data-id="${task.id}" aria-label="Mais ações: ${escapeHtml(task.title)}" title="Mais ações">${MORE_ICON}</button>
   </li>`;
 }
 
 const taskListHtml = (tasks, options) => `<ul class="task-list">${tasks.map((t) => taskRow(t, options)).join('')}</ul>`;
 
+/** Campo "Anotar…" fixo acima das abas, com o que foi entendido logo acima dele. */
 const quickAdd = (placeholder, context) => `
-  <form class="quick-add" data-form="quick-add" data-list="${context.listId || ''}" data-when="${context.when || ''}">
-    <input id="quick-input" name="title" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(placeholder)}" aria-describedby="quick-preview" autocomplete="off" enterkeyhint="done">
-    <button class="btn primary">Adicionar</button>
-  </form>
-  <div class="quick-preview" id="quick-preview" aria-live="polite" hidden></div>`;
+  <div class="dock" id="dock">
+    <div class="parse" id="quick-preview" aria-live="polite" hidden></div>
+    <form class="qa" data-form="quick-add" data-list="${context.listId || ''}" data-when="${context.when || ''}">
+      <input id="quick-input" name="title" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(placeholder.replace('…', ''))}" aria-describedby="quick-preview" autocomplete="off" enterkeyhint="done">
+      <button class="go" aria-label="Adicionar" title="Adicionar">${ico('plus')}</button>
+    </form>
+  </div>`;
 
 /** O que foi entendido no texto digitado, ou nada se a função estiver desligada. */
 function quickParse(text) {
@@ -577,23 +698,80 @@ function quickParse(text) {
   return parsed.matched ? parsed : null;
 }
 
+/** Valores finais da tarefa nova: o texto entendido, a tela atual e os botões de um toque. */
+function quickValues(text, form) {
+  const parsed = quickParse(text);
+  const quick = state.quick || {};
+  const context = { listId: form?.dataset.list || '', when: form?.dataset.when || '' };
+  const when = quick.when !== undefined ? quick.when : (parsed?.when || context.when || null);
+  let remindAt = parsed?.remindAt || null;
+  if (remindAt && quick.when) remindAt = `${quick.when}T${remindAt.slice(11)}`;
+  return {
+    parsed,
+    title: parsed ? parsed.title : text.trim(),
+    when,
+    until: parsed?.until || null,
+    remindAt,
+    repeat: quick.repeat !== undefined ? quick.repeat : (parsed?.repeat || null),
+    listId: quick.listId || context.listId || defaultListId(),
+  };
+}
+
 function renderQuickPreview() {
   const input = $('#quick-input');
   const box = $('#quick-preview');
   if (!input || !box) return;
-  const parsed = quickParse(input.value);
-  if (!parsed) {
+  if (!input.value.trim()) {
+    state.quick = {};
     box.hidden = true;
     box.innerHTML = '';
     return;
   }
-  const chips = [`<span class="chip">"${escapeHtml(parsed.title)}"</span>`];
-  if (parsed.when) chips.push(`<span class="chip">Quando: ${escapeHtml(formatDate(parsed.when).toLowerCase())}</span>`);
-  if (parsed.until) chips.push(`<span class="chip">Até: ${escapeHtml(formatDate(parsed.until).toLowerCase())}</span>`);
-  if (parsed.repeat) chips.push(`<span class="chip">↻ ${escapeHtml(repeatLabel(parsed.repeat))}</span>`);
-  if (parsed.remindAt) chips.push(`<span class="chip">Lembrar: ${escapeHtml(formatDateTime(parsed.remindAt).toLowerCase())}</span>`);
-  box.innerHTML = `<span>Entendi:</span>${chips.join('')}<button type="button" class="link-btn" data-action="quick-ignore">Usar o texto como está</button>`;
+  const v = quickValues(input.value, input.form);
+  const tomorrow = addDays(today(), 1);
+  const chips = [`<span class="chip">“${escapeHtml(v.title || '…')}”</span>`];
+  if (v.when) chips.push(`<span class="chip on">${ico('calendar')}${escapeHtml(formatDate(v.when).toLowerCase())}</span>`);
+  if (v.remindAt) chips.push(`<span class="chip on">${ico('bell')}Lembrar ${escapeHtml(reminderWords({ when: v.when }, v.remindAt))}</span>`);
+  if (v.repeat) chips.push(`<span class="chip on">${ico('repeat')}${escapeHtml(repeatLabel({ interval: 1, ...v.repeat }))}</span>`);
+  if (v.until) chips.push(`<span class="chip on">até ${escapeHtml(formatDate(v.until).toLowerCase())}</span>`);
+  const list = findList(v.listId);
+  box.innerHTML = `
+    <div class="parse-row parse-head"><span>Entendi assim:</span>${v.parsed ? '<button type="button" class="link" data-action="quick-ignore">Usar o texto como está</button>' : ''}</div>
+    <div class="parse-row">${chips.join('')}</div>
+    <hr>
+    <div class="parse-row">
+      <span class="lead">Um toque:</span>
+      <button type="button" class="chip ${v.when === today() ? 'on' : ''}" data-action="quick-when" data-days="0" aria-pressed="${v.when === today()}">Hoje</button>
+      <button type="button" class="chip ${v.when === tomorrow ? 'on' : ''}" data-action="quick-when" data-days="1" aria-pressed="${v.when === tomorrow}">Amanhã</button>
+      <button type="button" class="chip ${v.repeat ? 'on' : ''}" data-action="quick-repeat">${ico('repeat')}Repetir</button>
+      <button type="button" class="chip" data-action="quick-list" aria-label="Lista: ${escapeHtml(list ? list.name : 'Entrada')}">${listChip(list)}</button>
+    </div>`;
   box.hidden = false;
+}
+
+function refocusQuick() {
+  renderQuickPreview();
+  $('#quick-input')?.focus();
+}
+
+function openQuickRepeat() {
+  const choose = (repeat) => () => { $('#dialog').close(); state.quick = { ...state.quick, repeat }; refocusQuick(); };
+  openSheet('Repetir', [
+    ['Todo dia', choose({ freq: 'daily', interval: 1 }), { icon: 'repeat' }],
+    ['Toda semana', choose({ freq: 'weekly', interval: 1 }), { icon: 'repeat' }],
+    ['Todo mês', choose({ freq: 'monthly', interval: 1 }), { icon: 'repeat' }],
+    ['Todo ano', choose({ freq: 'yearly', interval: 1 }), { icon: 'repeat' }],
+    ['Não repetir', choose(null), { icon: 'x' }],
+  ]);
+}
+
+function openQuickList() {
+  const current = quickValues($('#quick-input')?.value || '', $('#quick-input')?.form).listId;
+  openSheet('Anotar em', sortedLists().map((list) => [
+    `${listLabel(list)}${list.group ? ` <span class="sheet-hint">${escapeHtml(list.group)}</span>` : ''}`,
+    () => { $('#dialog').close(); state.quick = { ...state.quick, listId: list.id }; refocusQuick(); },
+    { html: true, on: list.id === current },
+  ]));
 }
 
 const byOrder = (a, b) => a.order - b.order;
@@ -613,27 +791,66 @@ function allTags() {
 function todayView() {
   const now = today();
   const tasks = todayTasks(state.tasks, now).sort(byOrder);
+  const late = tasks.filter((t) => isOverdue(t, now));
+  const rest = tasks.filter((t) => !isOverdue(t, now));
+  const isToday = (iso) => iso && localDate(new Date(iso)) === now;
+  const doneTasks = activeTasks().filter((t) => t.status === 'done' && isToday(t.completedAt));
+  const doneLogs = state.log.filter((item) => isToday(item.completedAt));
+  const doneCount = doneTasks.length + doneLogs.length;
   const [y, m, d] = now.split('-').map(Number);
-  const long = new Date(y, m - 1, d).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const long = new Date(y, m - 1, d).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace('-feira', '');
+  const foldOpen = state.doneOpen.has('today');
+  const opts = { showWhen: false, showList: true };
+  const logRow = (item) => `
+    <li class="task is-done">
+      <span class="check done" aria-hidden="true">${MARK}</span>
+      <span class="task-body"><span class="task-title">${escapeHtml(item.title)}</span><span class="chips"><span>${ico('repeat')}ocorrência de ${escapeHtml(formatDate(item.occurrence || now).toLowerCase())}</span></span></span>
+    </li>`;
+  let body;
+  if (!tasks.length && !doneCount) {
+    body = `
+    <div class="empty-hero">
+      <svg width="96" height="96" viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r="50"/><path d="M36 72L31 77" fill="none" stroke-width="4" stroke-linecap="round"/><path d="M36 72C36 50 52 36 74 34C72 56 58 72 36 72Z" fill="none" stroke-width="4" stroke-linejoin="round"/></svg>
+      <strong>Nada para hoje</strong><span>Uma folha em branco. Que tal anotar algo?</span>
+    </div>
+    <div class="tip">${ico('edit')}<p>Escreva como fala: <span class="ex">pagar luz sexta 9h</span> ou <span class="ex">academia toda segunda 7h</span>. A data, a hora e o lembrete saem sozinhos.</p></div>
+    <div class="tip">${ico('next')}<p>Deslize uma tarefa para a <b>direita</b> para concluir e para a <b>esquerda</b> para mandar para a Lixeira.</p></div>
+    <div class="tip">${ico('more')}<p>Toque para abrir. Segure para ver todas as opções: mover, duplicar, excluir.</p></div>`;
+  } else {
+    body = `
+    ${late.length ? `<h2 class="late">Atrasada <span class="n">${late.length}</span></h2>${taskListHtml(late, opts)}` : ''}
+    ${rest.length ? `<h2>Para hoje <span class="n">${rest.length}</span></h2>${taskListHtml(rest, opts)}` : ''}
+    ${tasks.length ? '' : '<p class="empty">Tudo feito por hoje.</p>'}
+    ${doneCount ? `<button class="fold" data-action="toggle-done-section" data-id="today" aria-expanded="${foldOpen}">${ico('right')}Feitas hoje (${doneCount})</button>
+    ${foldOpen ? `<ul class="task-list">${doneTasks.map((t) => taskRow(t, opts)).join('')}${doneLogs.map(logRow).join('')}</ul>` : ''}` : ''}`;
+  }
   return `
-    <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}</div></div>${selectButton(tasks)}</div>
-    ${quickAdd('Adicionar a Hoje', { when: now })}
-    ${tasks.length ? taskListHtml(tasks, { showWhen: false, showList: true, draggable: true }) : `<div class="empty">
-      <p>Nada planejado para hoje.</p>
-      <p class="empty-tip">Digite acima, como "pagar luz sexta 9h" ou "academia toda segunda 7h". Toque numa tarefa para ver os detalhes; use ⋯ para mover, duplicar ou excluir. No celular, deslize para a direita para concluir e para a esquerda para excluir.</p>
-    </div>`}`;
+    <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}${tasks.length ? ` · ${tasks.length} para fazer` : ''}</div></div>${selectButton(tasks)}</div>
+    <div id="view-reminders"></div>
+    ${body}
+    ${quickAdd('Anotar para hoje…', { when: now })}`;
 }
 
-/** Botão "Selecionar" do topo das telas com tarefas. */
+/** Botão "Selecionar várias" do topo das telas com tarefas. */
 const selectButton = (tasks) => (tasks.length && !state.selecting
-  ? '<button class="btn small" data-action="select-start">Selecionar</button>' : '');
+  ? `<button class="ib" data-action="select-start" aria-label="Selecionar várias" title="Selecionar várias">${ico('select')}</button>` : '');
+
+/** "Amanhã · qua, 11/11", "Sexta · 13/11" na semana, "seg, 30/11" depois. */
+function sectionDate(date) {
+  const [y, m, d] = date.split('-');
+  const name = WEEKDAYS_FULL[new Date(Date.UTC(+y, +m - 1, +d)).getUTCDay()];
+  const short = `${d}/${m}${y === today().slice(0, 4) ? '' : `/${y}`}`;
+  if (date === addDays(today(), 1)) return `Amanhã · ${name.slice(0, 3).toLowerCase()}, ${short}`;
+  if (date <= addDays(today(), 6)) return `${name} · ${short}`;
+  return formatDate(date);
+}
 
 function upcomingList() {
   const tasks = upcomingTasks(state.tasks, today());
   const groups = new Map();
   tasks.forEach((task) => groups.set(task.when, [...(groups.get(task.when) || []), task]));
   const body = [...groups].map(([date, items]) =>
-    `<h2>${escapeHtml(formatDate(date))}</h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
+    `<h2>${escapeHtml(sectionDate(date))} <span class="n">${items.length}</span></h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
   return body || '<p class="empty">Nenhuma tarefa com Quando no futuro.</p>';
 }
 
@@ -704,12 +921,14 @@ function upcomingView() {
   return `
     <div class="view-head"><div><h1><span>Próximos dias</span></h1></div></div>
     <div class="segments" role="group" aria-label="Visão">${UPCOMING_MODES.map(([id, name]) => `<button class="${id === mode ? 'on' : ''}" data-action="set-upcoming-mode" data-mode="${id}" aria-pressed="${id === mode}">${name}</button>`).join('')}</div>
-    ${body}`;
+    ${body}
+    ${quickAdd('Anotar com data: “sexta 9h”…', { when: mode === 'calendar' && state.calDay > today() ? state.calDay : addDays(today(), 1) })}`;
 }
 
 function importantView() {
   const tasks = openTasks().filter((t) => t.important).sort(byOrder);
   return `
+    <a class="back" href="#lists">${ico('left')}Listas</a>
     <div class="view-head"><div><h1><span>Importantes</span></h1></div>${selectButton(tasks)}</div>
     ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Toque na estrela de uma tarefa para ela aparecer aqui.</p>'}`;
 }
@@ -718,8 +937,18 @@ function tagView(encoded) {
   const tag = decodeURIComponent(encoded || '');
   const tasks = openTasks().filter((t) => (t.tags || []).some((name) => sameTag(name, tag))).sort(byOrder);
   return `
+    <a class="back" href="#tags">${ico('left')}Tags</a>
     <div class="view-head"><div><h1><span>#${escapeHtml(tag)}</span></h1><div class="subtitle">Tag</div></div>${selectButton(tasks)}</div>
     ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta com esta tag.</p>'}`;
+}
+
+function tagsView() {
+  const tags = allTags();
+  return `
+    <a class="back" href="#lists">${ico('left')}Listas</a>
+    <div class="view-head"><div><h1><span>Tags</span></h1></div></div>
+    ${tags.length ? `<div class="rows">${tags.map(([tag, count]) => `<a class="row-link" href="#tag/${encodeURIComponent(tag)}"><span>#${escapeHtml(tag)}</span><span class="count">${count}</span></a>`).join('')}</div>`
+    : '<p class="empty">Nenhuma tarefa aberta com tag. As tags ficam em "Mais opções", nos detalhes da tarefa.</p>'}`;
 }
 
 function listView(id) {
@@ -729,20 +958,24 @@ function listView(id) {
   const inList = state.tasks.filter((t) => t.listId === id && !t.deletedAt);
   const tasks = sortTasks(inList.filter((t) => t.status === 'open'), mode);
   const done = inList.filter((t) => t.status === 'done').sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
-  const sortNote = mode === 'manual' ? '' : `<div class="sort-note">Ordenada por ${escapeHtml(LIST_SORTS.find(([key]) => key === mode)[1].toLowerCase())} · <button class="link-btn" data-action="set-list-sort" data-id="${id}" data-sort="manual">Voltar à minha ordem</button></div>`;
+  const sortName = LIST_SORTS.find(([key]) => key === mode)[1];
+  const sortNote = mode === 'manual' ? '' : `<div class="sort-note"><button class="chip" data-action="list-sort-sheet" data-id="${id}">${ico('sort')}Por ${escapeHtml(sortName.toLowerCase())}${ico('down')}</button><button class="link" data-action="set-list-sort" data-id="${id}" data-sort="manual" style="margin-left:auto">Voltar à minha ordem</button></div>`;
   const doneOpen = state.doneOpen.has(id);
+  const sub = [`${tasks.length} ${tasks.length === 1 ? 'aberta' : 'abertas'}`, list.group || (id === INBOX ? '' : 'sem grupo')].filter(Boolean).join(' · ');
   return `
-    <div class="view-head">
-      <div><h1><span>${list.emoji ? `${escapeHtml(list.emoji)} ` : ''}${escapeHtml(list.name)}</span></h1>${list.group ? `<div class="subtitle">${escapeHtml(list.group)}</div>` : ''}</div>
+    <a class="back" href="#lists">${ico('left')}Listas</a>
+    <div class="view-head" style="align-items:center">
+      <span class="em" style="--c:${escapeHtml(list.color || '#7E8A99')};width:44px;height:44px;font-size:1.5rem">${list.emoji ? escapeHtml(list.emoji) : ico(id === INBOX ? 'inbox' : 'list')}</span>
+      <div><h1><span>${escapeHtml(list.name)}</span></h1><div class="subtitle" style="margin-top:2px">${escapeHtml(sub)}</div></div>
       ${selectButton(tasks)}
-      <button class="btn small icon-btn" data-action="list-menu" data-id="${id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
+      <button class="ib" data-action="list-menu" data-id="${id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
     </div>
-    ${quickAdd(`Adicionar a ${list.name}`, { listId: id })}
     ${sortNote}
-    ${tasks.length ? taskListHtml(tasks, { draggable: mode === 'manual' }) : `<p class="empty">${done.length ? 'Tudo feito nesta lista.' : 'Esta lista está vazia.'}</p>`}
+    ${tasks.length ? taskListHtml(tasks, { draggable: mode === 'manual', noDate: true }) : `<p class="empty">${done.length ? 'Tudo feito nesta lista.' : 'Esta lista está vazia.'}</p>`}
     ${done.length ? `
-    <button class="done-toggle" data-action="toggle-done-section" data-id="${id}" aria-expanded="${doneOpen}">${doneOpen ? '▾' : '▸'} Concluídas (${done.length})</button>
-    ${doneOpen ? taskListHtml(done, {}) : ''}` : ''}`;
+    <button class="fold" data-action="toggle-done-section" data-id="${id}" aria-expanded="${doneOpen}">${ico('right')}Concluídas (${done.length})</button>
+    ${doneOpen ? taskListHtml(done, {}) : ''}` : ''}
+    ${quickAdd(`Anotar em ${list.name}…`, { listId: id })}`;
 }
 
 /** Listas fora da Entrada, separadas em soltas e por grupo, na ordem escolhida. */
@@ -759,29 +992,28 @@ const openCount = (id) => state.tasks.filter((t) => t.listId === id && t.status 
 function listsView() {
   const { ungrouped, groups } = groupedLists();
   const row = (list) => `
-    <div class="row-wrap">
-      <a class="row-link" href="#list/${list.id}"><span class="list-label">${listLabel(list)}</span><span class="count">${openCount(list.id)}</span></a>
-      <button class="icon more" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
+    <div class="lr">
+      <span class="em" style="--c:${escapeHtml(list.color || '#7E8A99')}">${list.emoji ? escapeHtml(list.emoji) : ico(list.id === INBOX ? 'inbox' : 'list')}</span>
+      <a class="nm" href="#list/${list.id}"><span>${escapeHtml(list.name)}</span></a>
+      <span class="cnt">${openCount(list.id) || ''}</span>
+      <button class="ib" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
     </div>`;
   const inbox = findList(INBOX);
-  const doneCount = activeTasks().filter((t) => t.status === 'done').length;
+  const count = (n) => (n ? ` · ${n}` : '');
+  const trashCount = state.tasks.filter((t) => t.deletedAt).length;
   return `
-    <div class="view-head"><div><h1><span>Listas</span></h1></div>
+    <div class="view-head" style="align-items:center"><div><h1><span>Listas</span></h1></div>
       <button class="btn small" data-action="organize-lists" ${ungrouped.length + groups.length ? '' : 'disabled'}>Organizar</button>
-      <button class="btn small primary" data-action="new-list">Nova lista</button>
+      <button class="btn small primary" data-action="new-list">${ico('plus')}Nova</button>
     </div>
     <div class="rows">${row(inbox)}${ungrouped.map(row).join('')}</div>
-    ${groups.map(([name, lists]) => `<h2 class="group-head"><span>${escapeHtml(name)}</span><button class="icon more small-more" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}" title="Opções do grupo">${MORE_ICON}</button></h2><div class="rows">${lists.map(row).join('')}</div>`).join('')}
+    ${groups.map(([name, lists]) => `<div class="grp"><span>${escapeHtml(name)}</span><button class="ib" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}" title="Opções do grupo">${MORE_ICON}</button></div><div class="rows">${lists.map(row).join('')}</div>`).join('')}
     ${ungrouped.length + groups.length ? '' : '<p class="empty-tip">Crie listas para separar assuntos (Casa, Trabalho, Mercado). Para juntar listas, dê o mesmo nome de grupo a elas.</p>'}
-    <h2>Filtros</h2>
-    <div class="rows">
-      <a class="row-link" href="#important"><span>Importantes</span><span class="count">${openTasks().filter((t) => t.important).length}</span></a>
-      ${allTags().map(([tag, count]) => `<a class="row-link" href="#tag/${encodeURIComponent(tag)}"><span>#${escapeHtml(tag)}</span><span class="count">${count}</span></a>`).join('')}
-    </div>
-    <h2>Outros</h2>
-    <div class="rows">
-      <a class="row-link" href="#done"><span>Concluídas</span><span class="count">${doneCount || ''}</span></a>
-      <a class="row-link" href="#trash"><span>Lixeira</span><span class="count">${state.tasks.filter((t) => t.deletedAt).length || ''}</span></a>
+    <div class="tiles">
+      <a class="tile" href="#important">${ico('star')}Importantes${count(openTasks().filter((t) => t.important).length)}</a>
+      <a class="tile" href="#tags">${ico('tag')}Tags${count(allTags().length)}</a>
+      <a class="tile" href="#done">${ico('done')}Concluídas</a>
+      <a class="tile" href="#trash">${ico('trash')}Lixeira${count(trashCount)}</a>
     </div>`;
 }
 
@@ -796,6 +1028,7 @@ function organizeView() {
       <button class="icon more" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}">${MORE_ICON}</button>
     </div>`).join('')}</div>`;
   return `
+    <a class="back" href="#lists">${ico('left')}Listas</a>
     <div class="view-head"><div><h1><span>Organizar listas</span></h1><div class="subtitle">Ordem das listas e grupos</div></div><a class="btn small primary btn-link" href="#lists">Pronto</a></div>
     <p class="empty-tip">Use ↑ e ↓ para mudar a ordem. A Entrada fica sempre em primeiro. Os grupos aparecem em ordem alfabética; use ⋯ no grupo para renomear ou desfazer.</p>
     ${ungrouped.length ? `<h2>Sem grupo</h2>${section(ungrouped)}` : ''}
@@ -817,6 +1050,7 @@ function doneView() {
     </li>`;
   const empty = !single.length && !series.length;
   return `
+    <a class="back" href="#lists">${ico('left')}Listas</a>
     <div class="view-head"><div><h1><span>Concluídas</span></h1></div>
       ${single.length ? selectButton(single) : ''}
       ${empty ? '' : '<button class="btn small danger" data-action="clear-done">Limpar</button>'}
@@ -839,6 +1073,7 @@ function trashView() {
       </div>
     </li>`;
   return `
+    <a class="back" href="#lists">${ico('left')}Listas</a>
     <div class="view-head"><div><h1><span>Lixeira</span></h1></div>
       ${tasks.length ? '<button class="btn small" data-action="restore-all">Restaurar tudo</button><button class="btn small danger" data-action="empty-trash">Esvaziar</button>' : ''}
     </div>
@@ -964,6 +1199,37 @@ async function togglePush(enabled) {
   render();
 }
 
+/** Config. › Aparência: modo, cor de destaque e tamanho da letra. */
+function appearancePanels() {
+  const mode = normalizeMode(state.settings.mode);
+  const accent = normalizeAccent(state.settings.accent);
+  const dark = resolveMode(mode, prefersDark()) === 'dark';
+  const prev = (kind) => `<span class="mode-prev ${kind}"><span class="t"></span><span class="r"></span><span class="r"></span></span>`;
+  const preview = { light: prev('claro'), dark: prev('escuro'), auto: `<span class="mode-prev auto">${prev('claro')}${prev('escuro')}</span>` };
+  const size = Number(state.settings.fontSize || 3);
+  return `
+    <section class="panel">
+      <span class="lbl">Modo</span>
+      <div class="mode-grid" role="radiogroup" aria-label="Modo">
+        ${MODES.map(([id, name]) => `<button type="button" class="mode-card" role="radio" aria-checked="${id === mode}" data-action="set-mode" data-mode="${id}">${preview[id]}<b>${name}</b></button>`).join('')}
+      </div>
+      <p class="help" style="margin:10px 0 0">Automático segue o modo do celular.</p>
+    </section>
+    <section class="panel">
+      <span class="lbl">Cor de destaque</span>
+      <div class="accent-grid" role="radiogroup" aria-label="Cor de destaque">
+        ${ACCENTS.map((item) => `<button type="button" class="accent-btn" role="radio" aria-checked="${item.id === accent}" data-action="set-accent" data-accent="${item.id}" style="--c:${dark ? item.dark : item.light}"><span class="sw">${ico('check')}</span>${item.name}</button>`).join('')}
+      </div>
+      <p class="help" style="margin:12px 0 0">Muda botões, marcas e lembretes. No modo escuro, cada cor tem uma versão clara própria.</p>
+    </section>
+    <section class="panel">
+      <span class="lbl">Tamanho da letra</span>
+      <div class="segments font-sizes" role="group" aria-label="Tamanho da letra" style="margin-bottom:0">
+        ${FONT_SIZES.map(([id, px, name]) => `<button class="${id === size ? 'on' : ''}" data-action="set-font-size" data-size="${id}" aria-pressed="${id === size}" aria-label="${name}" title="${name}"><span style="font-size:${px}px">Aa</span></button>`).join('')}
+      </div>
+    </section>`;
+}
+
 function settingsView() {
   const support = 'Notification' in window;
   const permission = support ? Notification.permission : 'denied';
@@ -975,18 +1241,6 @@ function settingsView() {
   const backup = state.settings.lastExport
     ? `Último backup: ${formatDate(localDate(new Date(state.settings.lastExport))).toLowerCase()}.`
     : 'Nenhum backup feito ainda.';
-  const { theme, highlight } = state.settings;
-  const themeOptions = THEMES;
-  const highlightPanel = resolveTheme(theme, prefersDark()) === 'marca-texto' ? `
-    <section class="panel">
-      <h3>Cor do marca-texto</h3>
-      <p>Vale para títulos, seleções e lembretes deste tema.</p>
-      <div class="swatches">
-        ${HIGHLIGHTS.map((item) => `<button class="swatch ${item.color.toLowerCase() === highlight.toLowerCase() ? 'on' : ''}" style="--swatch:${item.color};--swatch-text:${textOn(item.color)}" data-action="set-highlight" data-color="${item.color}" ${item.color.toLowerCase() === highlight.toLowerCase() ? 'aria-pressed="true"' : 'aria-pressed="false"'}>${item.name}</button>`).join('')}
-      </div>
-      <label class="custom-color"><input type="color" id="highlight-custom" value="${highlight.toLowerCase()}"> Escolher qualquer cor</label>
-      <p class="help-warning" id="highlight-warning" ${isTooLight(highlight) ? '' : 'hidden'}>Esta cor é muito clara e quase some no papel branco.</p>
-    </section>` : '';
   const segmented = (label, action, options, current, dataKey = 'value') => `
       <div class="segments" role="group" aria-label="${label}">
         ${options.map(([id, name]) => `<button class="${String(id) === String(current) ? 'on' : ''}" data-action="${action}" data-${dataKey}="${id}" aria-pressed="${String(id) === String(current)}">${name}</button>`).join('')}
@@ -1025,18 +1279,7 @@ function settingsView() {
       <p style="margin:0">No teclado do note: N cria uma tarefa e / abre a busca.</p>
     </section>
     <h2 id="cfg-aparencia">Aparência</h2>
-    <section class="panel">
-      <h3>Tema</h3>
-      <div class="segments themes" role="group" aria-label="Tema">
-        ${themeOptions.map((item) => `<button class="${item.id === theme ? 'on' : ''}" data-action="set-theme" data-theme-id="${item.id}" aria-pressed="${item.id === theme}">${item.name}</button>`).join('')}
-      </div>
-      <h3 style="margin-top:6px">Tamanho da letra</h3>
-      <div class="segments font-sizes" role="group" aria-label="Tamanho da letra">
-        ${FONT_SIZES.map(([id, px, name]) => `<button class="${id === Number(state.settings.fontSize || 3) ? 'on' : ''}" data-action="set-font-size" data-size="${id}" aria-pressed="${id === Number(state.settings.fontSize || 3)}" aria-label="${name}" title="${name}"><span style="font-size:${px}px">Aa</span></button>`).join('')}
-      </div>
-      <p style="margin:0">${(FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize || 3)) || FONT_SIZES[2])[2]}.</p>
-    </section>
-    ${highlightPanel}
+    ${appearancePanels()}
     <h2 id="cfg-avisos">Avisos</h2>
     <section class="panel">
       <h3>Notificações</h3>
@@ -1082,28 +1325,36 @@ function currentRoute() {
 
 function renderNav() {
   const route = currentRoute();
-  const isLists = ['lists', 'list', 'done', 'trash', 'important', 'tag', 'organize'].includes(route.name);
+  const isLists = ['lists', 'list', 'done', 'trash', 'important', 'tag', 'tags', 'organize'].includes(route.name);
   const dueCount = todayTasks(state.tasks, today()).length;
-  const item = (href, label, active, count, extra = '') => `
+  const item = (href, label, active, { icon = '', emoji = '', dot = '', count = 0, badge = false, extra = '' } = {}) => {
+    let lead = `<span class="nav-dot" style="--dot:${escapeHtml(dot || 'var(--muted)')}"></span>`;
+    if (icon) lead = `<span class="pill">${ico(icon)}</span>`;
+    else if (emoji) lead = `<span class="pill" aria-hidden="true">${escapeHtml(emoji)}</span>`;
+    return `
     <a class="nav-item ${extra} ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}>
-      <span class="label">${escapeHtml(label)}</span>${count ? `<span class="count">${count}</span>` : ''}
+      ${lead}<span class="label">${escapeHtml(label)}</span>${badge && count ? `<span class="bd" aria-hidden="true">${count}</span>` : ''}${count ? `<span class="count">${count}</span>` : ''}
     </a>`;
-  const desktopList = (list) => item(`#list/${list.id}`, `${list.emoji ? `${list.emoji} ` : ''}${list.name}`, route.name === 'list' && route.id === list.id, openCount(list.id), 'nav-only-desktop');
+  };
+  const desktopList = (list) => item(`#list/${list.id}`, list.name, route.name === 'list' && route.id === list.id, {
+    icon: list.id === INBOX && !list.emoji ? 'inbox' : '', emoji: list.emoji, dot: list.color, count: openCount(list.id), extra: 'nav-only-desktop',
+  });
   const { ungrouped, groups } = groupedLists();
   const inbox = state.lists.find((l) => l.id === INBOX);
+  const mobile = matchMedia('(max-width: 799px)').matches;
   $('#nav').innerHTML = `
-    ${item('#today', 'Hoje', route.name === 'today', dueCount)}
-    ${item('#upcoming', 'Próximos', route.name === 'upcoming')}
-    ${item('#important', 'Importantes', route.name === 'important', openTasks().filter((t) => t.important).length, 'nav-only-desktop')}
+    ${item('#today', 'Hoje', route.name === 'today', { icon: 'sun', count: dueCount, badge: true })}
+    ${item('#upcoming', 'Próximos', route.name === 'upcoming', { icon: 'calendar' })}
+    ${item('#important', 'Importantes', route.name === 'important', { icon: 'star', count: openTasks().filter((t) => t.important).length, extra: 'nav-only-desktop' })}
     ${desktopList(inbox)}
     ${ungrouped.map(desktopList).join('')}
     ${groups.map(([name, lists]) => `<span class="nav-group">${escapeHtml(name)}</span>${lists.map(desktopList).join('')}`).join('')}
-    ${item('#lists', 'Listas', route.name === 'lists' || (isLists && matchMedia('(max-width: 799px)').matches))}
+    ${item('#lists', 'Listas', route.name === 'lists' || (isLists && mobile), { icon: 'list' })}
     <span class="nav-spacer"></span>
-    ${item('#done', 'Concluídas', route.name === 'done', 0, 'nav-only-desktop')}
-    ${item('#trash', 'Lixeira', route.name === 'trash', 0, 'nav-only-desktop')}
-    ${item('#search', 'Busca', route.name === 'search')}
-    ${item('#settings', 'Config.', route.name === 'settings')}`;
+    ${item('#done', 'Concluídas', route.name === 'done', { icon: 'done', extra: 'nav-only-desktop' })}
+    ${item('#trash', 'Lixeira', route.name === 'trash', { icon: 'trash', extra: 'nav-only-desktop' })}
+    ${item('#search', 'Busca', route.name === 'search', { icon: 'search' })}
+    ${item('#settings', 'Config.', route.name === 'settings', { icon: 'sliders' })}`;
 }
 
 function render() {
@@ -1114,10 +1365,12 @@ function render() {
     list: () => listView(route.id),
     important: importantView,
     tag: () => tagView(route.id),
+    tags: tagsView,
     organize: organizeView,
   };
   renderNav();
   $('#view').innerHTML = (views[route.name] || todayView)();
+  document.body.classList.toggle('has-dock', !!$('#dock'));
   renderReminders();
   renderSelectionBar();
 }
@@ -1220,9 +1473,10 @@ function openSheet(title, items, subtitle = '') {
   const dialog = $('#dialog');
   dialog.innerHTML = `
     <div class="sheet">
-      <div class="form-head"><div><h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}</div><button type="button" class="btn small" data-action="close-dialog">Fechar</button></div>
+      <div class="grab" aria-hidden="true"></div>
+      <div class="form-head"><div><h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}</div><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar" title="Fechar">${ico('x')}</button></div>
       <div class="sheet-items">
-        ${sheetItems.map(([label, , opts = {}], index) => `<button class="sheet-item ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${index}" ${opts.disabled ? 'disabled' : ''}>${opts.html ? label : escapeHtml(label)}</button>`).join('')}
+        ${sheetItems.map(([label, , opts = {}], index) => (opts.sep ? '<div class="sheet-sep" role="separator"></div>' : `<button class="sheet-item ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${index}" ${opts.disabled ? 'disabled' : ''}>${opts.icon ? ico(opts.icon) : ''}${opts.html ? label : escapeHtml(label)}</button>`)).join('')}
       </div>
     </div>`;
   if (!dialog.open) dialog.showModal();
@@ -2036,21 +2290,20 @@ function showToast(message, undo) {
 const darkScheme = matchMedia('(prefers-color-scheme: dark)');
 const prefersDark = () => darkScheme.matches;
 
-function applyTheme(highlight = state.settings.highlight) {
+function applyTheme() {
   const root = document.documentElement;
-  const theme = resolveTheme(state.settings.theme, prefersDark());
-  const onHi = textOn(highlight);
-  root.dataset.theme = theme;
-  root.style.setProperty('--hi', highlight);
-  root.style.setProperty('--on-hi', onHi);
-  $('meta[name="theme-color"]').content = THEMES.find((item) => item.id === theme).chrome;
+  const mode = normalizeMode(state.settings.mode);
+  const shown = resolveMode(mode, prefersDark());
+  const vars = accentVars(state.settings.accent, shown);
+  root.dataset.mode = shown;
+  ['--primary', '--on-primary', '--accent', '--mark-line', '--mark-fill', '--on-mark', '--soft', '--banner', '--toast-act']
+    .forEach((name) => root.style.removeProperty(name));
+  Object.entries(vars).forEach(([name, value]) => root.style.setProperty(name, value));
+  $('meta[name="theme-color"]').content = CHROME[shown];
   const fs = fontSizePx();
   root.style.fontSize = `${fs}px`;
-  // Ícone do app: a folha em todos os temas (decisão de 10/11).
-  const icon = 'icons/icon-folha-192.png';
-  document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((link) => { link.href = icon; });
   try {
-    localStorage.setItem('tarefas-tema', JSON.stringify({ theme, hi: highlight, onHi, fs }));
+    localStorage.setItem('tarefas-tema', JSON.stringify({ mode, vars, fs }));
   } catch { /* O tema salvo é só uma conveniência. */ }
 }
 
@@ -2270,18 +2523,18 @@ const clickActions = {
   'test-notification': async () => {
     await showNotification({ id: 'teste', title: 'Teste de notificação' });
   },
-  'set-theme': async (el) => {
-    await saveSettings({ theme: el.dataset.themeId });
+  'set-mode': async (el) => {
+    await saveSettings({ mode: el.dataset.mode });
+    applyTheme();
+    render();
+  },
+  'set-accent': async (el) => {
+    await saveSettings({ accent: el.dataset.accent });
     applyTheme();
     render();
   },
   'set-font-size': async (el) => {
     await saveSettings({ fontSize: Number(el.dataset.size) });
-    applyTheme();
-    render();
-  },
-  'set-highlight': async (el) => {
-    await saveSettings({ highlight: el.dataset.color });
     applyTheme();
     render();
   },
@@ -2309,6 +2562,16 @@ const clickActions = {
     state.calMonth = `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
     render();
   },
+  'snooze-menu': (el) => openSnoozeSheet(el.dataset.id),
+  'list-sort-sheet': (el) => openSortSheet(el.dataset.id),
+  'quick-when': (el) => {
+    const date = addDays(today(), Number(el.dataset.days));
+    const current = quickValues($('#quick-input').value, $('#quick-input').form).when;
+    state.quick = { ...state.quick, when: current === date ? null : date };
+    refocusQuick();
+  },
+  'quick-repeat': () => openQuickRepeat(),
+  'quick-list': () => openQuickList(),
   'quick-ignore': () => {
     const input = $('#quick-input');
     state.quickIgnore = input.value;
@@ -2330,15 +2593,30 @@ document.addEventListener('submit', async (event) => {
   const form = event.target;
   event.preventDefault();
   if (form.dataset.form === 'quick-add') {
-    const title = form.elements.title.value;
-    if (!title.trim()) return;
-    const parsed = quickParse(title);
+    const text = form.elements.title.value;
+    if (!text.trim()) return;
+    const v = quickValues(text, form);
+    const context = { when: form.dataset.when, listId: form.dataset.list };
     state.quickIgnore = '';
-    await addTask(parsed ? parsed.title : title, { listId: form.dataset.list, when: form.dataset.when }, parsed);
+    state.quick = {};
+    await addTask(v.title || text.trim(), { listId: v.listId, when: null }, v);
     $('#quick-input')?.focus();
-    if (parsed?.when && parsed.when !== today() && form.dataset.when) {
-      showToast(`Criada para ${formatDate(parsed.when).toLowerCase()}: está em Próximos dias.`);
+    const route = currentRoute().name;
+    if (route === 'today' && v.when !== today()) {
+      showToast(v.when ? `Criada para ${formatDate(v.when).toLowerCase()}: está em Próximos dias.` : `Criada sem data em ${listName(v.listId)}.`);
+    } else if (route === 'upcoming' && (!v.when || v.when <= today())) {
+      showToast(v.when ? 'Criada para hoje: está em Hoje.' : `Criada sem data em ${listName(v.listId)}.`);
+    } else if (context.listId && v.listId !== context.listId) {
+      showToast(`Criada em ${listName(v.listId)}.`);
     }
+  } else if (form.dataset.form === 'snooze') {
+    const at = form.elements.at.value;
+    if (!at || at <= localDateTime()) {
+      showToast('Escolha um horário no futuro.');
+      return;
+    }
+    $('#dialog').close();
+    await snoozeTask(form.dataset.id, at);
   } else if (form.dataset.form === 'task') {
     await submitTask(form);
   } else if (form.dataset.form === 'list') {
@@ -2363,10 +2641,6 @@ document.addEventListener('input', (event) => {
     $('#search-results').innerHTML = searchResults();
   } else if (target.id === 'quick-input') {
     renderQuickPreview();
-  } else if (target.id === 'highlight-custom') {
-    // Mostra a cor enquanto ela é escolhida; só salva ao confirmar.
-    applyTheme(target.value);
-    $('#highlight-warning').hidden = !isTooLight(target.value);
   } else if (target.id === 'f-when') {
     syncReminderFromWhen(true);
   } else if (target.id === 'f-time') {
@@ -2393,10 +2667,6 @@ document.addEventListener('change', async (event) => {
     // Já tratado no evento input.
   } else if (target.dataset.stepDone !== undefined) {
     draftSteps[Number(target.dataset.stepDone)].done = target.checked;
-  } else if (target.id === 'highlight-custom') {
-    await saveSettings({ highlight: target.value });
-    applyTheme();
-    render();
   } else if (target.id === 'push-enabled') {
     await togglePush(target.checked);
   } else if (target.id === 'push-digest') {
@@ -2587,7 +2857,7 @@ document.addEventListener('click', (event) => {
 document.addEventListener('contextmenu', (event) => {
   if (event.target.closest('input, textarea, select')) return;
   const row = event.target.closest('#view .task[data-id]');
-  const listRow = event.target.closest('#view .row-wrap')?.querySelector('[data-action="list-menu"]');
+  const listRow = event.target.closest('#view .row-wrap, #view .lr')?.querySelector('[data-action="list-menu"]');
   const touch = event.pointerType === 'touch' || (event.sourceCapabilities?.firesTouchEvents ?? false) || matchMedia('(pointer: coarse)').matches;
   if (state.selecting || swipe?.active || (!row && !listRow)) {
     // Nas telas do app, toque longo não deve abrir o menu do Chrome.
@@ -2606,7 +2876,13 @@ document.addEventListener('contextmenu', (event) => {
   else openListMenu(listRow.dataset.id);
 });
 
+// Tocar nos botões de um toque não tira o foco do campo Anotar (o teclado do celular continua aberto).
+document.addEventListener('pointerdown', (event) => {
+  if (event.target.closest('.parse button, .qa .go')) event.preventDefault();
+});
+
 window.addEventListener('hashchange', () => {
+  state.quick = {};
   // Trocar de tela encerra a seleção de várias tarefas.
   if (state.selecting && !currentRoute().name.startsWith('notif')) {
     state.selecting = false;
@@ -2665,9 +2941,10 @@ async function load() {
   const sync = meta.find((item) => item.id === 'sync');
   state.sync = sync?.token ? sync : null;
   state.push = meta.find((item) => item.id === 'push') || null;
-  state.settings.theme = normalizeTheme(state.settings.theme);
-  if (!state.settings.themeV2) await saveSettings({ theme: DEFAULT_THEME, themeChosen: true, themeV2: true });
-  if (!isHexColor(state.settings.highlight)) state.settings.highlight = DEFAULT_HIGHLIGHT;
+  // v14: um tema só. Diamante vira a Folha escura; Marca-texto e os outros, a Folha clara.
+  if (!MODES.some(([id]) => id === state.settings.mode)) {
+    await saveSettings({ mode: normalizeMode(state.settings.mode, state.settings.theme), accent: normalizeAccent(state.settings.accent) });
+  }
   if (!state.lists.some((l) => l.id === INBOX)) await saveList({ id: INBOX, name: 'Entrada', group: '' });
   applyTheme();
 }
