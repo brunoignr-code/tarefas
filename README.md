@@ -32,7 +32,7 @@ A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o endereço publicado dentro do Chrome, em tela cheia, com ícone, nome e notificações próprios. O conteúdo continua vindo do GitHub Pages, então **cada publicação chega ao celular sozinha, sem reinstalar**. Só é preciso instalar um APK novo quando mudar algo em `android/` (ícone, atalhos, versão).
 
-- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.2-twa.apk` para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
+- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.3-twa.apk` (o mais novo) para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
 - **Dados:** o TWA usa o armazenamento do Chrome do próprio celular. Se você já usava o app pelo Chrome nesse celular, o login, as tarefas e "Receber neste aparelho" continuam valendo.
 - **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
 - **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
@@ -75,7 +75,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### v14.2 e APK 1.3, lote 3, 10 de novembro
 
-- **APK 1.3** (`versionCode` 4), mesma chave do 1.2 (certificado SHA-256 `453fd2e0…`): `C:\Python - localpk-afazeresfazeres-1.3-twa.apk`. Precisa instalar por cima do 1.2 para trocar o ícone: ícone adaptável da logo 3 (fundo verde em degradê, folha de papel na frente), silhueta branca no ícone temático do Android 13+ e nas notificações, tela de abertura com a logo nova e barras do Android na Folha escura quando o celular está no modo escuro. `android/tools/gerar_icones.py` agora desenha tudo a partir dos SVGs de `icons/` (usa o Chrome e o Pillow).
+- **APK 1.3** (`versionCode` 4), mesma chave do 1.2 (certificado SHA-256 `453fd2e0…`): `C:\Python - local\apk-afazeres\afazeres-1.3-twa.apk`. Precisa instalar por cima do 1.2 para trocar o ícone: ícone adaptável da logo 3 (fundo verde em degradê, folha de papel na frente), silhueta branca no ícone temático do Android 13+ e nas notificações, tela de abertura com a logo nova e barras do Android na Folha escura quando o celular está no modo escuro. `android/tools/gerar_icones.py` agora desenha tudo a partir dos SVGs de `icons/` (usa o Chrome e o Pillow).
 - **Botão "Amanhã" na notificação:** a tarefa vai para amanhã e o lembrete de hoje volta amanhã, no mesmo horário. O Chrome mostra no máximo **dois** botões por notificação, então o padrão passou a ser Concluir + Amanhã; em Config. › Avisos › "Segundo botão do aviso" dá para voltar a Concluir + Adiar 10 min. Vale para os avisos com o app aberto e com ele fechado (o service worker lê a escolha no aparelho). O Worker não mudou.
 - Correção: a navegação e a tela Listas não quebram mais se forem desenhadas antes de os dados carregarem.
 
