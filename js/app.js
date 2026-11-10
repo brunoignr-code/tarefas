@@ -18,7 +18,7 @@ import { authenticate, changePassword, createSync, endSession } from './sync.js'
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v14.3 · 10/11/2026';
+const APP_VERSION = 'v14.4 · 10/11/2026';
 const SNOOZE_MINUTES = 10;
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -860,18 +860,21 @@ function sectionDate(date) {
   const [y, m, d] = date.split('-');
   const name = WEEKDAYS_FULL[new Date(Date.UTC(+y, +m - 1, +d)).getUTCDay()];
   const short = `${d}/${m}${y === today().slice(0, 4) ? '' : `/${y}`}`;
+  if (date === today()) return `Hoje · ${name.slice(0, 3).toLowerCase()}, ${short}`;
   if (date === addDays(today(), 1)) return `Amanhã · ${name.slice(0, 3).toLowerCase()}, ${short}`;
   if (date <= addDays(today(), 6)) return `${name} · ${short}`;
   return formatDate(date);
 }
 
 function upcomingList() {
-  const tasks = upcomingTasks(state.tasks, today());
-  const groups = new Map();
-  tasks.forEach((task) => groups.set(task.when, [...(groups.get(task.when) || []), task]));
+  const now = today();
+  // Hoje vem primeiro, com as que ficaram de dias anteriores (como na tela Hoje).
+  const todayItems = todayTasks(state.tasks, now).sort((a, b) => Number(isOverdue(b, now)) - Number(isOverdue(a, now)) || byOrder(a, b));
+  const groups = new Map(todayItems.length ? [[now, todayItems]] : []);
+  upcomingTasks(state.tasks, now).forEach((task) => groups.set(task.when, [...(groups.get(task.when) || []), task]));
   const body = [...groups].map(([date, items]) =>
     `<h2>${escapeHtml(sectionDate(date))} <span class="n">${items.length}</span></h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
-  return body || '<p class="empty">Nenhuma tarefa com Quando no futuro.</p>';
+  return body || '<p class="empty">Nada para hoje nem para os próximos dias.</p>';
 }
 
 function calendarView() {
@@ -2793,7 +2796,7 @@ document.addEventListener('submit', async (event) => {
     if (route === 'today' && v.when !== today()) {
       showToast(v.when ? `Criada para ${formatDate(v.when).toLowerCase()}: está em Próximos dias.` : `Criada sem data em ${listName(v.listId)}.`);
     } else if (route === 'upcoming' && (!v.when || v.when <= today())) {
-      showToast(v.when ? 'Criada para hoje: está em Hoje.' : `Criada sem data em ${listName(v.listId)}.`);
+      if (!v.when) showToast(`Criada sem data em ${listName(v.listId)}.`);
     } else if (context.listId && v.listId !== context.listId) {
       showToast(`Criada em ${listName(v.listId)}.`);
     }

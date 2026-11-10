@@ -73,6 +73,10 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (10 de novembro de 2026)
 
+### v14.4, 10 de novembro
+
+- **Próximos dias inclui Hoje:** na visão Lista, a primeira seção é "Hoje", com as tarefas de hoje e as que ficaram de dias anteriores (as atrasadas primeiro), seguida de Amanhã e dos outros dias. Calendário, Kanban e Matriz não mudaram.
+
 ### v14.3, 10 de novembro
 
 - Favicon da aba conforme a prancheta "Ícone" do design: o ícone inteiro com cantos arredondados, em SVG e em PNG de 32 e 16 px (`icons/favicon*`). O ícone do APK 1.3 já seguia a mesma prancheta (fundo em degradê, frente no círculo de 66%, silhueta branca nas notificações e no ícone temático); as cores do ícone temático (claro e escuro) quem escolhe é o Android, a partir da silhueta.
