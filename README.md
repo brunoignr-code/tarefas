@@ -73,6 +73,10 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (10 de novembro de 2026)
 
+### v14.3, 10 de novembro
+
+- Favicon da aba conforme a prancheta "Ícone" do design: o ícone inteiro com cantos arredondados, em SVG e em PNG de 32 e 16 px (`icons/favicon*`). O ícone do APK 1.3 já seguia a mesma prancheta (fundo em degradê, frente no círculo de 66%, silhueta branca nas notificações e no ícone temático); as cores do ícone temático (claro e escuro) quem escolhe é o Android, a partir da silhueta.
+
 ### v14.2 e APK 1.3, lote 3, 10 de novembro
 
 - **APK 1.3** (`versionCode` 4), mesma chave do 1.2 (certificado SHA-256 `453fd2e0…`): `C:\Python - local\apk-afazeres\afazeres-1.3-twa.apk`. Precisa instalar por cima do 1.2 para trocar o ícone: ícone adaptável da logo 3 (fundo verde em degradê, folha de papel na frente), silhueta branca no ícone temático do Android 13+ e nas notificações, tela de abertura com a logo nova e barras do Android na Folha escura quando o celular está no modo escuro. `android/tools/gerar_icones.py` agora desenha tudo a partir dos SVGs de `icons/` (usa o Chrome e o Pillow).

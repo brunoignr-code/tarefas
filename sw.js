@@ -1,5 +1,5 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v14-2';
+const CACHE = 'tarefas-v14-3';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -22,6 +22,9 @@ const FILES = [
   'icons/icon-folha-512.png',
   'icons/icon-folha-maskable-512.png',
   'icons/badge-folha-96.png',
+  'icons/favicon.svg',
+  'icons/favicon-32.png',
+  'icons/favicon-16.png',
 ];
 
 // 'reload' ignora o cache HTTP do navegador, que poderia guardar uma versão antiga.
