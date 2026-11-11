@@ -126,6 +126,54 @@ check('agenda nova não apaga o teste', sqlite.exec("SELECT COUNT(*) FROM push_q
 await call('/push/unsubscribe', { endpoint: ep1 }, token);
 check('aparelho saiu', (await call('/push/state', {}, token)).body.devices === 0);
 
+// ---------- Sessões (v21): validade, aparelhos e sair dos outros ----------
+const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; SM-A556E Build/UP1A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+// O navegador não deixa uma página pôr User-Agent num Request; no Worker ele chega normalmente.
+const callUA = async (path, body, tok, ua) => {
+  const fields = { Origin: 'http://localhost:8765', 'Content-Type': 'application/json', 'User-Agent': ua, ...(tok ? { Authorization: `Bearer ${tok}` } : {}) };
+  const request = new Request(`https://w.test${path}`, { method: 'POST', headers: fields, body: JSON.stringify(body) });
+  Object.defineProperty(request, 'headers', { value: new Headers(fields) });
+  const response = await worker.fetch(request, env);
+  return { status: response.status, body: await response.json() };
+};
+const sql1 = (q) => sqlite.exec(q)[0]?.values || [];
+const phone = (await callUA('/login', { login: 'teste-descartavel', proof }, null, PHONE_UA)).body.token;
+const sessions = await call('/sessions/list', {}, token);
+const phoneRow = sessions.body.sessions?.find((x) => !x.current);
+check('sessões: colunas novas criadas na tabela antiga', sql1('PRAGMA table_info(sessions)').some((c) => c[1] === 'last_used') && sql1('PRAGMA table_info(sessions)').some((c) => c[1] === 'name'));
+check('sessões: lista os dois aparelhos e marca este', sessions.body.sessions?.length === 2 && sessions.body.sessions.filter((x) => x.current).length === 1, JSON.stringify(sessions.body));
+check('sessões: nome do aparelho vem do navegador', phoneRow?.name === 'Android (SM-A556E) · Chrome', phoneRow?.name);
+check('sessões: não mostra o hash da sessão inteiro', /^[0-9a-f]{16}$/.test(phoneRow?.id || ''));
+const ep3 = 'https://fcm.googleapis.com/fcm/send/celular';
+await callUA('/push/subscribe', { endpoint: ep3 }, phone, PHONE_UA);
+check('sessões: inscrição de aviso ligada à sessão do celular', (await call('/push/due', { endpoint: ep3 })).status === 200);
+check('sessões: não deixa encerrar a própria pelo botão', (await call('/sessions/revoke', { id: sessions.body.sessions.find((x) => x.current).id }, token)).status === 400);
+const afterRevoke = await call('/sessions/revoke', { id: phoneRow.id }, token);
+check('sessões: encerrar o celular tira ele da lista', afterRevoke.body.sessions?.length === 1);
+check('sessões: o celular encerrado não sincroniza mais', (await callUA('/sync', { since: 0, records: [], deletes: [] }, phone, PHONE_UA)).status === 401);
+check('sessões: o celular encerrado não recebe mais as tarefas nos avisos', (await call('/push/due', { endpoint: ep3 })).status === 404);
+
+const old = (await call('/login', { login: 'teste-descartavel', proof })).body.token;
+const oldHash = sql1('SELECT token_hash FROM sessions ORDER BY created_at DESC LIMIT 1')[0][0];
+sqlite.run('UPDATE sessions SET last_used = ? WHERE token_hash = ?', [Date.now() - 91 * 86400000, oldHash]);
+check('sessões: 90 dias sem uso vence', (await call('/push/state', {}, old)).status === 401);
+check('sessões: a vencida some do banco', sql1(`SELECT COUNT(*) FROM sessions WHERE token_hash = '${oldHash}'`)[0][0] === 0);
+
+const mainHash = sql1('SELECT token_hash FROM sessions')[0][0];
+sqlite.run('UPDATE sessions SET last_used = ? WHERE token_hash = ?', [Date.now() - 2 * 3600000, mainHash]);
+await call('/push/state', {}, token);
+check('sessões: usar renova a validade', Date.now() - sql1(`SELECT last_used FROM sessions WHERE token_hash = '${mainHash}'`)[0][0] < 60000);
+
+const other1 = (await call('/login', { login: 'teste-descartavel', proof })).body.token;
+const other2 = (await callUA('/login', { login: 'teste-descartavel', proof }, null, PHONE_UA)).body.token;
+const ep4 = 'https://fcm.googleapis.com/fcm/send/antigo';
+sqlite.run('INSERT INTO push_subs (id, endpoint, created_at, session_hash) VALUES (?, ?, ?, NULL)', ['antigo', ep4, Date.now()]);
+const others = await call('/sessions/revoke-others', {}, token);
+check('sessões: sair dos outros aparelhos deixa só este', others.body.sessions?.length === 1 && others.body.sessions[0].current);
+check('sessões: os outros não sincronizam mais', (await call('/push/state', {}, other1)).status === 401 && (await call('/push/state', {}, other2)).status === 401);
+check('sessões: corta também avisos inscritos antes da v21', sql1("SELECT COUNT(*) FROM push_subs WHERE id = 'antigo'")[0][0] === 0);
+check('sessões: este aparelho continua', (await call('/push/state', {}, token)).status === 200);
+
 
 // ---------- Conta Google e Drive (Google falso: chave RSA gerada aqui e Drive em memória) ----------
 sqlite.run(`CREATE TABLE IF NOT EXISTS items (kind TEXT, id TEXT, data TEXT, deleted INTEGER DEFAULT 0, seq INTEGER, PRIMARY KEY (kind, id));
@@ -220,6 +268,22 @@ check('Drive: baixa um backup para restaurar', file.body.data?.app === 'tarefas'
 const status = await call('/google/status', {}, token);
 check('Drive: status mostra conta e último backup', status.body.google?.email === 'pessoa@teste.invalid' && !!status.body.drive?.lastBackup && status.body.secretReady === true);
 check('Drive: sem sessão, nada', (await call('/drive/list', {})).status === 401);
+// Nova tentativa depois de erro (relógio falso: hoje às 10:07 de Brasília, minuto em que o cron olha o Drive).
+{
+  const RealDate = Date;
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new RealDate());
+  const fixed = RealDate.parse(`${day}T13:07:30Z`);
+  window.Date = class extends RealDate { constructor(...a) { super(...(a.length ? a : [fixed])); } static now() { return fixed; } };
+  const driveMeta = () => JSON.parse(sqlite.exec("SELECT value FROM meta WHERE key = 'drive'")[0].values[0][0]);
+  const setDrive = (changes) => sqlite.run("UPDATE meta SET value = ? WHERE key = 'drive'", [JSON.stringify({ ...driveMeta(), ...changes })]);
+  setDrive({ lastDay: '2020-01-01', lastTryDay: day, lastTry: fixed - 1 * 3600000, lastError: 'falha de teste' });
+  await cron();
+  check('Drive: depois de um erro, espera 3 horas para tentar de novo', driveMeta().lastDay === '2020-01-01');
+  setDrive({ lastTry: fixed - 4 * 3600000 });
+  await cron();
+  check('Drive: passadas 3 horas, tenta de novo e limpa o erro', driveMeta().lastDay === day && driveMeta().lastError === '');
+  window.Date = RealDate;
+}
 await call('/drive/disconnect', {}, token);
 check('Drive: desconectar apaga a autorização', (await call('/google/status', {}, token)).body.drive === null);
 await call('/google/unlink', {}, token);

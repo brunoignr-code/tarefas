@@ -41,6 +41,14 @@ export async function currentSubscription() {
 
 export const fetchPushState = (token) => post('/push/state', {}, token);
 
+/** Confirma a inscrição deste aparelho no servidor, ligada à sessão atual (v21). Sem inscrição, não faz nada. */
+export async function refreshSubscription(token) {
+  const subscription = await currentSubscription();
+  if (!subscription) return false;
+  await post('/push/subscribe', { endpoint: subscription.endpoint }, token);
+  return true;
+}
+
 /** Pede permissão, inscreve este aparelho e registra a inscrição no servidor. */
 export async function enablePush(token) {
   if (!pushSupported()) throw new Error('Este navegador não recebe avisos com o app fechado.');

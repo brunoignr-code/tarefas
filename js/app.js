@@ -6,7 +6,7 @@ import {
 } from './rules.js';
 import { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey } from './push-core.js';
 import {
-  currentSubscription, disablePush, enablePush, fetchPushState, pushSupported, savePushSettings, sendPushTest, uploadSchedule,
+  currentSubscription, disablePush, enablePush, fetchPushState, pushSupported, refreshSubscription, savePushSettings, sendPushTest, uploadSchedule,
 } from './push.js';
 import { parseQuickAdd } from './parse.js';
 import {
@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v20 · 11/11/2026';
+const APP_VERSION = 'v21 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -99,6 +99,8 @@ const ICONS = {
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   alert: '<path d="M12 3.8 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17v.2"/>',
+  phone: '<rect x="7" y="2.8" width="10" height="18.4" rx="2.2"/><path d="M11 18h2"/>',
+  laptop: '<rect x="4.5" y="5" width="15" height="10" rx="1.6"/><path d="M2.5 19h19"/>',
   repeat: '<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-2a4 4 0 0 1 4-4h12"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v2a4 4 0 0 1-4 4H4"/>',
   star: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"/>',
   check: '<path d="M5.5 12.5l4.2 4.2L18.5 7.8"/>',
@@ -1365,9 +1367,82 @@ async function checkDriveHealth() {
   if (before !== !!driveLate()) render();
 }
 
+/* ---------- Aparelhos conectados (v21) ---------- */
+
+function lastUseText(time) {
+  const day = localDate(new Date(time));
+  const hour = new Date(time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (day === today()) return `hoje às ${hour}`;
+  if (day === addDays(today(), -1)) return `ontem às ${hour}`;
+  const days = Math.round((Date.now() - time) / 86400000);
+  return days < 30 ? `há ${days} dias` : formatDate(day).toLowerCase();
+}
+
+function devicesPanel() {
+  if (!state.sync?.token) return '';
+  const data = state.devices;
+  let body = '<p>Carregando…</p>';
+  if (data?.error) body = `<p>${escapeHtml(data.error)}</p>`;
+  else if (data?.sessions) {
+    const others = data.sessions.filter((item) => !item.current);
+    body = `<p>Cada aparelho sai sozinho depois de ${data.idleDays} dias sem abrir o app. Num celular perdido, toque em Sair nele: ele para de sincronizar e de receber avisos.</p>
+      <ul class="device-list">${data.sessions.map((item) => `
+        <li class="device">
+          <span class="ico">${ico(/Android|iPhone/.test(item.name) ? 'phone' : 'laptop')}</span>
+          <span class="grow"><strong>${escapeHtml(item.name)}${item.current ? ' <span class="chip-here">este aparelho</span>' : ''}</strong>
+            <small>Último uso ${escapeHtml(lastUseText(item.lastUsed))} · conectado desde ${escapeHtml(formatDate(localDate(new Date(item.createdAt))).toLowerCase())}</small></span>
+          ${item.current ? '' : `<button class="btn small text danger" data-action="device-revoke" data-id="${item.id}" data-name="${escapeHtml(item.name)}">Sair</button>`}
+        </li>`).join('')}</ul>
+      ${others.length ? `<div class="actions"><button class="btn small danger" data-action="devices-revoke-others">Sair dos outros aparelhos (${others.length})</button></div>` : '<p class="help">Só este aparelho está conectado.</p>'}`;
+  }
+  return `<section class="panel" id="devices-panel"><h3>Aparelhos conectados</h3>${body}</section>`;
+}
+
+async function loadDevices(force = false) {
+  if (!state.sync?.token || (state.devicesLoading && !force)) return;
+  state.devicesLoading = true;
+  state.devicesFor = state.sync.token;
+  try {
+    state.devices = await callServer('/sessions/list', {}, state.sync.token);
+  } catch (error) {
+    state.devices = { error: error.message };
+  } finally {
+    state.devicesLoading = false;
+  }
+  const route = currentRoute();
+  if (route.name === 'settings' && route.id === 'conta') render();
+}
+
+const deviceActions = {
+  'device-revoke': async (el) => {
+    if (!confirm(`Tirar "${el.dataset.name}" da conta? Ele para de sincronizar e de receber avisos até entrar de novo.`)) return;
+    try {
+      state.devices = await callServer('/sessions/revoke', { id: el.dataset.id }, state.sync.token);
+      showToast(`${el.dataset.name} saiu da conta.`);
+    } catch (error) {
+      showToast(error.message);
+    }
+    render();
+  },
+  'devices-revoke-others': async () => {
+    if (!confirm('Sair de todos os outros aparelhos? Eles param de sincronizar e de receber avisos até entrar de novo. Este aparelho continua conectado.')) return;
+    try {
+      state.devices = await callServer('/sessions/revoke-others', {}, state.sync.token);
+      // Os avisos inscritos antes da v21 saem junto; este aparelho se inscreve de novo.
+      if (state.push?.enabled) await refreshSubscription(state.sync.token).catch(() => {});
+      showToast('Pronto: só este aparelho continua conectado.');
+    } catch (error) {
+      showToast(error.message);
+    }
+    render();
+  },
+};
+
 /** Depois de desenhar Config., coloca os botões oficiais do Google e busca o status. */
 function mountGoogle() {
   const route = currentRoute();
+  // Lista de aparelhos: busca ao abrir Conta (de novo se a sessão mudou).
+  if (route.name === 'settings' && route.id === 'conta' && state.sync?.token && state.devicesFor !== state.sync.token && !state.devicesLoading) loadDevices();
   if (route.name !== 'settings' || !['conta', 'dados'].includes(route.id) || !googleReady()) return;
   loadGoogle().catch(() => {});
   if (state.sync?.token && !state.googleFetching && (!state.google || Date.now() - (state.googleAt || 0) > 60000)) {
@@ -1625,7 +1700,7 @@ function settingsView(page) {
     </section>
     ${pushPanel()}`;
   }
-  if (page === 'conta') return `${title('Conta e sincronização')}${syncPanel()}`;
+  if (page === 'conta') return `${title('Conta e sincronização')}${syncPanel()}${devicesPanel()}`;
   if (page === 'dados') {
     const backup = state.settings.lastExport
       ? `Último backup: ${formatDate(localDate(new Date(state.settings.lastExport))).toLowerCase()}.`
@@ -3677,7 +3752,8 @@ const clickActions = {
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-action]');
   if (!target) return;
-  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action] || googleActions[target.dataset.action] || guardActions[target.dataset.action];
+  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action] || googleActions[target.dataset.action]
+    || guardActions[target.dataset.action] || deviceActions[target.dataset.action];
   if (action) action(target);
 });
 
@@ -4175,6 +4251,9 @@ async function start() {
   if (state.push?.enabled && !(await currentSubscription().catch(() => null))) {
     await savePushLocal({ ...state.push, enabled: false });
     if (currentRoute().name === 'settings') render();
+  } else if (state.push?.enabled && state.sync?.token) {
+    // Desde a v21 a inscrição fica ligada à sessão: sair dos outros aparelhos corta os avisos deles.
+    refreshSubscription(state.sync.token).catch(() => {});
   }
 }
 

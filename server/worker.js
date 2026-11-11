@@ -10,6 +10,9 @@ const MAX_RECORD = 64 * 1024;
 const PAGE = 300;
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000;
+// Sessão vence depois de 90 dias sem uso; cada uso renova (gravado no máximo uma vez por hora).
+const SESSION_IDLE_MS = 90 * 24 * 3600 * 1000;
+const SESSION_TOUCH_MS = 3600 * 1000;
 
 function headers(request) {
   const origin = request.headers.get('Origin');
@@ -48,19 +51,108 @@ const randomHex = (size) => [...crypto.getRandomValues(new Uint8Array(size))]
 const validLogin = (login) => typeof login === 'string' && login.length >= 3 && login.length <= 100;
 const validProof = (proof) => typeof proof === 'string' && /^[0-9a-f]{64}$/.test(proof);
 
-async function newSession(env) {
+/* ---------- Sessões: validade, nome do aparelho e sair dos outros ---------- */
+
+// Colunas novas da v21 (last_used e name). ALTER falha se a coluna já existe: tudo bem.
+let sessionColumnsReady;
+async function addColumn(env, sql) {
+  try {
+    await env.DB.prepare(sql).run();
+  } catch { /* coluna já existe */ }
+}
+const ensureSessionColumns = (env) => {
+  sessionColumnsReady ||= (async () => {
+    await addColumn(env, 'ALTER TABLE sessions ADD COLUMN last_used INTEGER');
+    await addColumn(env, 'ALTER TABLE sessions ADD COLUMN name TEXT');
+    // Sessões de antes da v21 contam a partir de agora: nenhuma cai na troca.
+    await env.DB.prepare('UPDATE sessions SET last_used = ? WHERE last_used IS NULL').bind(Date.now()).run();
+  })().catch((error) => {
+    sessionColumnsReady = null;
+    throw error;
+  });
+  return sessionColumnsReady;
+};
+
+/** "Android · Chrome", "Windows · Edge"... a partir do navegador que abriu a sessão. */
+function deviceName(request) {
+  const ua = request.headers.get('User-Agent') || '';
+  const model = (ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/) || [])[1];
+  const system = /Android/.test(ua) ? `Android${model && !/^K$/.test(model.trim()) ? ` (${model.trim()})` : ''}`
+    : /iPhone|iPad/.test(ua) ? 'iPhone ou iPad' : /Windows/.test(ua) ? 'Windows' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Aparelho';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  return (browser ? `${system} · ${browser}` : system).slice(0, 60);
+}
+
+async function newSession(env, request) {
+  await ensureSessionColumns(env);
   const token = randomHex(32);
-  await env.DB.prepare('INSERT INTO sessions (token_hash, created_at) VALUES (?, ?)')
-    .bind(await sha256(token), Date.now()).run();
+  const now = Date.now();
+  await env.DB.prepare('INSERT INTO sessions (token_hash, created_at, last_used, name) VALUES (?, ?, ?, ?)')
+    .bind(await sha256(token), now, now, deviceName(request)).run();
   return token;
+}
+
+/** Apaga sessões e as inscrições de aviso delas: o aparelho que saiu não recebe mais notificações. */
+async function dropSessions(env, where, ...args) {
+  await ensureTables(env);
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM push_subs WHERE session_hash IN (SELECT token_hash FROM sessions WHERE ${where})`).bind(...args),
+    env.DB.prepare(`DELETE FROM sessions WHERE ${where}`).bind(...args),
+  ]);
 }
 
 async function sessionHash(request, env) {
   const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
   if (!token) return null;
+  await ensureSessionColumns(env);
   const hash = await sha256(token);
-  const row = await env.DB.prepare('SELECT token_hash FROM sessions WHERE token_hash = ?').bind(hash).first();
-  return row ? hash : null;
+  const row = await env.DB.prepare('SELECT token_hash, created_at, last_used, name FROM sessions WHERE token_hash = ?').bind(hash).first();
+  if (!row) return null;
+  const now = Date.now();
+  if (now - (row.last_used || row.created_at || 0) > SESSION_IDLE_MS) {
+    await dropSessions(env, 'token_hash = ?', hash);
+    return null;
+  }
+  if (now - (row.last_used || 0) > SESSION_TOUCH_MS || !row.name) {
+    await env.DB.prepare('UPDATE sessions SET last_used = ?, name = COALESCE(name, ?) WHERE token_hash = ?')
+      .bind(now, deviceName(request), hash).run();
+  }
+  return hash;
+}
+
+const sessionId = (hash) => hash.slice(0, 16);
+
+async function sessionsList(request, env, current) {
+  const { results } = await env.DB.prepare('SELECT token_hash, created_at, last_used, name FROM sessions ORDER BY last_used DESC').all();
+  return reply(request, {
+    idleDays: SESSION_IDLE_MS / 86400000,
+    sessions: results.map((row) => ({
+      id: sessionId(row.token_hash),
+      name: row.name || 'Aparelho',
+      createdAt: row.created_at,
+      lastUsed: row.last_used || row.created_at,
+      current: row.token_hash === current,
+    })),
+  });
+}
+
+async function sessionsRevoke(request, env, current) {
+  const { id } = await request.json();
+  if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) return reply(request, { error: 'Aparelho inválido.' }, 400);
+  if (id === sessionId(current)) return reply(request, { error: 'Para este aparelho, use Sair.' }, 400);
+  await dropSessions(env, 'substr(token_hash, 1, 16) = ? AND token_hash <> ?', id, current);
+  return sessionsList(request, env, current);
+}
+
+/** Sair dos outros aparelhos: encerra as outras sessões e corta os avisos delas (e os de antes da v21). */
+async function revokeOthers(env, current) {
+  await dropSessions(env, 'token_hash <> ?', current);
+  await env.DB.prepare('DELETE FROM push_subs WHERE session_hash IS NULL').run();
+}
+
+async function sessionsRevokeOthers(request, env, current) {
+  await revokeOthers(env, current);
+  return sessionsList(request, env, current);
 }
 
 const hashProof = (salt, proof) => sha256(`${salt}:${proof}`);
@@ -72,7 +164,7 @@ async function register(request, env) {
   const account = JSON.stringify({ login, salt, hash: await hashProof(salt, proof) });
   const result = await env.DB.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('account', ?)").bind(account).run();
   if (!result.meta.changes) return reply(request, { error: 'Já existe uma conta. Use Entrar.' }, 409);
-  return reply(request, { token: await newSession(env) });
+  return reply(request, { token: await newSession(env, request) });
 }
 
 async function login(request, env) {
@@ -90,11 +182,11 @@ async function login(request, env) {
     return reply(request, { error: 'Login ou senha incorretos.' }, 401);
   }
   await writeMeta(env, 'lock', { fails: 0, until: 0 }).run();
-  return reply(request, { token: await newSession(env) });
+  return reply(request, { token: await newSession(env, request) });
 }
 
 async function logout(request, env, current) {
-  await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(current).run();
+  await dropSessions(env, 'token_hash = ?', current);
   return reply(request, { ok: true });
 }
 
@@ -105,10 +197,8 @@ async function changePassword(request, env, current) {
   const account = await readMeta(env, 'account');
   if ((await hashProof(account.salt, proof)) !== account.hash) return reply(request, { error: 'Senha atual incorreta.' }, 403);
   const salt = randomHex(16);
-  await env.DB.batch([
-    writeMeta(env, 'account', { login: account.login, salt, hash: await hashProof(salt, newProof) }),
-    env.DB.prepare('DELETE FROM sessions WHERE token_hash <> ?').bind(current),
-  ]);
+  await writeMeta(env, 'account', { login: account.login, salt, hash: await hashProof(salt, newProof) }).run();
+  await revokeOthers(env, current);
   return reply(request, { ok: true });
 }
 
@@ -200,7 +290,7 @@ const ensureTables = (env) => {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_queue (key TEXT PRIMARY KEY, at INTEGER NOT NULL, sent_at INTEGER,
       task_id TEXT, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL)`),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS push_queue_due ON push_queue (sent_at, at)'),
-  ]).catch((error) => {
+  ]).then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN session_hash TEXT')).catch((error) => {
     tablesReady = null;
     throw error;
   });
@@ -305,11 +395,13 @@ async function pushState(request, env) {
   return reply(request, { publicKey: keys.pub, settings: normalizePushSettings(settings), devices });
 }
 
-async function pushSubscribe(request, env) {
+async function pushSubscribe(request, env, current) {
   const { endpoint } = await request.json();
   if (!validEndpoint(endpoint)) return reply(request, { error: 'Inscrição inválida.' }, 400);
-  await env.DB.prepare('INSERT INTO push_subs (id, endpoint, created_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING')
-    .bind(await subId(endpoint), endpoint, Date.now()).run();
+  // A inscrição fica ligada à sessão: sair (ou a sessão vencer) corta os avisos deste aparelho.
+  await env.DB.prepare(`INSERT INTO push_subs (id, endpoint, created_at, session_hash) VALUES (?, ?, ?, ?)
+    ON CONFLICT (id) DO UPDATE SET session_hash = excluded.session_hash`)
+    .bind(await subId(endpoint), endpoint, Date.now(), current).run();
   return reply(request, { ok: true, devices: await deviceCount(env) });
 }
 
@@ -360,6 +452,14 @@ async function pushDue(request, env) {
   if (typeof endpoint !== 'string') return reply(request, { error: 'Inscrição inválida.' }, 400);
   const known = await env.DB.prepare('SELECT id FROM push_subs WHERE id = ?').bind(await subId(endpoint)).first();
   if (!known) return reply(request, { error: 'Inscrição desconhecida.' }, 404);
+  // Tarefas só para aparelho com sessão viva (ou inscrito antes da v21, até ele se inscrever de novo).
+  await ensureSessionColumns(env);
+  const alive = await env.DB.prepare(`SELECT 1 AS ok FROM push_subs p LEFT JOIN sessions s ON s.token_hash = p.session_hash
+    WHERE p.id = ? AND (p.session_hash IS NULL OR s.token_hash IS NOT NULL)`).bind(known.id).first();
+  if (!alive) {
+    await env.DB.prepare('DELETE FROM push_subs WHERE id = ?').bind(known.id).run();
+    return reply(request, { error: 'Inscrição desconhecida.' }, 404);
+  }
   const { results } = await env.DB.prepare(`SELECT key, at, task_id AS taskId, kind, title, body FROM push_queue
     WHERE sent_at >= ? ORDER BY at LIMIT 50`).bind(Date.now() - DUE_WINDOW_MS).all();
   return reply(request, { items: results });
@@ -435,7 +535,7 @@ async function googleLogin(request, env) {
     return reply(request, { error: 'Esta conta Google não está ligada ao app. Entre com login e senha e ligue em Config.' }, 401);
   }
   const account = await readMeta(env, 'account');
-  return reply(request, { token: await newSession(env), login: account?.login || '', email: google.email });
+  return reply(request, { token: await newSession(env, request), login: account?.login || '', email: google.email });
 }
 
 /* Drive: o servidor guarda o "refresh token" e faz o backup sozinho, uma vez por dia. */
@@ -538,14 +638,24 @@ async function driveBackup(env) {
   }
 }
 
-/** Chamado pelo cron: uma tentativa por dia, depois das 3h de Brasília. */
+const DRIVE_RETRY_MS = 3 * 3600 * 1000;
+
+/** Chamado pelo cron: um backup por dia, depois das 3h de Brasília. Se falhar, tenta de novo a cada 3 horas. */
 async function driveDaily(env) {
   const now = new Date();
   if (now.getUTCMinutes() % 15 !== 7 || localHour(now) < DRIVE_HOUR) return;
   const drive = await readMeta(env, 'drive');
   const today = localDay(now);
-  if (!drive?.refresh || drive.lastDay === today || drive.lastTryDay === today) return;
+  if (!drive?.refresh || drive.lastDay === today) return;
+  if (drive.lastTryDay === today && now.getTime() - (drive.lastTry || 0) < DRIVE_RETRY_MS) return;
   await driveBackup(env);
+}
+
+/** Uma vez por hora, pelo cron: apaga as sessões vencidas e as inscrições de aviso delas. */
+async function cleanSessions(env) {
+  if (new Date().getUTCMinutes() !== 23) return;
+  await ensureSessionColumns(env);
+  await dropSessions(env, 'COALESCE(last_used, created_at) < ?', Date.now() - SESSION_IDLE_MS);
 }
 
 async function driveConnect(request, env) {
@@ -644,6 +754,9 @@ export default {
         '/drive/list': driveList,
         '/drive/file': driveFile,
         '/drive/disconnect': driveDisconnect,
+        '/sessions/list': sessionsList,
+        '/sessions/revoke': sessionsRevoke,
+        '/sessions/revoke-others': sessionsRevokeOthers,
       };
       if (!routes[pathname]) return reply(request, { error: 'Não encontrado.' }, 404);
       const current = await sessionHash(request, env);
@@ -657,5 +770,6 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runPushes(env).catch((error) => console.error('cron', error)));
     ctx.waitUntil(driveDaily(env).catch((error) => console.error('drive', error)));
+    ctx.waitUntil(cleanSessions(env).catch((error) => console.error('sessões', error)));
   },
 };

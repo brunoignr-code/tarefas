@@ -466,6 +466,15 @@ body.selecting .toast { bottom: calc(var(--nav-h) + 84px + env(safe-area-inset-b
 .nr strong { display: block; font-size: 1.07rem; font-weight: 800; }
 .nr small { display: block; color: var(--muted); font-size: .9rem; font-weight: 600; }
 .nr .chev { color: var(--muted); display: grid; }
+/* Aparelhos conectados (Config. › Conta). */
+.device-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; }
+.device { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.device:first-child { border-top: 0; }
+.device .ico { color: var(--primary); flex: none; display: grid; place-items: center; }
+.device .grow { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.device small { color: var(--muted); }
+.chip-here { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 99px; background: var(--soft); color: var(--primary); font-size: .74rem; font-weight: 800; vertical-align: middle; }
+
 /* Lembretes pendentes fora de Hoje: uma linha só. */
 .reminder-line { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; margin-bottom: 10px; border-radius: var(--radius); background: var(--banner); color: var(--on-banner); text-decoration: none; font-weight: 700; }
 .reminder-line > .i { color: var(--primary); flex: none; }
