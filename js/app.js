@@ -801,9 +801,17 @@ function quickValues(text, form) {
   const parsed = quickParse(text);
   const quick = state.quick || {};
   const context = { listId: form?.dataset.list || '', when: form?.dataset.when || '' };
-  const when = quick.when !== undefined ? quick.when : (parsed?.when || context.when || null);
+  let when = quick.when !== undefined ? quick.when : (parsed?.when || context.when || null);
   let remindAt = parsed?.remindAt || null;
-  if (remindAt && quick.when) remindAt = `${quick.when}T${remindAt.slice(11)}`;
+  if (remindAt && quick.when) {
+    remindAt = `${quick.when}T${remindAt.slice(11)}`;
+  } else if (remindAt && !parsed.when && quick.when === undefined && context.when) {
+    // Só a hora, sem o dia ("pagar luz 10h"): Quando e lembrete ficam no mesmo dia; senão o
+    // lembrete deixa de seguir o Quando na janela da tarefa. Num dia futuro da tela (Próximos),
+    // vale esse dia; em Hoje, o dia da hora (amanhã, se a hora de hoje já passou).
+    if (context.when > today()) remindAt = `${context.when}T${remindAt.slice(11)}`;
+    else when = remindAt.slice(0, 10);
+  }
   return {
     parsed,
     title: parsed ? parsed.title : text.trim(),
