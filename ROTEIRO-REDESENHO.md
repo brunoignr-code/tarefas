@@ -1,6 +1,6 @@
 # Roteiro: levar o redesenho "linha livre" para o app
 
-Escrito em 11/11/2026, com o app na v21.1. Destinado a quem for implementar (outro chat, outro modelo).
+Escrito em 11/11/2026, com o app na v21.1. **Andamento:** lotes 1 e 2 feitos na v22 (veja o README). Decisões do dono para os itens "(confirmar)": item 4, o ⋯ fica sempre visível; item 5, Hoje tudo por horário (não por grupos); item 9, telas de edição sem barra. Itens 3 e 8 foram feitos como indicado aqui. Destinado a quem for implementar (outro chat, outro modelo).
 O desenho foi aprovado pelo dono como direção; nenhuma linha do app foi alterada por causa dele ainda.
 
 ## 1. De onde vem o desenho

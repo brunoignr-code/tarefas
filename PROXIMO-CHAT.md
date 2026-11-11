@@ -8,6 +8,7 @@ Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal,
 Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v21 para trás), este PROXIMO-CHAT.md e o memory do projeto.
 
 Onde paramos (11/11/2026):
+- v22 publicada: redesenho "linha livre", lotes 1 e 2 do ROTEIRO-REDESENHO.md (barra flutuante com +, Busca no cabeçalho, Hoje com cabeçalho verde, faixa da semana, ramo por horário, cartão "A seguir", folha de anotar no celular, capa nova). Próximo: lote 3 (Próximos e seletor de data).
 - v20 publicada em https://brunoignr-code.github.io/tarefas/: Restaurar/Importar com conta juntam sem desfazer nada (só volta o que não existe mais), aviso de backup do Drive atrasado, lembretes compactos fora de Hoje, janela da tarefa no topo, Matriz retirada, CSP no index.html e `python tools/conferir.py` antes de publicar.
 - v21 publicada e Worker implantado (11/11): sessões vencem após 90 dias sem uso, Config. › Conta lista os aparelhos com Sair e "Sair dos outros aparelhos", avisos ligados à sessão, Drive tenta de novo 3 h depois de erro. Verificação em duas etapas no Google, GitHub e Cloudflare fica com o dono. Trava do git push: rodar `python tools/conferir.py --instalar`.
 - v19: "Só esta vez" ao mudar dia ou hora de uma tarefa que se repete (adiar pelo menu, deslizar ou notificação vale só para a ocorrência; campo novo opcional `occurrence`), Quinzenal no Repetir e no texto digitado, rodapé da janela cabendo no celular.
@@ -21,7 +22,7 @@ Onde paramos (11/11/2026):
 - Comecei do zero em 9/11 (tarefas apagadas, listas mantidas) e estou usando no note e em 2 celulares Android (um A55).
 - Combinado: app simples (lembrete, repetição, listas, grupos, etapas), custo zero.
 
-Ainda não confirmado no celular real: a v21 (nome na lista de aparelhos, Sair de um celular de verdade), a v20 (login com Google sob a CSP, Restaurar com a conta real), a v19 ("Só desta vez?", Amanhã da notificação mantendo a série), a v18 (anotar abrindo a tarefa, "Sair sem salvar?" no gesto de voltar, rolagem até a tarefa nova, relógio com o dedo), a atualização da v14.5 para a v17, o login com Google e o backup no Drive com a minha conta, os botões da notificação sem abrir o app e o APK instalado.
+Ainda não confirmado no celular real: a v22 (folha de anotar com o teclado, voltar fechando a folha, Compartilhar abrindo a folha, barra flutuante sobre a área de gestos), a v21 (nome na lista de aparelhos, Sair de um celular de verdade), a v20 (login com Google sob a CSP, Restaurar com a conta real), a v19 ("Só desta vez?", Amanhã da notificação mantendo a série), a v18 (anotar abrindo a tarefa, "Sair sem salvar?" no gesto de voltar, rolagem até a tarefa nova, relógio com o dedo), a atualização da v14.5 para a v17, o login com Google e o backup no Drive com a minha conta, os botões da notificação sem abrir o app e o APK instalado.
 
 Regras:
 - App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome (endpoint /content, que mantém o banco D1, o cron e o segredo). Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.

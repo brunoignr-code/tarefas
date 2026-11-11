@@ -600,7 +600,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v21-1';
+const CACHE = 'tarefas-v22';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -623,6 +623,7 @@ const FILES = [
   'js/push.js',
   'fonts/nunito.woff2',
   'icons/icon-folha.svg',
+  'icons/capa-folha.svg',
   'icons/icon-folha-192.png',
   'icons/icon-folha-512.png',
   'icons/icon-folha-maskable-512.png',

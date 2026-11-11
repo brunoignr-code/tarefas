@@ -18,7 +18,7 @@ export const ACCENTS = [
 
 // Cores de fundo da barra do navegador e da capa em cada modo.
 export const CHROME = { light: '#F3F8F3', dark: '#0F1714' };
-export const SURFACE = { light: '#FFFFFF', dark: '#17221D' };
+export const SURFACE = { light: '#FFFEFA', dark: '#17221D' };
 
 export const isHexColor = (value) => /^#[0-9a-f]{6}$/i.test(value || '');
 
@@ -68,6 +68,7 @@ export function accentVars(id, mode) {
     '--on-mark': onPrimary,
     '--soft': `color-mix(in srgb, ${primary} ${dark ? 16 : 11}%, ${surface})`,
     '--banner': `color-mix(in srgb, ${primary} ${dark ? 20 : 16}%, ${surface})`,
-    '--toast-act': dark ? accent.light : accent.dark,
+    // Desde a v22 o aviso de rodapé é escuro nos dois modos: a ação usa sempre o tom claro.
+    '--toast-act': accent.dark,
   };
 }

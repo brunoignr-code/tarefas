@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v21.1 · 11/11/2026';
+const APP_VERSION = 'v22 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -550,29 +550,39 @@ function renderReminders() {
     }
     return;
   }
-  slot.innerHTML = due.map((task) => {
-    const time = activeReminder(task, now);
-    const late = (parseLocalTime(now) - parseLocalTime(time)) / 60000 > 15;
+  // Em Hoje, um cartão só: o lembrete vencido mais antigo (com "e mais N" para os outros)
+  // ou, sem nenhum vencido, o próximo de hoje.
+  const next = nextShown();
+  if (!next) {
+    slot.innerHTML = '';
+  } else {
+    const { task, time, due, total } = next;
+    const late = due && (parseLocalTime(now) - parseLocalTime(time)) / 60000 > 15;
     const when = time.slice(0, 10) === today() ? time.slice(11) : formatDateTime(time).toLowerCase();
+    const label = due ? (late ? 'Lembrete' : 'Lembrete agora') : 'A seguir';
     const meta = [
       task.listId !== INBOX && findList(task.listId) ? listChip(findList(task.listId)) : '',
       task.deadline === today() ? '<span>vence hoje</span>' : '',
       isOverdue(task, today()) ? `<span class="chip-overdue">Era até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>` : '',
     ].filter(Boolean).join('');
-    return `
-    <section class="reminder" aria-label="Lembrete">
-      <div class="reminder-top">
-        <div class="reminder-label">${ico('bell')}${late ? 'Lembrete' : 'Lembrete agora'} · ${escapeHtml(when)}</div>
-        <button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>
+    const others = total - 1;
+    slot.innerHTML = `
+    <section class="leaf-card big next-card" aria-label="${label}">
+      <div>
+        <div class="leaf-kicker">${ico('bell')}${label} · ${escapeHtml(when)}</div>
+        <button class="next-title" data-action="open" data-id="${task.id}">${escapeHtml(task.title)}</button>
+        ${meta ? `<div class="chips">${meta}</div>` : ''}
       </div>
-      <div class="reminder-title">${escapeHtml(task.title)}</div>
-      ${meta ? `<div class="chips">${meta}</div>` : ''}
-      <div class="reminder-actions">
-        <button class="btn primary" data-action="complete" data-id="${task.id}">${ico('check')}Concluir</button>
-        <button class="btn" data-action="snooze-menu" data-id="${task.id}" aria-haspopup="dialog">${ico('clock')}Adiar${ico('down')}</button>
+      ${due ? `<button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>` : ''}
+      <div class="next-actions">
+        <button class="pill-btn primary" data-action="complete" data-id="${task.id}">Concluir</button>
+        <button class="pill-btn" data-action="snooze-menu" data-id="${task.id}" aria-haspopup="dialog">Adiar</button>
       </div>
+      ${others > 0 ? `<button class="next-more" data-action="next-more" aria-label="Ver o próximo lembrete pendente (mais ${others})">e mais ${others}</button>` : ''}
     </section>`;
-  }).join('');
+  }
+  // O cabeçalho só sobe por baixo de um cartão quando há cartão logo depois dele.
+  $('#view > .hero')?.classList.toggle('lifted', !!slot.innerHTML.trim() || !!$('#view > .empty-card'));
 }
 
 const parseLocalTime = (value) => {
@@ -598,14 +608,20 @@ function openSnoozeSheet(id) {
     localDateTime(nowDate) < `${today()}T18:30` && ['Hoje à noite', evening],
     ['Amanhã', `${addDays(today(), 1)}T${defaultRemindTime()}`],
   ].filter(Boolean);
-  openSheet('Adiar para', [
+  const current = activeReminder(task, localDateTime()) || shownReminder(task, localDateTime());
+  const hint = (time) => (time.slice(0, 10) === today() ? time.slice(11) : `${formatDate(time.slice(0, 10)).split(',')[0].toLowerCase()}, ${time.slice(11)}`);
+  openSheet(task.title, [
     ...options.map(([label, time]) => [
-      `${label}<span class="sheet-hint">${escapeHtml(time.slice(11))}</span>`,
+      `${label}<span class="sheet-hint accent">${escapeHtml(hint(time))}</span>`,
       async () => { $('#dialog').close(); await snoozeTask(id, time); },
-      { html: true, icon: 'clock' },
+      { html: true },
     ]),
-    ['Escolher…', () => openSnoozePicker(id), { icon: 'calendar' }],
-  ], escapeHtml(task.title));
+    ['Escolher dia e horário…', () => openSnoozePicker(id)],
+  ], '', {
+    kicker: current ? `Adiar · lembrete das ${current.slice(11)}` : 'Adiar o lembrete',
+    lined: true,
+    note: task.repeat ? `Esta tarefa se repete (${repeatLabel(task.repeat).toLowerCase()}). Adiar muda só este lembrete; a repetição continua igual.` : '',
+  });
 }
 
 async function snoozeTask(id, time) {
@@ -682,7 +698,7 @@ function reminderWords(task, time) {
 }
 
 /** Uma linha com o essencial: estrela, data, lembrete, repetição, etapas e lista. */
-function taskChips(task, { showWhen = true, showList = false, noDate = false } = {}) {
+function taskChips(task, { showWhen = true, showList = false, noDate = false, noReminder = false } = {}) {
   const now = today();
   const chips = [];
   const open = task.status === 'open';
@@ -696,7 +712,8 @@ function taskChips(task, { showWhen = true, showList = false, noDate = false } =
   if (task.deadline && !isOverdue(task, now) && open) chips.push(`<span>até ${escapeHtml(formatDate(task.deadline).toLowerCase())}</span>`);
   const reminder = shownReminder(task, localDateTime());
   const more = (task.extraReminders || []).length;
-  if (reminder) chips.push(`<span class="chip-reminder">${ico('bell')}${escapeHtml(reminderWords(task, reminder))}${more ? ` +${more}` : ''}</span>`);
+  // No ramo de Hoje a hora do lembrete já está na coluna da esquerda.
+  if (reminder && !(noReminder && reminder.slice(0, 10) === today() && !more)) chips.push(`<span class="chip-reminder">${ico('bell')}${escapeHtml(reminderWords(task, reminder))}${more ? ` +${more}` : ''}</span>`);
   if (task.repeat) {
     const end = task.seriesEnd ? `, até ${formatDate(task.seriesEnd).toLowerCase()}` : '';
     chips.push(`<span>${ico('repeat')}${escapeHtml(repeatLabel(task.repeat) + end)}</span>`);
@@ -737,9 +754,11 @@ function taskRow(task, options = {}) {
   const check = done
     ? `<button class="check done" data-action="reopen" data-id="${task.id}" aria-label="Reabrir ${escapeHtml(task.title)}">${MARK}</button>`
     : `<button class="check${task.repeat ? ' repeats' : ''}${isOverdue(task, today()) ? ' late' : ''}" data-action="complete" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}" title="${escapeHtml(task.repeat ? 'Concluir e ir para a próxima' : 'Concluir')}">${MARK}</button>`;
+  // Coluna da hora do ramo (Hoje): hora do lembrete, da conclusão ou o dia.
+  const time = options.time !== undefined ? `<span class="tm ${options.timeClass || ''}">${escapeHtml(options.time)}</span>` : '';
   return `
   <li class="task ${done ? 'is-done' : ''}" data-id="${task.id}">
-    ${check}
+    ${time}${check}
     <button class="task-body" data-action="open" data-id="${task.id}">
       <span class="task-title">${options.mark ? markText(task.title, options.mark) : escapeHtml(task.title)}</span>
       ${taskChips(task, options)}${options.snippet ? options.snippet(task) : ''}
@@ -751,14 +770,23 @@ function taskRow(task, options = {}) {
 
 const taskListHtml = (tasks, options) => `<ul class="task-list">${tasks.map((t) => taskRow(t, options)).join('')}</ul>`;
 
-/** Campo "Anotar…" fixo acima das abas, com o que foi entendido logo acima dele. */
+/**
+ * Campo "Anotar…". No note fica fixo, com o que foi entendido logo acima dele.
+ * No celular (v22) fica escondido e vira a folha de baixo aberta pelo + da barra.
+ */
 const quickAdd = (placeholder, context) => `
-  <div class="dock" id="dock">
+  <div class="dock" id="dock" role="group" aria-label="Anotar tarefa">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="dock-head"><label for="quick-input" id="quick-label">Anotar</label></div>
     <div class="parse" id="quick-preview" aria-live="polite" hidden></div>
-    <form class="qa" data-form="quick-add" data-list="${context.listId || ''}" data-when="${context.when || ''}">
+    <form class="qa" id="quick-form" data-form="quick-add" data-list="${context.listId || ''}" data-when="${context.when || ''}">
       <input id="quick-input" name="title" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(placeholder.replace('…', ''))}" aria-describedby="quick-preview" autocomplete="off" enterkeyhint="done">
       <button class="go" aria-label="Adicionar" title="Adicionar">${ico('plus')}</button>
     </form>
+    <div class="dock-actions">
+      <button type="submit" form="quick-form" class="anotar-open-btn" data-after="open">Anotar e abrir</button>
+      <button type="submit" form="quick-form" class="anotar-more-btn" data-after="keep">Anotar outra</button>
+    </div>
   </div>`;
 
 /** O que foi entendido no texto digitado, ou nada se a função estiver desligada. */
@@ -791,25 +819,30 @@ function renderQuickPreview() {
   const input = $('#quick-input');
   const box = $('#quick-preview');
   if (!input || !box) return;
-  if (!input.value.trim()) {
-    state.quick = {};
+  const text = input.value;
+  const v = quickValues(text, input.form);
+  const list = findList(v.listId);
+  const label = $('#quick-label');
+  if (label) label.textContent = `Anotar em ${list ? list.name : 'Entrada'}`;
+  // No note, sem texto, a caixa some; na folha do celular os botões de um toque ficam sempre à vista.
+  if (!text.trim() && !anotarOpen) {
     box.hidden = true;
     box.innerHTML = '';
     return;
   }
-  const v = quickValues(input.value, input.form);
   const tomorrow = addDays(today(), 1);
-  const chips = [`<span class="chip">“${escapeHtml(v.title || '…')}”</span>`];
-  if (v.when) chips.push(`<span class="chip on">${ico('calendar')}${escapeHtml(formatDate(v.when).toLowerCase())}</span>`);
-  if (v.remindAt) chips.push(`<span class="chip on">${ico('bell')}Lembrar ${escapeHtml(reminderWords({ when: v.when }, v.remindAt))}</span>`);
-  if (v.repeat) chips.push(`<span class="chip on">${ico('repeat')}${escapeHtml(repeatLabel({ interval: 1, ...v.repeat }))}</span>`);
-  if (v.until) chips.push(`<span class="chip on">até ${escapeHtml(formatDate(v.until).toLowerCase())}</span>`);
-  const list = findList(v.listId);
+  const rows = [];
+  if (text.trim()) {
+    rows.push(`<div class="qp-title">${escapeHtml(v.title || '…')}</div>`);
+    if (v.when) rows.push(`<div><span>Quando</span>${escapeHtml(formatDate(v.when).toLowerCase())}</div>`);
+    if (v.remindAt) rows.push(`<div><span>Lembrar</span>${escapeHtml(v.remindAt.slice(0, 10) === (v.when || today()) ? `às ${v.remindAt.slice(11)}` : formatDateTime(v.remindAt).toLowerCase())}</div>`);
+    if (v.repeat) rows.push(`<div><span>Repetir</span>${escapeHtml(repeatLabel({ interval: 1, ...v.repeat }))}</div>`);
+    if (v.until) rows.push(`<div><span>Até</span>${escapeHtml(formatDate(v.until).toLowerCase())}</div>`);
+  }
   box.innerHTML = `
-    <div class="parse-row parse-head"><span>Entendi assim:</span>${v.parsed ? '<button type="button" class="link" data-action="quick-ignore">Usar o texto como está</button>' : ''}</div>
-    <div class="parse-row">${chips.join('')}</div>
-    <hr>
-    <div class="parse-row">
+    ${rows.length ? `<div class="qp-head"><h3>Entendi assim</h3>${v.parsed ? '<button type="button" class="link" data-action="quick-ignore">Usar o texto como está</button>' : ''}</div>
+    <div class="qp-ramo">${rows.join('')}</div>` : ''}
+    <div class="qp-chips">
       <span class="lead">Um toque:</span>
       <button type="button" class="chip ${v.when === today() ? 'on' : ''}" data-action="quick-when" data-days="0" aria-pressed="${v.when === today()}">Hoje</button>
       <button type="button" class="chip ${v.when === tomorrow ? 'on' : ''}" data-action="quick-when" data-days="1" aria-pressed="${v.when === tomorrow}">Amanhã</button>
@@ -818,6 +851,79 @@ function renderQuickPreview() {
     </div>`;
   box.hidden = false;
 }
+
+/* ---------- Folha "Anotar" (celular) ---------- */
+
+let anotarOpen = false;
+let anotarHistory = false;
+const isPhone = () => matchMedia('(max-width: 799px)').matches;
+
+/** Tudo atrás da folha fica inerte: o Tab e o leitor de tela ficam só nela. */
+function setAnotarInert(on) {
+  const dock = $('#dock');
+  const behind = [$('#nav'), $('#reminders'), ...document.querySelectorAll('#view > *')].filter((el) => el && el !== dock);
+  behind.forEach((el) => { el.inert = on; });
+}
+
+/** Depois de um redesenho com a folha aberta, a folha continua aberta e com o foco. */
+function keepAnotarOpen() {
+  if (!$('#dock')) ensureDock();
+  setAnotarInert(true);
+  renderQuickPreview();
+}
+
+/** Telas sem campo de anotar (Listas, Busca, Config.) ganham um, sem data e na lista padrão. */
+function ensureDock() {
+  if ($('#dock')) return;
+  $('#view').insertAdjacentHTML('beforeend', quickAdd('Anotar…', {}));
+}
+
+/** O + da barra, a tecla N, o atalho ?novo=1 e o Compartilhar abrem a folha (no note, focam o campo). */
+function openAnotar({ text = '', notes = '' } = {}) {
+  state.quickNotes = notes;
+  if (!isPhone()) {
+    focusQuickAdd();
+    if (text) { $('#quick-input').value = text; renderQuickPreview(); }
+    return;
+  }
+  ensureDock();
+  if (!anotarOpen) {
+    anotarOpen = true;
+    document.body.classList.add('anotar-open');
+    // O voltar do Android fecha a folha em vez de sair da tela.
+    history.pushState({ anotar: true }, '', location.href);
+    anotarHistory = true;
+  }
+  setAnotarInert(true);
+  const input = $('#quick-input');
+  if (text) input.value = text;
+  renderQuickPreview();
+  input.focus();
+}
+
+function closeAnotar({ back = true } = {}) {
+  if (!anotarOpen) return;
+  anotarOpen = false;
+  document.body.classList.remove('anotar-open');
+  setAnotarInert(false);
+  state.quick = {};
+  state.quickIgnore = '';
+  state.quickNotes = '';
+  const input = $('#quick-input');
+  if (input) { input.value = ''; input.blur(); }
+  renderQuickPreview();
+  if (anotarHistory) {
+    anotarHistory = false;
+    if (back) history.back();
+  }
+}
+
+window.addEventListener('popstate', () => {
+  if (anotarOpen) {
+    anotarHistory = false;
+    closeAnotar({ back: false });
+  }
+});
 
 function refocusQuick() {
   renderQuickPreview();
@@ -859,8 +965,68 @@ function allTags() {
   return [...counts].sort(([a], [b]) => a.localeCompare(b, 'pt-BR'));
 }
 
+/** Dia curto para a coluna da hora do ramo: "ontem", "seg", "03/11". */
+function shortDay(date) {
+  const now = today();
+  if (!date || date === now) return 'hoje';
+  if (date === addDays(now, -1)) return 'ontem';
+  if (date === addDays(now, 1)) return 'amanhã';
+  const [y, m, d] = date.split('-');
+  if (date < now && date >= addDays(now, -6)) return WEEKDAYS[new Date(Date.UTC(+y, +m - 1, +d)).getUTCDay()].toLowerCase();
+  return `${d}/${m}`;
+}
+
+/** Horário de hoje de uma tarefa aberta (o lembrete de hoje), ou vazio. */
+function todayTime(task, nowTime) {
+  const shown = shownReminder(task, nowTime);
+  if (shown && shown.slice(0, 10) === today()) return shown.slice(11);
+  if (task.remindAt && task.remindAt.slice(0, 10) === today()) return task.remindAt.slice(11);
+  return '';
+}
+
+/**
+ * Cartão "A seguir": os lembretes vencidos, do mais antigo ao mais novo.
+ * Sem nenhum vencido, o próximo lembrete de hoje; sem nenhum, a lista vem vazia.
+ */
+function nextUp() {
+  const now = localDateTime();
+  const due = dueReminders(state.tasks, now).map((task) => ({ task, time: activeReminder(task, now), due: true }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  if (due.length) return due;
+  const soon = openTasks().map((task) => ({ task, time: shownReminder(task, now), due: false }))
+    .filter((item) => item.time && item.time > now && item.time.slice(0, 10) === today())
+    .sort((a, b) => a.time.localeCompare(b.time));
+  return soon.slice(0, 1);
+}
+
+const nextShown = () => {
+  const list = nextUp();
+  return list.length ? { ...list[(state.nextIndex || 0) % list.length], total: list.length } : null;
+};
+
+/** Faixa da semana do cabeçalho de Hoje: tocar num dia abre Próximos rolado até ele. */
+function weekStrip(now, hasToday) {
+  const weekStart = Number(state.settings.weekStart) === 1 ? 1 : 0;
+  const [y, m, d] = now.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const first = addDays(now, -((dow - weekStart + 7) % 7));
+  const withTasks = new Set(openTasks().filter((t) => t.when > now).map((t) => t.when));
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(first, i);
+    const index = (weekStart + i) % 7;
+    const name = WEEKDAYS[index].toLowerCase();
+    const day = Number(date.slice(8));
+    const has = date === now ? hasToday : withTasks.has(date);
+    if (date < now) return `<span class="wk past" aria-hidden="true">${name}<b>${day}</b><i></i></span>`;
+    if (date === now) return `<span class="wk today${has ? ' has' : ''}" aria-current="date" aria-label="Hoje, ${WEEKDAYS_FULL[index].toLowerCase()}, ${day}">${name}<b>${day}</b><i></i></span>`;
+    return `<a class="wk${has ? ' has' : ''}" href="#upcoming/${date}" aria-label="${WEEKDAYS_FULL[index]}, ${day}${has ? ', com tarefas' : ''}: ver em Próximos">${name}<b>${day}</b><i></i></a>`;
+  });
+  return `<nav class="week" aria-label="Esta semana">${days.join('')}</nav>`;
+}
+
 function todayView() {
   const now = today();
+  const nowTime = localDateTime();
   const tasks = todayTasks(state.tasks, now).sort(byOrder);
   const late = tasks.filter((t) => isOverdue(t, now));
   const rest = tasks.filter((t) => !isOverdue(t, now));
@@ -868,37 +1034,72 @@ function todayView() {
   const doneTasks = activeTasks().filter((t) => t.status === 'done' && isToday(t.completedAt));
   const doneLogs = state.log.filter((item) => isToday(item.completedAt));
   const doneCount = doneTasks.length + doneLogs.length;
+  const total = tasks.length + doneCount;
   const [y, m, d] = now.split('-').map(Number);
-  const long = new Date(y, m - 1, d).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).replace('-feira', '');
-  const foldOpen = state.doneOpen.has('today');
+  const date = new Date(y, m - 1, d);
+  const weekdayName = capitalize(date.toLocaleDateString('pt-BR', { weekday: 'long' }));
+  const dayMonth = date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' });
   const opts = { showWhen: false, showList: true };
+  const clock = nowTime.slice(11);
+  const hourOf = (iso) => localDateTime(new Date(iso)).slice(11);
+  const highlight = nextShown()?.task.id;
   const logRow = (item) => `
     <li class="task is-done">
+      <span class="tm">${escapeHtml(hourOf(item.completedAt))}</span>
       <span class="check done" aria-hidden="true">${MARK}</span>
       <span class="task-body"><span class="task-title">${escapeHtml(item.title)}</span><span class="chips"><span>${ico('repeat')}ocorrência de ${escapeHtml(formatDate(item.occurrence || now).toLowerCase())}</span></span></span>
     </li>`;
+
+  // Tudo por horário: atrasadas primeiro; depois feitas e abertas pela hora. As abertas sem hora
+  // ficam na hora atual (as que vieram de dias anteriores, antes de todas), na ordem manual.
+  const entries = [
+    ...rest.map((t) => {
+      const time = todayTime(t, nowTime);
+      const key = time || (t.when < now ? '' : clock);
+      return { key, rank: 1, order: t.order || 0, html: () => taskRow(t, { ...opts, noReminder: !!time, time: time || shortDay(t.when), timeClass: t.id === highlight ? 'now' : '' }) };
+    }),
+    ...doneTasks.map((t) => ({ key: hourOf(t.completedAt), rank: 0, order: 0, html: () => taskRow(t, { ...opts, time: hourOf(t.completedAt) }) })),
+    ...doneLogs.map((item) => ({ key: hourOf(item.completedAt), rank: 0, order: 0, html: () => logRow(item) })),
+  ].sort((a, b) => a.key.localeCompare(b.key) || a.rank - b.rank || a.order - b.order);
+  const lateRows = late.map((t) => taskRow(t, { ...opts, time: shortDay(t.deadline), timeClass: 'late' }));
+
+  const empty = !total;
+  const leaves = total && total <= 12
+    ? `<span class="prog-leaves" aria-hidden="true">${'<i class="on"></i>'.repeat(doneCount)}${'<i></i>'.repeat(tasks.length)}</span>` : '';
+  const select = tasks.length && !state.selecting
+    ? `<button class="hero-btn" data-action="select-start" aria-label="Selecionar várias tarefas" title="Selecionar várias">${ico('select')}</button>` : '';
   let body;
-  if (!tasks.length && !doneCount) {
+  if (empty) {
     body = `
-    <div class="empty-hero">
-      <svg width="96" height="96" viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r="50"/><path d="M36 72L31 77" fill="none" stroke-width="4" stroke-linecap="round"/><path d="M36 72C36 50 52 36 74 34C72 56 58 72 36 72Z" fill="none" stroke-width="4" stroke-linejoin="round"/></svg>
-      <strong>Nada para hoje</strong><span>Uma folha em branco. Que tal anotar algo?</span>
-    </div>
-    <div class="tip">${ico('edit')}<p>Escreva como fala: <span class="ex">pagar luz sexta 9h</span> ou <span class="ex">academia toda segunda 7h</span>. A data, a hora e o lembrete saem sozinhos.</p></div>
-    <div class="tip">${ico('next')}<p>Deslize uma tarefa para a <b>direita</b> para concluir e para a <b>esquerda</b> para ${swipeLeft() === 'tomorrow' ? 'adiar para amanhã' : 'mandar para a Lixeira'}.</p></div>
-    <div class="tip">${ico('more')}<p>Toque para abrir. Segure para ver todas as opções: mover, duplicar, excluir.</p></div>`;
+    <div class="tips">
+      <div class="tip"><i aria-hidden="true"></i><p>Escreva como fala: <span class="ex">pagar luz sexta 9h</span> ou <span class="ex">academia toda segunda 7h</span>. A data, a hora e o lembrete saem sozinhos.</p></div>
+      <div class="tip"><i aria-hidden="true"></i><p>Deslize uma tarefa para a <b class="ex">direita</b> para concluir e para a <b class="ex">esquerda</b> para ${swipeLeft() === 'tomorrow' ? 'adiar para amanhã' : 'mandar para a Lixeira'}.</p></div>
+      <div class="tip"><i aria-hidden="true"></i><p>Toque para abrir. <b class="ex">Segure</b> para ver todas as opções: mover, duplicar, excluir.</p></div>
+    </div>`;
+  } else if (state.selecting) {
+    body = taskListHtml([...late, ...rest], opts);
   } else {
     body = `
-    ${late.length ? `<h2 class="late">Atrasada <span class="n">${late.length}</span></h2>${taskListHtml(late, opts)}` : ''}
-    ${rest.length ? `<h2>Para hoje <span class="n">${rest.length}</span></h2>${taskListHtml(rest, opts)}` : ''}
-    ${tasks.length ? '' : '<p class="empty">Tudo feito por hoje.</p>'}
-    ${doneCount ? `<button class="fold" data-action="toggle-done-section" data-id="today" aria-expanded="${foldOpen}">${ico('right')}Feitas hoje (${doneCount})</button>
-    ${foldOpen ? `<ul class="task-list">${doneTasks.map((t) => taskRow(t, opts)).join('')}${doneLogs.map(logRow).join('')}</ul>` : ''}` : ''}`;
+    <ul class="task-list ramo" aria-label="Tarefas de hoje">${lateRows.join('')}${entries.map((e) => e.html()).join('')}</ul>
+    ${tasks.length ? '' : '<p class="ramo-note">Tudo feito por hoje.</p>'}`;
   }
   return `
-    <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}${tasks.length ? ` · ${tasks.length} para fazer` : ''}</div></div>${selectButton(tasks)}</div>
+    <header class="hero">
+      <div class="hero-top">
+        <div><div class="hero-kicker">${escapeHtml(weekdayName)}</div><h1><span class="visually-hidden">Hoje, </span>${escapeHtml(dayMonth)}</h1></div>
+        <div class="hero-tools"><a class="hero-btn" href="#search" aria-label="Buscar" title="Buscar (/)">${ico('search')}</a>${select}</div>
+      </div>
+      ${total ? `<div class="prog">${leaves}<span>${doneCount} de ${total} ${doneCount === 1 ? 'feita' : 'feitas'}</span></div>` : ''}
+      ${weekStrip(now, tasks.length > 0)}
+    </header>
+    <div id="view-reminders" class="next-slot"></div>
+    ${empty ? `
+    <section class="leaf-card big empty-card">
+      <span class="leaf-big" aria-hidden="true"></span>
+      <div><h2>Nada para hoje</h2><p>Uma folha em branco. Que tal anotar algo?</p></div>
+      <button class="pill-btn primary" data-action="anotar" style="flex:none">Anotar uma tarefa</button>
+    </section>` : ''}
     ${driveWarning()}
-    <div id="view-reminders"></div>
     ${body}
     ${quickAdd('Anotar para hoje…', { when: now })}`;
 }
@@ -925,7 +1126,7 @@ function upcomingList() {
   const groups = new Map(todayItems.length ? [[now, todayItems]] : []);
   upcomingTasks(state.tasks, now).forEach((task) => groups.set(task.when, [...(groups.get(task.when) || []), task]));
   const body = [...groups].map(([date, items]) =>
-    `<h2>${escapeHtml(sectionDate(date))} <span class="n">${items.length}</span></h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
+    `<h2 data-day="${date}">${escapeHtml(sectionDate(date))} <span class="n">${items.length}</span></h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
   return body || '<p class="empty">Nada para hoje nem para os próximos dias.</p>';
 }
 
@@ -972,11 +1173,16 @@ function kanbanView() {
     </section>`).join('')}</div>`;
 }
 
+/** Botão da busca no topo das telas principais (a aba Busca saiu da barra na v22). */
+const searchButton = () => `<a class="ib" href="#search" aria-label="Buscar" title="Buscar (/)">${ico('search')}</a>`;
+
 function upcomingView() {
-  const mode = UPCOMING_MODES.some(([id]) => id === state.settings.upcomingMode) ? state.settings.upcomingMode : 'list';
+  const saved = UPCOMING_MODES.some(([id]) => id === state.settings.upcomingMode) ? state.settings.upcomingMode : 'list';
+  // Vindo de um dia da faixa da semana de Hoje (#upcoming/AAAA-MM-DD), abre na Lista.
+  const mode = /^\d{4}-\d{2}-\d{2}$/.test(currentRoute().id || '') ? 'list' : saved;
   const body = { list: upcomingList, calendar: calendarView, kanban: kanbanView }[mode]();
   return `
-    <div class="view-head"><div><h1><span>Próximos dias</span></h1></div></div>
+    <div class="view-head" style="align-items:center"><div><h1><span>Próximos dias</span></h1></div>${searchButton()}</div>
     <div class="segments" role="group" aria-label="Visão">${UPCOMING_MODES.map(([id, name]) => `<button class="${id === mode ? 'on' : ''}" data-action="set-upcoming-mode" data-mode="${id}" aria-pressed="${id === mode}">${name}</button>`).join('')}</div>
     ${body}
     ${quickAdd('Anotar com data: “sexta 9h”…', { when: mode === 'calendar' && state.calDay > today() ? state.calDay : addDays(today(), 1) })}`;
@@ -1060,6 +1266,7 @@ function listsView() {
   const trashCount = state.tasks.filter((t) => t.deletedAt).length;
   return `
     <div class="view-head" style="align-items:center"><div><h1><span>Listas</span></h1></div>
+      ${searchButton()}
       <button class="btn small" data-action="organize-lists" ${ungrouped.length + groups.length ? '' : 'disabled'}>Organizar</button>
       <button class="btn small primary" data-action="new-list">${ico('plus')}Nova</button>
     </div>
@@ -1789,11 +1996,12 @@ function renderNav() {
     ${inbox ? desktopList(inbox) : ''}
     ${ungrouped.map(desktopList).join('')}
     ${groups.map(([name, lists]) => `<span class="nav-group">${escapeHtml(name)}</span>${lists.map(desktopList).join('')}`).join('')}
+    <button type="button" class="nav-add" data-action="anotar" aria-label="Anotar tarefa" title="Anotar tarefa">${ico('plus')}</button>
     ${item('#lists', 'Listas', route.name === 'lists' || (isLists && mobile), { icon: 'list' })}
     <span class="nav-spacer"></span>
     ${item('#done', 'Concluídas', route.name === 'done', { icon: 'done', extra: 'nav-only-desktop' })}
     ${item('#trash', 'Lixeira', route.name === 'trash', { icon: 'trash', extra: 'nav-only-desktop' })}
-    ${item('#search', 'Busca', route.name === 'search', { icon: 'search' })}
+    ${item('#search', 'Busca', route.name === 'search', { icon: 'search', extra: 'nav-only-desktop' })}
     ${item('#settings', 'Config.', route.name === 'settings', { icon: 'sliders' })}`;
 }
 
@@ -1812,8 +2020,33 @@ function render() {
   $('#view').innerHTML = (views[route.name] || todayView)();
   mountGoogle();
   document.body.classList.toggle('has-dock', !!$('#dock'));
+  // Telas de edição (Config. por dentro e Organizar) escondem a barra e usam o voltar.
+  document.body.classList.toggle('no-bar', (route.name === 'settings' && !!route.id) || route.name === 'organize');
   renderReminders();
   renderSelectionBar();
+  if (anotarOpen) keepAnotarOpen();
+  paintChrome();
+  // Rola só na chegada: os redesenhos seguintes (sincronização, lembretes) não mexem na rolagem.
+  if (route.name === 'upcoming' && route.id && state.dayScrolled !== location.hash) {
+    state.dayScrolled = location.hash;
+    scrollToDay(route.id);
+  }
+}
+
+/** Barra do sistema na cor do cabeçalho de Hoje; nas outras telas, na cor do fundo. */
+function paintChrome() {
+  const hero = $('#view > .hero');
+  const meta = $('meta[name="theme-color"]');
+  const color = hero && !state.selecting ? getComputedStyle(hero).backgroundColor : CHROME[document.documentElement.dataset.mode === 'dark' ? 'dark' : 'light'];
+  if (meta && color) meta.content = color;
+}
+
+/** Próximos › Lista rolado até o dia tocado na faixa da semana (ou o primeiro depois dele). */
+function scrollToDay(date) {
+  const heads = [...document.querySelectorAll('#view h2[data-day]')];
+  const target = heads.find((h) => h.dataset.day >= date);
+  if (target) target.scrollIntoView({ block: 'start' });
+  else if (heads.length) heads[heads.length - 1].scrollIntoView({ block: 'start' });
 }
 
 /* ---------- Seleção de várias tarefas ---------- */
@@ -1932,7 +2165,7 @@ async function runBulk(op) {
 let sheetItems = [];
 
 /** Abre uma folha com opções; cada item é [rótulo, função, {danger, disabled}]. */
-function openSheet(title, items, subtitle = '', { tiles = [], meta = '', lead = '' } = {}) {
+function openSheet(title, items, subtitle = '', { tiles = [], meta = '', lead = '', kicker = '', note = '', lined = false } = {}) {
   const tileItems = tiles.filter(Boolean);
   sheetItems = [...tileItems, ...items.filter(Boolean)];
   const offset = tileItems.length;
@@ -1940,11 +2173,12 @@ function openSheet(title, items, subtitle = '', { tiles = [], meta = '', lead = 
   dialog.innerHTML = `
     <div class="sheet">
       <div class="grab" aria-hidden="true"></div>
-      <div class="form-head">${lead}<div><h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}${meta ? `<div class="sheet-meta">${meta}</div>` : ''}</div><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar" title="Fechar">${ico('x')}</button></div>
+      <div class="form-head">${lead}<div>${kicker ? `<div class="sheet-kicker">${escapeHtml(kicker)}</div>` : ''}<h2>${escapeHtml(title)}</h2>${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}${meta ? `<div class="sheet-meta">${meta}</div>` : ''}</div><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar" title="Fechar">${ico('x')}</button></div>
       ${offset ? `<div class="tiles">${tileItems.map(([label, , opts = {}], index) => `<button class="tile" data-action="sheet" data-index="${index}">${opts.icon ? ico(opts.icon, opts.fill ? 'fill' : '') : ''}${escapeHtml(label)}</button>`).join('')}</div>` : ''}
       <div class="sheet-items">
-        ${sheetItems.slice(offset).map(([label, , opts = {}], i) => (opts.sep ? '<div class="sheet-sep" role="separator"></div>' : opts.header ? `<div class="grp sheet-grp">${escapeHtml(label)}</div>` : `<button class="sheet-item ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${i + offset}" ${opts.disabled ? 'disabled' : ''}>${opts.icon ? ico(opts.icon) : ''}${opts.html ? label : escapeHtml(label)}${opts.hint ? `<span class="sheet-hint">${escapeHtml(opts.hint)}</span>` : ''}</button>`)).join('')}
+        ${sheetItems.slice(offset).map(([label, , opts = {}], i) => (opts.sep ? '<div class="sheet-sep" role="separator"></div>' : opts.header ? `<div class="grp sheet-grp">${escapeHtml(label)}</div>` : `<button class="sheet-item ${lined ? 'lined' : ''} ${opts.danger ? 'danger' : ''} ${opts.on ? 'on' : ''}" data-action="sheet" data-index="${i + offset}" ${opts.disabled ? 'disabled' : ''}>${opts.icon ? ico(opts.icon) : ''}${opts.html ? label : escapeHtml(label)}${opts.hint ? `<span class="sheet-hint">${escapeHtml(opts.hint)}</span>` : ''}</button>`)).join('')}
       </div>
+      ${note ? `<div class="sheet-note">${escapeHtml(note)}</div>` : ''}
     </div>`;
   if (!dialog.open) dialog.showModal();
   dialog.querySelector('.tile, .sheet-item:not(:disabled)')?.focus();
@@ -3700,6 +3934,7 @@ const clickActions = {
   },
   'set-upcoming-mode': async (el) => {
     await saveSettings({ upcomingMode: el.dataset.mode });
+    if (currentRoute().id) history.replaceState(null, '', '#upcoming');
     render();
   },
   'cal-day': (el) => {
@@ -3737,6 +3972,13 @@ const clickActions = {
     state.quick = { ...state.quick, when: current === date ? null : date };
     refocusQuick();
   },
+  anotar: () => openAnotar(),
+  'anotar-close': () => closeAnotar(),
+  'next-more': () => {
+    state.nextIndex = (state.nextIndex || 0) + 1;
+    renderReminders();
+    $('#view-reminders .next-title')?.focus();
+  },
   'quick-repeat': () => openQuickRepeat(),
   'quick-list': () => openQuickList(),
   'quick-ignore': () => {
@@ -3762,20 +4004,29 @@ document.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (form.dataset.form === 'quick-add') {
     const text = form.elements.title.value;
-    if (!text.trim()) return;
+    if (!text.trim()) {
+      form.elements.title.focus();
+      return;
+    }
     const v = quickValues(text, form);
     const context = { when: form.dataset.when, listId: form.dataset.list };
+    // "Anotar e abrir" e "Anotar outra" na folha; o Enter segue Config. › Geral › Depois de anotar.
+    const after = event.submitter?.dataset.after || afterAdd();
+    const notes = state.quickNotes || '';
     state.quickIgnore = '';
     state.quick = {};
-    const newTaskId = await addTask(v.title || text.trim(), { listId: v.listId, when: null }, v);
+    state.quickNotes = '';
+    const newTaskId = await addTask(v.title || text.trim(), { listId: v.listId, when: null }, v, { notes });
     if (!newTaskId) return;
-    if (afterAdd() === 'open') {
+    if (after === 'open') {
       // Abre a tarefa para completar data, hora e repetição, sem abrir o teclado.
       $('#quick-input')?.blur();
+      closeAnotar();
       pendingReveal = { id: newTaskId, listId: context.listId };
       openTask(newTaskId, { isNew: true });
       return;
     }
+    if (anotarOpen) keepAnotarOpen();
     $('#quick-input')?.focus();
     revealTask(newTaskId);
     const message = createdMessage(findTask(newTaskId), context.listId);
@@ -3862,6 +4113,8 @@ document.addEventListener('input', (event) => {
       $('#search-results').innerHTML = searchResults();
     }
   } else if (target.id === 'quick-input') {
+    // No note, apagar o texto desfaz os botões de um toque; na folha eles ficam até fechar.
+    if (!target.value.trim() && !anotarOpen) state.quick = {};
     renderQuickPreview();
   } else if (target.closest('form[data-form="list"]')) {
     updateListPreview();
@@ -3956,6 +4209,12 @@ document.addEventListener('keydown', async (event) => {
     return;
   }
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || event.target.isContentEditable;
+  // Esc fecha a folha de anotar (as de menu são <dialog> e fecham sozinhas).
+  if (event.key === 'Escape' && anotarOpen && !$('#dialog').open) {
+    event.preventDefault();
+    closeAnotar();
+    return;
+  }
   if (event.key === 'Escape' && state.selecting && !$('#dialog').open) {
     endSelection();
     return;
@@ -3963,7 +4222,7 @@ document.addEventListener('keydown', async (event) => {
   if (typing || event.ctrlKey || event.metaKey || event.altKey || $('#dialog').open) return;
   if (event.key === 'n' || event.key === 'N') {
     event.preventDefault();
-    focusQuickAdd();
+    openAnotar();
   } else if (event.key === '/') {
     event.preventDefault();
     if (currentRoute().name !== 'search') {
@@ -4134,11 +4393,15 @@ document.addEventListener('contextmenu', (event) => {
 
 // Tocar nos botões de um toque não tira o foco do campo Anotar (o teclado do celular continua aberto).
 document.addEventListener('pointerdown', (event) => {
-  if (event.target.closest('.parse button, .qa .go')) event.preventDefault();
+  if (event.target.closest('.dock button')) event.preventDefault();
 });
 
 window.addEventListener('hashchange', () => {
   state.quick = {};
+  state.dayScrolled = null;
+  state.nextIndex = 0;
+  state.quickNotes = '';
+  if (anotarOpen) closeAnotar({ back: false });
   // Trocar de tela encerra a seleção de várias tarefas.
   if (state.selecting && !currentRoute().name.startsWith('notif')) {
     state.selecting = false;
@@ -4215,10 +4478,13 @@ async function createFromShare(title, text, url) {
   const [first, ...rest] = source.split('\n');
   const notes = [title ? text : rest.join('\n'), text.includes(url) ? '' : url]
     .map((part) => part.trim()).filter(Boolean).join('\n');
-  const id = await addTask(first.trim().slice(0, 200) || 'Compartilhado', { listId: defaultListId() }, null, { notes });
-  if (!id) return;
-  openTask(id);
-  showToast('Tarefa criada a partir do compartilhamento.');
+  // v22: abre a folha de anotar já com o texto; o resto (e o link) vai para a nota da tarefa.
+  // Como antes: sem data, na lista padrão e sem interpretar o texto (dá para mudar nos botões de um toque).
+  const typed = first.trim().slice(0, 200) || 'Compartilhado';
+  state.quick = { when: null };
+  openAnotar({ text: typed, notes });
+  state.quickIgnore = typed;
+  renderQuickPreview();
 }
 
 async function start() {
@@ -4238,7 +4504,7 @@ async function start() {
   }
   handleRoute();
   if (shared.some(Boolean)) await createFromShare(...shared);
-  else if (wantsNew) focusQuickAdd();
+  else if (wantsNew) openAnotar();
   await checkReminders();
   setInterval(checkReminders, 15000);
   syncEngine.run();

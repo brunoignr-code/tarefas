@@ -71,7 +71,28 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (11 de novembro de 2026, v21)
+## Estado do projeto (11 de novembro de 2026, v22)
+
+### v22, 11 de novembro: redesenho "linha livre", lotes 1 e 2 (fundação, Hoje e anotar)
+
+Segue o `ROTEIRO-REDESENHO.md`. Só tela: sem mudança no servidor, no login ou no formato dos dados.
+
+- **Cores:** cartões em papel (`--surface` #FFFEFA) e variáveis novas `--stem` (ramo), `--bar` (barra flutuante), `--head` (cabeçalho: a cor de destaque no claro, `--banner` no escuro). As 8 cores de destaque e o modo escuro continuam valendo. O aviso de rodapé virou pílula escura nos dois modos.
+- **As cinco peças** como classes: `.hero` (cabeçalho), `.leaf-card` (cartão-folha), `.ramo` (linha com folhas), barra flutuante (`.nav` no celular) e folha de baixo (`dialog`, cantos 10/34 px, alça).
+- **Barra flutuante escura no celular:** Hoje · Próximos · **+** · Listas · Config. O número de tarefas continua na aba Hoje. **Busca** saiu da barra: ícone no cabeçalho de Hoje, Próximos e Listas; a tecla `/` continua. No note, a lateral é a mesma de antes (com Busca).
+- **Telas de edição sem barra:** Config. por dentro e Organizar escondem a barra (têm o voltar).
+- **Hoje:** cabeçalho na cor de destaque com dia da semana, data, Buscar e Selecionar; uma folha por tarefa ("2 de 6 feitas"); faixa da semana (ponto nos dias com tarefas; tocar num dia abre Próximos › Lista rolado até ele). Tarefas num **ramo tudo por horário**: atrasadas primeiro; depois feitas (hora em que foram concluídas) e abertas (hora do lembrete) misturadas; as abertas sem hora ficam na hora atual (as que vieram de dias anteriores, antes de todas). As feitas hoje aparecem no ramo (não há mais o "Feitas hoje" dobrável). O botão ⋯ continua em todas as linhas.
+- **Cartão "A seguir"** no lugar da pilha de cartões de lembrete: o lembrete vencido mais antigo, com Concluir, Adiar e o X de dispensar; "e mais N" passa para o seguinte. Sem vencido, o próximo lembrete de hoje (sem X); sem nenhum, o cartão some.
+- **Hoje vazia:** cartão "Nada para hoje" com "Anotar uma tarefa" e as três dicas num ramo.
+- **Anotar no celular:** o campo fixo virou o **+**, que abre a folha "Anotar em <lista>" com o teclado, o "Entendi assim" em ramo, os botões de um toque e **Anotar e abrir** / **Anotar outra**. O Enter segue Config. › Geral › Depois de anotar. Fecha tocando fora, com Esc ou com o voltar do Android. Telas sem campo (Listas, Busca, Config.) anotam sem data na lista padrão. A tecla N e o atalho `?novo=1` abrem a mesma folha; no note, focam o campo fixo, que continua no rodapé até o lote 7.
+- **Compartilhar do Android** agora abre a folha já com o texto (antes criava a tarefa direto); o resto do texto e o link vão para a nota, sem data e na lista padrão, como antes. Só fica criada ao tocar em Anotar.
+- **Adiar:** folha nova com o horário de cada opção e, nas tarefas que se repetem, o aviso de que adiar muda só o lembrete.
+- **Capa** na cor de destaque, com a folha de papel sem o quadrado do ícone (`icons/capa-folha.svg`).
+- O `index.html` pede ao Chrome para encolher a página quando o teclado abre (`interactive-widget=resizes-content`), para as folhas de baixo ficarem acima do teclado.
+- Testado no navegador (celular 375 px e note 1280 px, claro e escuro, Roxo com letra Muito grande, sem nada cortado nem rolagem lateral), numa origem local sem conta, com dados descartáveis apagados depois: 69 testes das regras e 59 do servidor; service worker da v21.1 já instalado atualizando para a v22; folha de anotar (abrir, Anotar outra, Anotar e abrir, Esc, voltar, tocar fora, a partir de Listas), "e mais N", Adiar, faixa da semana, `/` e `N`.
+- **Não testado no celular de verdade:** o teclado com a folha de anotar (posição acima do teclado), o voltar do Android fechando a folha, o Compartilhar abrindo a folha, a barra com a área de gestos do Android e a cor da barra de status em Hoje.
+- Ainda com o visual antigo (lotes 3 a 7): Próximos, seletor de data, janela da tarefa, menus, Listas, Busca, Config. e o note.
+
 
 ### v21, 11 de novembro: sessões que vencem, aparelhos conectados e Drive que tenta de novo
 
