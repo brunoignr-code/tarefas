@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v21 · 11/11/2026';
+const APP_VERSION = 'v21.1 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -1390,7 +1390,7 @@ function devicesPanel() {
         <li class="device">
           <span class="ico">${ico(/Android|iPhone/.test(item.name) ? 'phone' : 'laptop')}</span>
           <span class="grow"><strong>${escapeHtml(item.name)}${item.current ? ' <span class="chip-here">este aparelho</span>' : ''}</strong>
-            <small>Último uso ${escapeHtml(lastUseText(item.lastUsed))} · conectado desde ${escapeHtml(formatDate(localDate(new Date(item.createdAt))).toLowerCase())}</small></span>
+            <small>${item.name === 'Aparelho' ? 'Ainda não abriu o app desde a atualização de 11/11; o nome aparece quando abrir' : `Último uso ${escapeHtml(lastUseText(item.lastUsed))}`} · conectado desde ${escapeHtml(formatDate(localDate(new Date(item.createdAt))).toLowerCase())}</small></span>
           ${item.current ? '' : `<button class="btn small text danger" data-action="device-revoke" data-id="${item.id}" data-name="${escapeHtml(item.name)}">Sair</button>`}
         </li>`).join('')}</ul>
       ${others.length ? `<div class="actions"><button class="btn small danger" data-action="devices-revoke-others">Sair dos outros aparelhos (${others.length})</button></div>` : '<p class="help">Só este aparelho está conectado.</p>'}`;

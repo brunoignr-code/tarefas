@@ -71,7 +71,18 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (11 de novembro de 2026, v20)
+## Estado do projeto (11 de novembro de 2026, v21)
+
+### v21, 11 de novembro: sessões que vencem, aparelhos conectados e Drive que tenta de novo
+
+- **Sessões que vencem:** cada aparelho sai sozinho depois de **90 dias sem abrir o app**; cada uso renova (o servidor grava o último uso no máximo uma vez por hora). As sessões que já existiam passaram a contar a partir da troca: nenhuma caiu.
+- **Aparelhos conectados** em Config. › Conta: nome tirado do navegador ("Android (modelo) · Chrome", "Windows · Chrome"), último uso e desde quando está conectado; **Sair** em cada aparelho e **Sair dos outros aparelhos**. Num celular perdido, use isso em vez de trocar a senha (trocar a senha continua encerrando os outros também). Sessões antigas aparecem como "Aparelho" até serem usadas de novo.
+- **Avisos ligados à sessão:** a inscrição de notificações de cada aparelho fica ligada à sessão dele; sair (ou a sessão vencer) apaga a inscrição, e o `/push/due` não entrega mais títulos de tarefas a um aparelho sem sessão. O app reenvia a inscrição ao abrir, para ligar as de antes da v21; "Sair dos outros aparelhos" apaga também as antigas ainda sem dono.
+- **Backup do Drive tenta de novo** 3 horas depois de um erro (antes, só no dia seguinte). O cron também apaga, uma vez por hora, as sessões vencidas e os avisos delas.
+- **Servidor:** novas rotas `/sessions/list`, `/sessions/revoke`, `/sessions/revoke-others`. Colunas novas criadas sozinhas no D1 (`sessions.last_used`, `sessions.name`, `push_subs.session_hash`). Implantado em 11/11 pelo endpoint `/content` (o banco D1, o segredo `GOOGLE_CLIENT_SECRET` e o cron `* * * * *` foram conferidos antes e depois e continuaram iguais). Versões antigas do app continuam funcionando com o servidor novo (um aparelho na v18 sincronizou normalmente depois da troca).
+- **Login:** a forma de entrar não mudou (senha ou Google); mudou só a validade da sessão.
+- Testado: 59 testes do servidor (`tests/worker-harness.html`, 18 novos: migração das colunas, lista, nome do aparelho, encerrar um, encerrar os outros, vencimento, renovação, avisos cortados, nova tentativa do Drive com relógio falso); lista de aparelhos no app com servidor falso; no ar, a lista real aparece no Chrome do note (3 aparelhos).
+- **v21.1:** a lista explica as sessões ainda sem nome ("ainda não abriu o app desde a atualização").
 
 ### v20, 11 de novembro: Restaurar seguro, avisos mais discretos, segurança e sem Matriz
 
@@ -277,6 +288,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### Ainda não confirmado nos aparelhos reais
 
+- v21 nos celulares: o nome de cada um na lista de aparelhos, o Sair de um celular de verdade (ele deve parar de sincronizar e de receber avisos) e a reinscrição dos avisos ao abrir.
 - v20: entrar com Google e conectar o Drive com a CSP ativa (o botão carrega sem erros no navegador, mas o login completo não foi feito); Restaurar com a conta real.
 - v19 no celular: a pergunta "Só desta vez?", o Amanhã da notificação numa tarefa que se repete (deve manter a série) e o rodapé da janela cabendo na tela.
 - v18 no celular: anotar abrindo a tarefa, a pergunta "Sair sem salvar?" no gesto de voltar do Android (no navegador foi testada com Esc e com o fechamento forçado), a rolagem até a tarefa nova e o relógio de ponteiro com o dedo (testado com mouse e toque simulado).
