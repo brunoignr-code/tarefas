@@ -71,7 +71,19 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (11 de novembro de 2026, v19)
+## Estado do projeto (11 de novembro de 2026, v20)
+
+### v20, 11 de novembro: Restaurar seguro, avisos mais discretos, segurança e sem Matriz
+
+- **Restaurar e Importar com conta conectada** (arquivo ou Google Drive) agora **juntam sem desfazer nada**: o app sincroniza antes; o que ainda existe fica como está (uma tarefa concluída depois do backup continua concluída; as criadas depois continuam aparecendo); só volta o que não existe mais (tarefas, listas e registros excluídos de vez), com id novo, porque o servidor recusa ids apagados. A pergunta mostra quantas voltam e quantas ficam. Antes, o aparelho apagava o que era mais novo que o backup, tarefas excluídas de vez não chegavam ao servidor e tudo era marcado como "editado agora" (concluídas voltavam abertas em todos os aparelhos). Sem conta, Importar continua substituindo os dados do aparelho.
+- **Aviso de backup do Drive atrasado:** com o Drive conectado, se o último backup tiver mais de 3 dias (ou nunca tiver dado certo), aparece um aviso em Hoje e no topo de Config., com o erro, levando a Config. › Dados. O app consulta o servidor ao abrir, no máximo uma vez por hora.
+- **Lembretes pendentes fora de Hoje:** uma linha só ("3 lembretes pendentes · Ver em Hoje", ou o título quando é um). Em Hoje, os cartões continuam.
+- **Janela da tarefa abre sempre no topo,** com o título à vista.
+- **Matriz retirada** de Próximos dias (quem a usava volta para a Lista). Kanban e os modos B e C do Até continuam.
+- **Política de segurança (CSP)** no `index.html`: só scripts do próprio app e da biblioteca de login do Google; o app só conversa com o servidor (`tarefas-sync`) e com o Google; sem plugins nem formulários para fora. Os scripts que estavam dentro do `index.html` foram para `js/boot.js` (tema antes da primeira pintura) e `js/splash.js` (capa). Não publique outros projetos em `brunoignr-code.github.io`: todos os repositórios desse endereço dividem o mesmo armazenamento do navegador.
+- **`tools/conferir.py`:** confere CACHE, APP_VERSION, regras embutidas no `sw.js` (sem `import`) e a lista FILES, comparando com o que está publicado, e recusa se faltar algo. Para virar trava do `git push`: `python tools/conferir.py --instalar` (cria `.git/hooks/pre-push`).
+- Sem mudança no servidor, no login ou no formato dos dados.
+- Testado no navegador: 69 testes das regras; Restaurar com uma conta simulada (servidor falso na página, nada foi à sua conta) com tarefa concluída depois do backup, tarefa criada depois, tarefa e lista excluídas de vez; aviso do Drive com backup de 5 dias e erro; linha de lembretes; janela no topo; botão "Entrar com Google" carregando sob a CSP, sem violações; service worker da v19 atualizando para a v20. O login com Google de verdade sob a CSP não foi testado.
 
 ### v19, 11 de novembro: "Só esta vez" nas repetições e Quinzenal
 
@@ -244,7 +256,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Modos do campo Até em Config.: A (campo único), B (dois campos) e C (fim dentro de Repetir).
 - Arrastar para ordenar em Hoje e nas listas, também pelas setas do teclado.
 - Datas digitadas no campo de adicionar, com prévia e opção de ignorar ("pagar luz sexta 9h", "toda segunda", "até 30/11").
-- Próximos dias em Lista, Calendário, Kanban (por lista) e Matriz (importante × urgente).
+- Próximos dias em Lista, Calendário, Kanban (por lista) e Matriz (importante × urgente; retirada na v20).
 - "Compartilhar para Tarefas" no Android, atalhos no ícone (Nova tarefa, Próximos dias) e teclas N e / no note.
 - Correção do modo offline, que podia guardar arquivos antigos e exigir várias recargas para mostrar uma versão nova.
 
@@ -265,6 +277,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### Ainda não confirmado nos aparelhos reais
 
+- v20: entrar com Google e conectar o Drive com a CSP ativa (o botão carrega sem erros no navegador, mas o login completo não foi feito); Restaurar com a conta real.
 - v19 no celular: a pergunta "Só desta vez?", o Amanhã da notificação numa tarefa que se repete (deve manter a série) e o rodapé da janela cabendo na tela.
 - v18 no celular: anotar abrindo a tarefa, a pergunta "Sair sem salvar?" no gesto de voltar do Android (no navegador foi testada com Esc e com o fechamento forçado), a rolagem até a tarefa nova e o relógio de ponteiro com o dedo (testado com mouse e toque simulado).
 - A atualização da v14.5 para a v17 no celular (a correção do service worker foi testada só no navegador).
@@ -300,6 +313,6 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - `js/theme.js`: temas e cálculos de cor do marca-texto.
 - `js/db.js`: armazenamento local em IndexedDB.
 - `js/app.js`: telas e interações.
-- `sw.js`: cache offline (sem `import`; as regras são embutidas por `tools/build_sw.py`), avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config.
+- `sw.js`: cache offline (sem `import`; as regras são embutidas por `tools/build_sw.py`), avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config. Antes de publicar, rode `python tools/conferir.py`.
 - `tests/`: testes das regras, executados no navegador.
 - `icons/`: capa (`folha.svg`) e ícone (`icon-folha.svg`). Os PNG são gerados do SVG com o Chrome sem janela (`--headless --screenshot`); o maskable é o ícone reduzido sobre o mesmo fundo. `tools/make_icons.py` é o gerador antigo, do primeiro ícone.

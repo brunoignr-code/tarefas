@@ -2,6 +2,8 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
+  <!-- Política de segurança: só scripts do próprio app e do login do Google; o app só conversa com o servidor dele e com o Google. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; connect-src 'self' https://tarefas-sync.brunoignr-code.workers.dev https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com; font-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Minha lista de afazeres</title>
   <meta name="description" content="Gerenciador pessoal de tarefas que funciona offline.">
@@ -12,30 +14,14 @@
   <link rel="icon" href="icons/favicon-16.png" sizes="16x16" type="image/png">
   <link rel="apple-touch-icon" href="icons/icon-folha-192.png">
   <link rel="stylesheet" href="styles.css">
-  <script>
-    // Aplica o modo (claro ou escuro), a cor de destaque e a letra antes da primeira pintura, sem lampejo.
-    try {
-      const saved = JSON.parse(localStorage.getItem('tarefas-tema') || 'null');
-      const root = document.documentElement;
-      if (saved) {
-        const mode = saved.mode === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-          : saved.mode || (saved.theme === 'diamante' ? 'dark' : 'light');
-        root.dataset.mode = mode;
-        Object.entries(saved.vars || {}).forEach(([name, value]) => root.style.setProperty(name, value));
-        if (saved.fs) root.style.fontSize = `${saved.fs}px`;
-      }
-    } catch { /* O tema salvo é só uma conveniência. */ }
-  </script>
+  <script src="js/boot.js"></script>
 </head>
 <body>
   <div class="splash" id="splash" role="img" aria-label="Minha lista de afazeres">
     <img src="icons/icon-folha.svg" alt="" width="168" height="168">
     <div><span class="s1">Minha lista de</span><span class="s2">afazeres</span><span class="s3">cada dia, uma folha nova</span></div>
   </div>
-  <script>
-    // Capa: a mesma folha nos dois modos; no escuro, muda só o fundo.
-    if (document.documentElement.dataset.mode === 'dark') document.getElementById('splash').classList.add('splash-escuro');
-  </script>
+  <script src="js/splash.js"></script>
   <div class="app">
     <nav class="nav" id="nav" aria-label="Navegação principal"></nav>
     <main class="main">
@@ -45,13 +31,6 @@
   </div>
   <dialog id="dialog"></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script>
-    setTimeout(() => {
-      const splash = document.getElementById('splash');
-      splash.classList.add('hide');
-      setTimeout(() => splash.remove(), 300);
-    }, 1100);
-  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

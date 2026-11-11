@@ -1,6 +1,6 @@
 import * as db from './db.js';
 import {
-  applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue, isUrgent,
+  applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue,
   INSIST_MAX, activeReminder, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
   todayTasks, upcomingTasks,
 } from './rules.js';
@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v19 · 11/11/2026';
+const APP_VERSION = 'v20 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -76,7 +76,8 @@ const untilMode = () => (UNTIL_MODES[state.settings.untilMode] ? state.settings.
 const FONT_SIZES = [[1, 12.5, 'Muito pequena'], [2, 13.5, 'Pequena'], [3, 14.5, 'Normal'], [4, 16, 'Grande'], [5, 17.5, 'Muito grande']];
 const fontSizePx = () => (FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize)) || FONT_SIZES[2])[1];
 
-const UPCOMING_MODES = [['list', 'Lista'], ['calendar', 'Calendário'], ['kanban', 'Kanban'], ['matrix', 'Matriz']];
+// A Matriz saiu na v20; quem a usava volta para a Lista.
+const UPCOMING_MODES = [['list', 'Lista'], ['calendar', 'Calendário'], ['kanban', 'Kanban']];
 
 // Cores das listas (aparecem como uma bolinha ao lado do nome).
 const LIST_COLORS = [
@@ -97,6 +98,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  alert: '<path d="M12 3.8 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17v.2"/>',
   repeat: '<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-2a4 4 0 0 1 4-4h12"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v2a4 4 0 0 1-4 4H4"/>',
   star: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z"/>',
   check: '<path d="M5.5 12.5l4.2 4.2L18.5 7.8"/>',
@@ -538,7 +540,15 @@ function renderReminders() {
   // Em Hoje, o lembrete fica logo abaixo do título; nas outras telas, no topo.
   const slot = $('#view-reminders');
   $('#reminders').innerHTML = '';
-  (slot || $('#reminders')).innerHTML = due.map((task) => {
+  // Fora de Hoje, uma linha só, para os cartões não empurrarem o conteúdo da tela.
+  if (!slot) {
+    if (due.length) {
+      const text = due.length === 1 ? `Lembrete: ${due[0].title}` : `${due.length} lembretes pendentes`;
+      $('#reminders').innerHTML = `<a class="reminder-line" href="#today">${ico('bell')}<span class="grow">${escapeHtml(text)}</span><span class="go">Ver em Hoje${ico('right')}</span></a>`;
+    }
+    return;
+  }
+  slot.innerHTML = due.map((task) => {
     const time = activeReminder(task, now);
     const late = (parseLocalTime(now) - parseLocalTime(time)) / 60000 > 15;
     const when = time.slice(0, 10) === today() ? time.slice(11) : formatDateTime(time).toLowerCase();
@@ -885,6 +895,7 @@ function todayView() {
   }
   return `
     <div class="view-head"><div><h1><span>Hoje</span></h1><div class="subtitle">${escapeHtml(long)}${tasks.length ? ` · ${tasks.length} para fazer` : ''}</div></div>${selectButton(tasks)}</div>
+    ${driveWarning()}
     <div id="view-reminders"></div>
     ${body}
     ${quickAdd('Anotar para hoje…', { when: now })}`;
@@ -959,27 +970,9 @@ function kanbanView() {
     </section>`).join('')}</div>`;
 }
 
-function matrixView() {
-  const now = today();
-  const open = openTasks().sort(byOrder);
-  const quadrants = [
-    ['Importante e urgente', (t) => t.important && isUrgent(t, now)],
-    ['Importante', (t) => t.important && !isUrgent(t, now)],
-    ['Urgente', (t) => !t.important && isUrgent(t, now)],
-    ['Nem importante nem urgente', (t) => !t.important && !isUrgent(t, now)],
-  ];
-  return `
-    <p class="subtitle" style="margin:0 0 10px">Urgente: Quando já chegou ou o prazo vence em até 2 dias. Importante: marcada com a estrela.</p>
-    <div class="matrix">${quadrants.map(([name, test]) => {
-    const tasks = open.filter(test);
-    return `<section class="quadrant" aria-label="${name}"><h3><span>${name}</span><span class="count">${tasks.length}</span></h3>
-      ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty" style="padding:12px 4px">Nada aqui.</p>'}</section>`;
-  }).join('')}</div>`;
-}
-
 function upcomingView() {
   const mode = UPCOMING_MODES.some(([id]) => id === state.settings.upcomingMode) ? state.settings.upcomingMode : 'list';
-  const body = { list: upcomingList, calendar: calendarView, kanban: kanbanView, matrix: matrixView }[mode]();
+  const body = { list: upcomingList, calendar: calendarView, kanban: kanbanView }[mode]();
   return `
     <div class="view-head"><div><h1><span>Próximos dias</span></h1></div></div>
     <div class="segments" role="group" aria-label="Visão">${UPCOMING_MODES.map(([id, name]) => `<button class="${id === mode ? 'on' : ''}" data-action="set-upcoming-mode" data-mode="${id}" aria-pressed="${id === mode}">${name}</button>`).join('')}</div>
@@ -1341,6 +1334,37 @@ function drivePanel() {
   return `<section class="panel"><h3>Google Drive</h3>${body}</section>`;
 }
 
+/* Backup do Drive atrasado: aviso em Hoje e em Config. quando o último tem mais de 3 dias. */
+const DRIVE_LATE_DAYS = 3;
+function driveLate() {
+  const d = state.google?.drive;
+  if (!state.sync?.token || !d) return null;
+  if (!d.lastBackup) return d.lastError ? { days: null, error: d.lastError } : null;
+  const days = Math.floor((Date.now() - new Date(d.lastBackup).getTime()) / 86400000);
+  return days > DRIVE_LATE_DAYS ? { days, error: d.lastError || '' } : null;
+}
+
+function driveWarning() {
+  const late = driveLate();
+  if (!late) return '';
+  const when = late.days === null ? 'O backup no Google Drive ainda não deu certo' : `O último backup no Google Drive foi há ${late.days} dias`;
+  return `<a class="drive-warning" href="#settings/dados">${ico('alert')}<span class="grow"><b>${escapeHtml(when)}</b><small>${late.error ? `Erro: ${escapeHtml(late.error)} · ` : ''}Toque para ver em Config. › Dados.</small></span>${ico('right')}</a>`;
+}
+
+/** Busca o status do Google (e do backup no Drive) ao abrir o app, no máximo uma vez por hora. */
+async function checkDriveHealth() {
+  if (!state.sync?.token || !googleReady() || !navigator.onLine) return;
+  if (state.google && Date.now() - (state.googleAt || 0) < 3600000) return;
+  const before = !!driveLate();
+  try {
+    state.google = await callServer('/google/status', {}, state.sync.token);
+    state.googleAt = Date.now();
+  } catch {
+    return;
+  }
+  if (before !== !!driveLate()) render();
+}
+
 /** Depois de desenhar Config., coloca os botões oficiais do Google e busca o status. */
 function mountGoogle() {
   const route = currentRoute();
@@ -1428,7 +1452,7 @@ const googleActions = {
           showToast(error.message);
         }
       }];
-    }), 'Junta as tarefas do backup às atuais (nada é apagado).');
+    }), 'Volta o que não existe mais aqui; o que já existe fica como está. Nada é apagado.');
   },
   'drive-disconnect': async () => {
     if (!confirm('Desconectar o Google Drive? Os backups que já estão lá continuam no seu Drive.')) return;
@@ -1640,13 +1664,14 @@ function settingsView(page) {
     aparencia: `${modeName} · ${accentName} · letra ${sizeName}`,
     avisos: `${notify}${state.push?.enabled ? ' · também com o app fechado' : ''}`,
     conta: state.sync?.token ? `Conectado como ${state.sync.login}` : 'Não conectado: as tarefas ficam só aqui',
-    dados: 'Backup, limpeza da lixeira e das concluídas',
+    dados: driveLate() ? 'Backup do Google Drive atrasado' : 'Backup, limpeza da lixeira e das concluídas',
   };
   const banner = state.sync?.token
     ? `<div class="sync-banner">${ico('repeat')}<div><b id="sync-status" role="status">${escapeHtml(syncStatusText())}</b><small>As tarefas são iguais no note e nos celulares.</small></div></div>`
     : '';
   return `
     <div class="view-head"><div><h1><span>Config.</span></h1></div></div>
+    ${driveWarning()}
     ${banner}
     ${SETTINGS_PAGES.map(([id, name, icon]) => `<a class="nr" href="#settings/${id}"><span class="ico">${ico(icon)}</span><span class="grow"><strong>${name}</strong><small>${escapeHtml(subtitles[id])}</small></span><span class="chev">${ico('right')}</span></a>`).join('')}
     <div style="text-align:center;margin-top:22px">
@@ -2249,6 +2274,8 @@ function openTask(id, { isNew = false } = {}) {
   renderSteps();
   updateFormHints();
   if (!dialog.open) dialog.showModal();
+  // Abre sempre no topo, com o título à vista, mesmo se a anterior tinha sido rolada.
+  dialog.scrollTop = 0;
   dialogSnapshot = formSnapshot();
 }
 
@@ -3109,21 +3136,70 @@ async function importPayload(data, source) {
     showToast('Backup inválido. Nada foi alterado.');
     return;
   }
-  const syncing = !!state.sync?.token;
-  const question = syncing
-    ? `Importar ${data.tasks.length} tarefa(s) ${source}? Elas serão enviadas aos seus aparelhos, e as tarefas que já estão na sincronização continuam lá.`
-    : `Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) ${source}?`;
-  if (!confirm(question)) return;
+  if (state.sync?.token) {
+    await mergeBackup(data, source);
+    return;
+  }
+  if (!confirm(`Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) ${source}?`)) return;
   const settings = { ...state.settings, ...(data.settings || {}), id: 'settings' };
-  const now = Date.now();
-  const prepare = (items) => (syncing ? items.map((item) => stampAll(item, now)) : items);
-  const meta = syncing ? [settings, { ...state.sync, id: 'sync' }] : [settings];
+  const meta = [settings];
   if (state.push) meta.push({ ...state.push, hash: null });
-  await db.replaceAll({ lists: prepare(data.lists), tasks: prepare(data.tasks), log: prepare(data.log), meta });
+  await db.replaceAll({ lists: data.lists, tasks: data.tasks, log: data.log, meta });
   await load();
   render();
   showToast('Dados importados.');
+}
+
+/**
+ * Com conta: junta o backup ao que está na sincronização, sem apagar nada.
+ * O que ainda existe fica como está (uma tarefa concluída depois do backup continua concluída).
+ * O que não existe mais (excluído de vez) volta com um id novo, porque o servidor recusa ids apagados.
+ */
+async function mergeBackup(data, source) {
+  // Primeiro traz o que mudou nos outros aparelhos, para não confundir "mais novo" com "sumiu".
+  for (let i = 0; i < 40 && syncEngine.status.state === 'running'; i += 1) await new Promise((r) => { setTimeout(r, 250); }); // eslint-disable-line no-await-in-loop
+  await syncEngine.run();
+  if (syncEngine.status.state !== 'ok') {
+    showToast('Não deu para sincronizar antes de restaurar. Tente de novo com internet; nada foi alterado.');
+    return;
+  }
+  const strip = (item) => {
+    const { _t, _dirty, notifiedFor, ...rest } = item;
+    return rest;
+  };
+  const missing = (kind) => data[kind].filter((item) => item?.id && !state[kind].some((local) => local.id === item.id));
+  const lists = missing('lists').filter((list) => list.id !== INBOX);
+  const tasks = missing('tasks');
+  const log = missing('log');
+  const kept = data.tasks.length - tasks.length;
+  if (!lists.length && !tasks.length && !log.length) {
+    showToast(`Nada a restaurar: as ${data.tasks.length} tarefas ${source} já estão aqui.`);
+    return;
+  }
+  const parts = [`${tasks.length} tarefa(s)`, lists.length && `${lists.length} lista(s)`, log.length && `${log.length} registro(s) de repetição`].filter(Boolean).join(', ');
+  if (!confirm(`Restaurar ${source}: voltam ${parts} que não existem mais aqui. As ${kept} tarefa(s) que já existem ficam como estão. Nada é apagado.`)) return;
+
+  const now = Date.now();
+  const listIds = {};
+  const taskIds = {};
+  for (const list of lists) listIds[list.id] = newId();
+  for (const task of tasks) taskIds[task.id] = newId();
+  const listOf = (id) => listIds[id] || (state.lists.some((l) => l.id === id) ? id : INBOX);
+  const records = {
+    lists: lists.map((list) => ({ ...strip(list), id: listIds[list.id] })),
+    tasks: tasks.map((task) => ({ ...strip(task), id: taskIds[task.id], listId: listOf(task.listId) })),
+    log: log.map((entry) => ({ ...strip(entry), id: newId(), taskId: taskIds[entry.taskId] || entry.taskId })),
+  };
+  for (const kind of ['lists', 'tasks', 'log']) {
+    for (const record of records[kind]) {
+      const stamped = stampAll(record, now);
+      state[kind].push(stamped);
+      await db.put(kind, stamped); // eslint-disable-line no-await-in-loop
+    }
+  }
+  render();
   savedLocally();
+  showToast(`Restaurado: voltaram ${parts}.`);
 }
 
 /* ---------- Sincronização ---------- */
@@ -4004,6 +4080,7 @@ document.addEventListener('visibilitychange', () => {
     render();
     checkReminders();
     syncEngine.run();
+    checkDriveHealth();
   }
 });
 window.addEventListener('online', () => syncEngine.run());
@@ -4089,6 +4166,7 @@ async function start() {
   await checkReminders();
   setInterval(checkReminders, 15000);
   syncEngine.run();
+  checkDriveHealth();
   setInterval(() => syncEngine.run(), 60000);
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));

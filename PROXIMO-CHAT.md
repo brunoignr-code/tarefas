@@ -5,10 +5,12 @@ Copie o bloco abaixo no novo chat, aberto nesta mesma pasta, e troque os "[preen
 ```text
 Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal, alternativa ao Microsoft To Do).
 
-Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v19 para trás), este PROXIMO-CHAT.md e o memory do projeto.
+Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v20 para trás), este PROXIMO-CHAT.md e o memory do projeto.
 
 Onde paramos (11/11/2026):
-- v19 publicada em https://brunoignr-code.github.io/tarefas/: "Só esta vez" ao mudar dia ou hora de uma tarefa que se repete (adiar pelo menu, deslizar ou notificação vale só para a ocorrência; campo novo opcional `occurrence`), Quinzenal no Repetir e no texto digitado, rodapé da janela cabendo no celular.
+- v20 publicada em https://brunoignr-code.github.io/tarefas/: Restaurar/Importar com conta juntam sem desfazer nada (só volta o que não existe mais), aviso de backup do Drive atrasado, lembretes compactos fora de Hoje, janela da tarefa no topo, Matriz retirada, CSP no index.html e `python tools/conferir.py` antes de publicar.
+- Pendente (v21, servidor): sessões que expiram (90 dias sem uso), lista de aparelhos e "Sair dos outros aparelhos" (muda o login), e nova tentativa do backup do Drive depois de erro. Verificação em duas etapas no Google, GitHub e Cloudflare fica com o dono.
+- v19: "Só esta vez" ao mudar dia ou hora de uma tarefa que se repete (adiar pelo menu, deslizar ou notificação vale só para a ocorrência; campo novo opcional `occurrence`), Quinzenal no Repetir e no texto digitado, rodapé da janela cabendo no celular.
 - 11/11: migradas do To Do 33 tarefas abertas (título e data) das listas com o mesmo nome; backup e ids para desfazer em C:\Python - local\backups-afazeres.
 - v18: anotar abre a tarefa (opção em Config. › Geral), tarefa nova no topo e a tela rola até ela, pergunta "Sair sem salvar?" (Fechar, Esc, voltar do Android; Concluir/Pular salvam antes) e seletor de data e horário no modelo do To Do no Android (abas Data e Horário, relógio de ponteiro de 24 h).
 - v17 corrige um defeito da v15/v16 (o sw.js com import prendia aparelhos antigos na v14.5). Regra: nunca usar import no sw.js; depois de mudar js/rules.js, sync-core.js, push-core.js ou actions-core.js, rodar `python tools/build_sw.py`.
@@ -19,7 +21,7 @@ Onde paramos (11/11/2026):
 - Comecei do zero em 9/11 (tarefas apagadas, listas mantidas) e estou usando no note e em 2 celulares Android (um A55).
 - Combinado: app simples (lembrete, repetição, listas, grupos, etapas), custo zero.
 
-Ainda não confirmado no celular real: a v19 ("Só desta vez?", Amanhã da notificação mantendo a série), a v18 (anotar abrindo a tarefa, "Sair sem salvar?" no gesto de voltar, rolagem até a tarefa nova, relógio com o dedo), a atualização da v14.5 para a v17, o login com Google e o backup no Drive com a minha conta, os botões da notificação sem abrir o app e o APK instalado.
+Ainda não confirmado no celular real: a v20 (login com Google sob a CSP, Restaurar com a conta real), a v19 ("Só desta vez?", Amanhã da notificação mantendo a série), a v18 (anotar abrindo a tarefa, "Sair sem salvar?" no gesto de voltar, rolagem até a tarefa nova, relógio com o dedo), a atualização da v14.5 para a v17, o login com Google e o backup no Drive com a minha conta, os botões da notificação sem abrir o app e o APK instalado.
 
 Regras:
 - App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome (endpoint /content, que mantém o banco D1, o cron e o segredo). Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.

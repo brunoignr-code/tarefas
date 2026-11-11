@@ -466,6 +466,19 @@ body.selecting .toast { bottom: calc(var(--nav-h) + 84px + env(safe-area-inset-b
 .nr strong { display: block; font-size: 1.07rem; font-weight: 800; }
 .nr small { display: block; color: var(--muted); font-size: .9rem; font-weight: 600; }
 .nr .chev { color: var(--muted); display: grid; }
+/* Lembretes pendentes fora de Hoje: uma linha só. */
+.reminder-line { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 12px; margin-bottom: 10px; border-radius: var(--radius); background: var(--banner); color: var(--on-banner); text-decoration: none; font-weight: 700; }
+.reminder-line > .i { color: var(--primary); flex: none; }
+.reminder-line .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reminder-line .go { display: inline-flex; align-items: center; gap: 2px; color: var(--primary); font-size: .85rem; flex: none; }
+.reminder-line .go .i { width: 16px; height: 16px; }
+/* Backup do Drive atrasado. */
+.drive-warning { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 14px; border-radius: var(--radius); background: var(--danger-soft); color: var(--text); text-decoration: none; }
+.drive-warning > .i:first-child { color: var(--danger); flex: none; }
+.drive-warning .grow { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.drive-warning b { font-weight: 800; }
+.drive-warning small { color: var(--muted); }
+
 .sync-banner { display: flex; align-items: center; gap: 12px; background: var(--banner); color: var(--on-banner); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 16px; }
 .sync-banner > .i { color: var(--primary); }
 .sync-banner b { display: block; font-weight: 800; }
@@ -531,7 +544,7 @@ body.has-dock .toast { bottom: calc(var(--nav-h) + 76px + env(safe-area-inset-bo
 .splash.splash-escuro .s2 { color: #7FD3A2; }
 .splash.hide { opacity: 0; pointer-events: none; }
 
-/* Calendário, Kanban e Matriz */
+/* Calendário e Kanban */
 .cal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 10px; }
 .cal-head strong { font: 800 1.1rem/1.2 var(--font); }
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
@@ -547,13 +560,8 @@ body.has-dock .toast { bottom: calc(var(--nav-h) + 76px + env(safe-area-inset-bo
 .cal-day.selected .cal-count { background: var(--on-primary); color: var(--primary); }
 .kanban { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
 .kanban-col { flex: 0 0 min(280px, 86%); scroll-snap-align: start; background: var(--surface-2); border-radius: var(--radius); padding: 10px; }
-.kanban-col h3, .quadrant h3 { display: flex; justify-content: space-between; gap: 8px; margin: 2px 4px 10px; font: 800 1rem/1.3 var(--font); }
-.kanban-col .count, .quadrant .count { color: var(--muted); }
-.matrix { display: grid; gap: 8px; }
-.quadrant { background: var(--surface-2); border-radius: var(--radius); padding: 10px; min-width: 0; }
-@media (min-width: 800px) {
-  .matrix { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+.kanban-col h3 { display: flex; justify-content: space-between; gap: 8px; margin: 2px 4px 10px; font: 800 1rem/1.3 var(--font); }
+.kanban-col .count { color: var(--muted); }
 
 /* Toque longo: sem seleção de texto nem menu do Chrome nos itens tocáveis. */
 .task, .row-link, .row-wrap, .lr, .nav, .sheet-item, .select-bar, .btn, .segments, .done-toggle, .fold, .check, .icon, .ib, .tile, .chip {
