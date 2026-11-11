@@ -16,12 +16,15 @@ import { stamp, stampAll } from './sync-core.js';
 import {
   SNOOZE_MINUTES, blockedByDeadline, dateChanges, editFields,
 } from './actions-core.js';
-import { authenticate, changePassword, createSync, endSession } from './sync.js';
+import {
+  authenticate, callServer, changePassword, createSync, endSession,
+} from './sync.js';
+import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from './google.js';
 
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v15 · 11/11/2026';
+const APP_VERSION = 'v16 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -1222,6 +1225,7 @@ function syncPanel() {
       <div class="actions" style="margin-top:10px"><button class="btn primary" data-action="sync-login">Entrar</button></div>
     </section>
     <section class="panel">
+      ${googleReady() ? '<p class="help" style="margin:14px 0 6px">Ou, se você já ligou sua conta Google em outro aparelho:</p><div class="google-btn" id="google-login-btn"></div>' : ''}
       <h3>Primeira vez</h3>
       <p>Crie a conta no aparelho que tem suas tarefas, preenchendo login e senha acima. Use ao menos 12 caracteres. Só existe uma conta, e a senha não pode ser recuperada pelo app.</p>
       <div class="field"><label for="sync-password-2">Repita a senha</label><input id="sync-password-2" type="password" autocomplete="new-password"></div>
@@ -1242,8 +1246,166 @@ function syncPanel() {
       <div class="field" style="margin-top:8px"><label for="sync-new">Nova senha</label><input id="sync-new" type="password" autocomplete="new-password"></div>
       <div class="field" style="margin-top:8px"><label for="sync-new-2">Repita a nova senha</label><input id="sync-new-2" type="password" autocomplete="new-password"></div>
       <div class="actions" style="margin-top:10px"><button class="btn" data-action="sync-change-password">Salvar nova senha</button></div>` : ''}
-    </section>`;
+    </section>
+    ${googleAccountPanel()}`;
 }
+
+/* ---------- Conta Google e Google Drive ---------- */
+
+async function refreshGoogleStatus() {
+  if (!state.sync?.token || !googleReady()) return;
+  try {
+    state.google = await callServer('/google/status', {}, state.sync.token);
+  } catch (error) {
+    state.google = { error: error.message };
+  }
+  const route = currentRoute();
+  if (route.name === 'settings' && ['conta', 'dados'].includes(route.id)) render();
+}
+
+function googleAccountPanel() {
+  if (!googleReady()) return '';
+  const g = state.google;
+  let body = '<p>Carregando…</p>';
+  if (g?.error) body = `<p>${escapeHtml(g.error)}</p>`;
+  else if (g?.google) {
+    body = `<p>Ligada a <b>${escapeHtml(g.google.email)}</b>. Nos outros aparelhos, toque em “Entrar com Google”. O login com senha continua valendo.</p>
+      <div class="actions"><button class="btn small text danger" data-action="google-unlink">Desligar a conta Google</button></div>`;
+  } else if (g) {
+    body = `<p>Ligue sua conta Google para entrar nos outros aparelhos sem digitar a senha.</p><div class="google-btn" id="google-link-btn"></div>`;
+  }
+  return `<section class="panel"><h3>Conta Google</h3>${body}</section>`;
+}
+
+function drivePanel() {
+  if (!googleReady()) return '';
+  if (!state.sync?.token) {
+    return '<section class="panel"><h3>Google Drive</h3><p>Entre na sua conta, em Conta e sincronização, para guardar backups no Google Drive.</p></section>';
+  }
+  const g = state.google;
+  let body = '<p>Carregando…</p>';
+  if (g?.error) body = `<p>${escapeHtml(g.error)}</p>`;
+  else if (g?.drive) {
+    const d = g.drive;
+    const last = d.lastBackup
+      ? `Último backup: ${formatDate(localDate(new Date(d.lastBackup))).toLowerCase()} às ${new Date(d.lastBackup).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${d.counts ? ` (${d.counts.tasks} tarefas, ${d.counts.lists} listas)` : ''}.`
+      : 'Nenhum backup ainda.';
+    body = `<p>Conectado${d.email ? ` a <b>${escapeHtml(d.email)}</b>` : ''}. O servidor guarda um backup por dia, depois das 3h, na pasta “Minha lista de afazeres” do seu Drive, e mantém os últimos 30.</p>
+      <p>${escapeHtml(last)}</p>
+      ${d.lastError ? `<p class="help-warning">Última tentativa falhou: ${escapeHtml(d.lastError)}</p>` : ''}
+      <div class="actions">
+        <button class="btn small primary" data-action="drive-backup" style="flex:1">Fazer backup agora</button>
+        <button class="btn small" data-action="drive-restore" style="flex:1">Restaurar</button>
+      </div>
+      <button class="link danger" data-action="drive-disconnect" style="margin-top:8px">Desconectar o Google Drive</button>`;
+  } else if (g) {
+    body = `<p>Guarde uma cópia das tarefas no seu Google Drive todo dia, automaticamente, mesmo com o app fechado. O app só enxerga os arquivos que ele mesmo cria.</p>
+      ${g.secretReady ? '' : '<p class="help-warning">Falta um passo no servidor (o segredo do Google). Veja o README.</p>'}
+      <button class="btn small primary" data-action="drive-connect" ${g.secretReady ? '' : 'disabled'}>Conectar Google Drive</button>`;
+  }
+  return `<section class="panel"><h3>Google Drive</h3>${body}</section>`;
+}
+
+/** Depois de desenhar Config., coloca os botões oficiais do Google e busca o status. */
+function mountGoogle() {
+  const route = currentRoute();
+  if (route.name !== 'settings' || !['conta', 'dados'].includes(route.id) || !googleReady()) return;
+  loadGoogle().catch(() => {});
+  if (state.sync?.token && !state.googleFetching && (!state.google || Date.now() - (state.googleAt || 0) > 60000)) {
+    state.googleFetching = true;
+    state.googleAt = Date.now();
+    refreshGoogleStatus().finally(() => { state.googleFetching = false; });
+  }
+  renderGoogleButton($('#google-login-btn'), (credential) => loginWithGoogle(credential), 'signin_with').catch(() => {});
+  renderGoogleButton($('#google-link-btn'), async (credential) => {
+    try {
+      const { email } = await callServer('/google/link', { credential }, state.sync.token);
+      showToast(`Conta Google ligada: ${email}.`);
+    } catch (error) {
+      showToast(error.message);
+    }
+    state.googleAt = 0;
+    refreshGoogleStatus();
+  }, 'continue_with').catch(() => {});
+}
+
+const googleActions = {
+  'google-unlink': async () => {
+    if (!confirm('Desligar a conta Google? Para entrar nos outros aparelhos, use login e senha.')) return;
+    try {
+      await callServer('/google/unlink', {}, state.sync.token);
+      showToast('Conta Google desligada.');
+    } catch (error) {
+      showToast(error.message);
+    }
+    refreshGoogleStatus();
+  },
+  'drive-connect': async () => {
+    let code;
+    try {
+      code = await requestDriveCode();
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
+    showToast('Conectando e fazendo o primeiro backup…');
+    try {
+      const result = await callServer('/drive/connect', { code }, state.sync.token);
+      showToast(result.error || `Google Drive conectado. Primeiro backup: ${result.backup?.counts?.tasks ?? 0} tarefas.`);
+    } catch (error) {
+      showToast(error.message);
+    }
+    refreshGoogleStatus();
+  },
+  'drive-backup': async (el) => {
+    el.disabled = true;
+    try {
+      // Envia antes o que ainda está só neste aparelho.
+      await syncEngine.run();
+      const { backup } = await callServer('/drive/backup', {}, state.sync.token);
+      showToast(`Backup salvo no Drive: ${backup.counts.tasks} tarefas.`);
+    } catch (error) {
+      showToast(error.message);
+    }
+    refreshGoogleStatus();
+  },
+  'drive-restore': async () => {
+    let files;
+    try {
+      ({ files } = await callServer('/drive/list', {}, state.sync.token));
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
+    if (!files.length) {
+      showToast('Nenhum backup no Drive ainda.');
+      return;
+    }
+    openSheet('Restaurar do Google Drive', files.map((file) => {
+      const day = (file.name.match(/\d{4}-\d{2}-\d{2}/) || [''])[0];
+      const label = day ? capitalize(formatDate(day)) : file.name;
+      return [label, async () => {
+        $('#dialog').close();
+        try {
+          const { data } = await callServer('/drive/file', { id: file.id }, state.sync.token);
+          await importPayload(data, `do backup de ${label.toLowerCase()}`);
+        } catch (error) {
+          showToast(error.message);
+        }
+      }];
+    }), 'Junta as tarefas do backup às atuais (nada é apagado).');
+  },
+  'drive-disconnect': async () => {
+    if (!confirm('Desconectar o Google Drive? Os backups que já estão lá continuam no seu Drive.')) return;
+    try {
+      await callServer('/drive/disconnect', {}, state.sync.token);
+      showToast('Google Drive desconectado.');
+    } catch (error) {
+      showToast(error.message);
+    }
+    refreshGoogleStatus();
+  },
+};
 
 function pushPanel() {
   const settings = pushSettings();
@@ -1417,6 +1579,7 @@ function settingsView(page) {
         <input type="file" id="import-file" accept="application/json,.json" hidden>
       </div>
     </section>
+    ${drivePanel()}
     <section class="panel">
       <h3>Limpeza</h3>
       <p>Concluídas: ${doneN} ${doneN === 1 ? 'tarefa' : 'tarefas'} e ${state.log.length} ${state.log.length === 1 ? 'registro' : 'registros'} de repetição. Lixeira: ${state.tasks.filter((t) => t.deletedAt).length}.</p>
@@ -1509,6 +1672,7 @@ function render() {
   };
   renderNav();
   $('#view').innerHTML = (views[route.name] || todayView)();
+  mountGoogle();
   document.body.classList.toggle('has-dock', !!$('#dock'));
   renderReminders();
   renderSelectionBar();
@@ -2600,17 +2764,23 @@ async function importData(file) {
   let data;
   try {
     data = JSON.parse(await file.text());
-    if (data.app !== 'tarefas' || !Array.isArray(data.tasks) || !Array.isArray(data.lists) || !Array.isArray(data.log)) {
-      throw new Error('formato');
-    }
   } catch {
     showToast('Arquivo inválido. Nada foi alterado.');
     return;
   }
+  await importPayload(data, 'do arquivo');
+}
+
+/** Importa um backup (arquivo ou Google Drive). Com conta, junta; sem conta, substitui. */
+async function importPayload(data, source) {
+  if (data?.app !== 'tarefas' || !Array.isArray(data.tasks) || !Array.isArray(data.lists) || !Array.isArray(data.log)) {
+    showToast('Backup inválido. Nada foi alterado.');
+    return;
+  }
   const syncing = !!state.sync?.token;
   const question = syncing
-    ? `Importar ${data.tasks.length} tarefa(s) do arquivo? Elas serão enviadas aos seus aparelhos, e as tarefas que já estão na sincronização continuam lá.`
-    : `Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) do arquivo?`;
+    ? `Importar ${data.tasks.length} tarefa(s) ${source}? Elas serão enviadas aos seus aparelhos, e as tarefas que já estão na sincronização continuam lá.`
+    : `Substituir tudo o que está neste aparelho por ${data.tasks.length} tarefa(s) ${source}?`;
   if (!confirm(question)) return;
   const settings = { ...state.settings, ...(data.settings || {}), id: 'settings' };
   const now = Date.now();
@@ -2655,11 +2825,24 @@ async function registerAccount() {
 }
 
 async function loginThisDevice() {
+  return connectWith(() => authenticate('login', $('#sync-login').value, $('#sync-password').value));
+}
+
+/** Entrar com Google: o servidor confere o token e abre a sessão da conta ligada. */
+async function loginWithGoogle(credential) {
+  return connectWith(async () => {
+    const { token, login } = await callServer('/google/login', { credential });
+    return { token, login };
+  });
+}
+
+/** Abre a sessão (senha ou Google) e troca as tarefas deste aparelho pelas da sincronização. */
+async function connectWith(getSession) {
   const count = state.tasks.length;
   if (count && !confirm(`Entrar neste aparelho? As ${count} tarefa(s) daqui serão substituídas pelas da sincronização. Exporte um backup antes se precisar delas.`)) return undefined;
   let session;
   try {
-    session = await authenticate('login', $('#sync-login').value, $('#sync-password').value);
+    session = await getSession();
   } catch (error) {
     return showToast(error.message);
   }
@@ -3073,7 +3256,7 @@ const clickActions = {
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-action]');
   if (!target) return;
-  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action];
+  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action] || googleActions[target.dataset.action];
   if (action) action(target);
 });
 

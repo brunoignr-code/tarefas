@@ -49,7 +49,12 @@ const call = async (path, body, token) => {
   }), env);
   return { status: response.status, body: await response.json() };
 };
-const cron = () => new Promise((resolve) => worker.scheduled({}, env, { waitUntil: (p) => p.then(resolve) }));
+// O cron agenda várias tarefas (avisos e backup do Drive): espera todas.
+const cron = async () => {
+  const jobs = [];
+  await worker.scheduled({}, env, { waitUntil: (p) => jobs.push(p) });
+  await Promise.all(jobs);
+};
 
 const lines = [];
 const check = (name, ok, extra = '') => lines.push(`${ok ? 'ok   ' : 'FALHA'} ${name}${extra ? ` -> ${extra}` : ''}`);
@@ -120,6 +125,106 @@ check('agenda nova não apaga o teste', sqlite.exec("SELECT COUNT(*) FROM push_q
 
 await call('/push/unsubscribe', { endpoint: ep1 }, token);
 check('aparelho saiu', (await call('/push/state', {}, token)).body.devices === 0);
+
+
+// ---------- Conta Google e Drive (Google falso: chave RSA gerada aqui e Drive em memória) ----------
+sqlite.run(`CREATE TABLE IF NOT EXISTS items (kind TEXT, id TEXT, data TEXT, deleted INTEGER DEFAULT 0, seq INTEGER, PRIMARY KEY (kind, id));
+  INSERT INTO items VALUES ('tasks', 'g1', '{"title":"Tarefa descartável","status":"open","_t":{"title":1}}', 0, 1);
+  INSERT INTO items VALUES ('lists', 'inbox', '{"name":"Entrada"}', 0, 2);
+  INSERT INTO items VALUES ('tasks', 'g2', '{"title":"Apagada"}', 1, 3);`);
+env.GOOGLE_CLIENT_ID = 'teste.apps.googleusercontent.com';
+env.GOOGLE_CLIENT_SECRET = 'segredo-de-teste';
+const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+const publicJwk = { ...(await crypto.subtle.exportKey('jwk', pair.publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
+const enc = (obj) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function idToken(claims, key = pair.privateKey) {
+  const head = enc({ alg: 'RS256', kid: 'k1', typ: 'JWT' });
+  const body = enc({ iss: 'https://accounts.google.com', aud: env.GOOGLE_CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, sub: '123', email: 'pessoa@teste.invalid', email_verified: true, ...claims });
+  const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(`${head}.${body}`)));
+  return `${head}.${body}.${btoa(String.fromCharCode(...sig)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+}
+const driveFiles = new Map();
+let driveSeq = 0;
+const googleCalls = [];
+const prevFetch = window.fetch;
+window.fetch = async (url, init = {}) => {
+  const u = String(url);
+  if (u === 'https://www.googleapis.com/oauth2/v3/certs') return new Response(JSON.stringify({ keys: [publicJwk] }));
+  if (u === 'https://oauth2.googleapis.com/token') {
+    const params = new URLSearchParams(init.body);
+    googleCalls.push(params.get('grant_type'));
+    if (params.get('client_secret') !== 'segredo-de-teste') return new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 });
+    return new Response(JSON.stringify({ access_token: 'acesso', expires_in: 3600, refresh_token: params.get('grant_type') === 'authorization_code' ? 'renovar' : undefined, id_token: `${enc({})}.${enc({ email: 'pessoa@teste.invalid' })}.x` }));
+  }
+  if (u.startsWith('https://oauth2.googleapis.com/revoke')) return new Response('{}');
+  if (u.startsWith('https://www.googleapis.com/drive/v3/files') || u.startsWith('https://www.googleapis.com/upload/drive/v3/files')) {
+    const method = (init.method || 'GET').toUpperCase();
+    const parsed = new URL(u);
+    const id = parsed.pathname.split('/files/')[1];
+    if (method === 'GET' && !id) {
+      const q = parsed.searchParams.get('q');
+      const name = (q.match(/name = '([^']+)'/) || [])[1];
+      const files = [...driveFiles.values()].filter((f) => (!name || f.name === name) && (!q.includes('folder') || f.folder) && (!q.includes("contains 'afazeres-backup-'") || f.name.startsWith('afazeres-backup-')))
+        .sort((a, b) => b.name.localeCompare(a.name));
+      return new Response(JSON.stringify({ files }));
+    }
+    if (method === 'GET' && id) {
+      const f = driveFiles.get(id);
+      if (!f) return new Response('{}', { status: 404 });
+      return new Response(parsed.searchParams.get('alt') === 'media' ? f.content : JSON.stringify({ id, trashed: false }));
+    }
+    if (method === 'DELETE') { driveFiles.delete(id); return new Response(null, { status: 204 }); }
+    if (method === 'POST' && !u.includes('upload')) {
+      const meta = JSON.parse(init.body);
+      const fid = `pasta${(driveSeq += 1)}xxxxxxxx`;
+      driveFiles.set(fid, { id: fid, name: meta.name, folder: true });
+      return new Response(JSON.stringify({ id: fid }));
+    }
+    const parts = String(init.body).split(/--b[0-9a-f]+/);
+    const meta = JSON.parse(parts[1].split('\r\n\r\n')[1]);
+    const content = parts[2].split('\r\n\r\n')[1].replace(/\r\n$/, '');
+    const fid = id ? id.split('?')[0] : `arq${(driveSeq += 1)}xxxxxxxxxx`;
+    driveFiles.set(fid, { id: fid, name: meta.name || driveFiles.get(fid)?.name, content });
+    return new Response(JSON.stringify({ id: fid }));
+  }
+  return prevFetch(url, init);
+};
+
+check('Google: entrar antes de ligar é recusado', (await call('/google/login', { credential: await idToken({}) })).status === 401);
+check('Google: ligar com token válido', (await call('/google/link', { credential: await idToken({}) }, token)).body.email === 'pessoa@teste.invalid');
+const gLogin = await call('/google/login', { credential: await idToken({}) });
+check('Google: entrar com a conta ligada abre sessão', gLogin.status === 200 && !!gLogin.body.token && gLogin.body.login === 'teste-descartavel');
+check('Google: a sessão nova sincroniza', (await call('/push/state', {}, gLogin.body.token)).status === 200);
+check('Google: outra conta Google é recusada', (await call('/google/login', { credential: await idToken({ sub: '999' }) })).status === 401);
+check('Google: token de outro app é recusado', (await call('/google/login', { credential: await idToken({ aud: 'outro.apps.googleusercontent.com' }) })).status === 401);
+check('Google: token vencido é recusado', (await call('/google/login', { credential: await idToken({ exp: Math.floor(Date.now() / 1000) - 10 }) })).status === 401);
+const otherPair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+check('Google: assinatura falsa é recusada', (await call('/google/login', { credential: await idToken({}, otherPair.privateKey) })).status === 401);
+check('Google: lixo no lugar do token é recusado', (await call('/google/login', { credential: 'a.b.c' })).status === 401);
+
+const connect = await call('/drive/connect', { code: 'codigo' }, token);
+check('Drive: conectar troca o código e já faz o primeiro backup', connect.status === 200 && connect.body.backup?.counts?.tasks === 1, JSON.stringify(connect.body));
+const backups = [...driveFiles.values()].filter((f) => f.name.startsWith('afazeres-backup-'));
+const saved = backups[0] && JSON.parse(backups[0].content);
+check('Drive: backup tem o formato do Exportar, sem apagadas e sem marcas internas', saved?.app === 'tarefas' && saved.tasks.length === 1 && saved.tasks[0].id === 'g1' && !('_t' in saved.tasks[0]) && saved.lists.length === 1);
+check('Drive: pasta própria criada uma vez', [...driveFiles.values()].filter((f) => f.folder).length === 1);
+await call('/drive/backup', {}, token);
+check('Drive: segundo backup no mesmo dia substitui o arquivo', [...driveFiles.values()].filter((f) => f.name.startsWith('afazeres-backup-')).length === 1);
+for (let i = 1; i <= 32; i += 1) driveFiles.set(`velho${i}xxxxxxxxxx`, { id: `velho${i}xxxxxxxxxx`, name: `afazeres-backup-2020-01-${String(i).padStart(2, '0')}.json`, content: '{}' });
+await call('/drive/backup', {}, token);
+check('Drive: guarda só os 30 mais recentes', [...driveFiles.values()].filter((f) => f.name.startsWith('afazeres-backup-')).length === 30);
+const listed = await call('/drive/list', {}, token);
+check('Drive: lista os backups', listed.body.files.length === 30);
+const file = await call('/drive/file', { id: listed.body.files[0].id }, token);
+check('Drive: baixa um backup para restaurar', file.body.data?.app === 'tarefas');
+const status = await call('/google/status', {}, token);
+check('Drive: status mostra conta e último backup', status.body.google?.email === 'pessoa@teste.invalid' && !!status.body.drive?.lastBackup && status.body.secretReady === true);
+check('Drive: sem sessão, nada', (await call('/drive/list', {})).status === 401);
+await call('/drive/disconnect', {}, token);
+check('Drive: desconectar apaga a autorização', (await call('/google/status', {}, token)).body.drive === null);
+await call('/google/unlink', {}, token);
+check('Google: desligar impede entrar com Google', (await call('/google/login', { credential: await idToken({}) })).status === 401);
+window.fetch = prevFetch;
 
 lines.push(`\nCron (no navegador, só referência): ${cronMs.toFixed(1)} ms no total, incluindo esperas`);
 const failed = lines.filter((l) => l.startsWith('FALHA')).length;

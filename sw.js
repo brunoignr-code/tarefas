@@ -3,7 +3,7 @@
 import { notificationAction } from './js/actions-core.js';
 import { stamp, toWire } from './js/sync-core.js';
 import { buildSchedule, normalizePushSettings } from './js/push-core.js';
-const CACHE = 'tarefas-v15';
+const CACHE = 'tarefas-v16';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -18,6 +18,7 @@ const FILES = [
   'js/theme.js',
   'js/sync-core.js',
   'js/actions-core.js',
+  'js/google.js',
   'js/sync.js',
   'js/push-core.js',
   'js/push.js',

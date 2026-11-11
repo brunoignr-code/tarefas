@@ -687,3 +687,6 @@ details.more-row[open] > summary > .i:last-child { transform: rotate(90deg); }
 .dt-foot .btn.primary { min-width: 108px; min-height: 48px; }
 
 .sticky-head h2 { flex: 1; text-align: center; }
+
+/* Botão oficial do Google */
+.google-btn { min-height: 44px; margin: 6px 0 4px; display: flex; justify-content: flex-start; }

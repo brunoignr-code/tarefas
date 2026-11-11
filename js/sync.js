@@ -32,6 +32,9 @@ export async function authenticate(mode, login, password) {
 
 export const endSession = (token) => post('/logout', {}, token);
 
+/** Chamada simples ao servidor (Google, Drive). */
+export const callServer = (path, payload, token) => post(path, payload, token);
+
 export async function changePassword(login, token, current, next) {
   await post('/password', {
     proof: await deriveProof(login, current),
