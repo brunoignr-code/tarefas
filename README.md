@@ -68,10 +68,18 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 ## Limitações desta versão
 
 - Sem sincronização, cada aparelho tem dados próprios, e limpar os dados do navegador apaga as tarefas. Faça backups.
-- Com o app fechado, tocar em Concluir ou Adiar abre o app para registrar a ação.
+- Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (10 de novembro de 2026)
+## Estado do projeto (11 de novembro de 2026)
+
+### v15, 11 de novembro
+
+- **Notificação sem abrir o app:** Concluir, Adiar e Amanhã são registrados pelo service worker direto no banco do aparelho, enviados ao servidor (`/sync`) e a agenda dos avisos é refeita (`/push/schedule`), para os outros aparelhos não avisarem de algo já resolvido. Se o app estiver aberto na tela, ele mesmo registra, como antes; se estiver em segundo plano, recarrega os dados. As regras ficam em `js/actions-core.js`, usado pelo app e pelo service worker, que agora é um módulo (`register('sw.js', { type: 'module' })`).
+- **Tarefa nova à vista:** depois de anotar, a tela rola até a tarefa nova (acima do campo Anotar) e ela pisca em verde; o teclado continua no campo.
+- **Salvar no lugar do Concluir:** na janela da tarefa, Salvar virou o botão grande do rodapé; Concluir ficou pequeno ao lado (e no círculo junto ao título). O topo tem só Fechar.
+- **Seletor único de dia e hora:** Quando abre uma folha com as abas Dia (calendário do mês, Hoje, Amanhã, Próx. semana, Sem data) e Hora (grade de horas, minutos de 5 em 5, atalhos 08:00 a 20:00 e Sem hora). Escolher o dia passa para a aba Hora; arrastar para o lado troca de aba; um só Definir confirma os dois. O "Lembrar em" usa o mesmo seletor.
+- Sem mudança no formato dos dados, no login ou no servidor. Testado no navegador em tamanho de celular, com dados descartáveis apagados depois; 63 testes automáticos passando. A ida ao servidor a partir da notificação não foi testada com a conta real.
 
 ### v14.5, 10 de novembro: janela da tarefa, seleção e telas de lista
 

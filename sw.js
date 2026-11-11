@@ -1,5 +1,9 @@
 // Mantém o app disponível offline, mostra os avisos enviados pelo servidor e trata os botões das notificações.
-const CACHE = 'tarefas-v14-5';
+// É um módulo (registrado com type: 'module'): usa as mesmas regras do app para Concluir, Adiar e Amanhã.
+import { notificationAction } from './js/actions-core.js';
+import { stamp, toWire } from './js/sync-core.js';
+import { buildSchedule, normalizePushSettings } from './js/push-core.js';
+const CACHE = 'tarefas-v15';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -13,6 +17,7 @@ const FILES = [
   'js/parse.js',
   'js/theme.js',
   'js/sync-core.js',
+  'js/actions-core.js',
   'js/sync.js',
   'js/push-core.js',
   'js/push.js',
@@ -62,12 +67,30 @@ self.addEventListener('fetch', (event) => {
   }));
 });
 
+const BACKGROUND_ACTIONS = ['done', 'snooze', 'tomorrow'];
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const id = event.notification.data && event.notification.data.id;
   const action = event.action || 'open';
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (id && BACKGROUND_ACTIONS.includes(action)) {
+      // Concluir, Adiar e Amanhã não abrem o app.
+      const visible = windows.find((client) => client.visibilityState === 'visible');
+      if (visible) {
+        visible.postMessage({ type: 'notification-action', action, id });
+        return undefined;
+      }
+      try {
+        await actInBackground(action, id);
+        windows.forEach((client) => client.postMessage({ type: 'reload-data' }));
+        return undefined;
+      } catch (error) {
+        console.warn('Ação da notificação não registrada aqui; abrindo o app', error);
+        return self.clients.openWindow(`./#notif/${action}/${id}`);
+      }
+    }
     if (windows.length) {
       if (id) windows[0].postMessage({ type: 'notification-action', action, id });
       return windows[0].focus();
@@ -75,6 +98,67 @@ self.addEventListener('notificationclick', (event) => {
     return self.clients.openWindow(id ? `./#notif/${action}/${id}` : './#today');
   })());
 });
+
+// Mesma ação, pedida pela própria página: usado para testar no navegador sem notificação de verdade.
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type !== 'run-notification-action' || !BACKGROUND_ACTIONS.includes(data.action)) return;
+  event.waitUntil(actInBackground(data.action, data.id)
+    .then(async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      windows.forEach((client) => client.postMessage({ type: 'reload-data' }));
+      if (event.source) event.source.postMessage({ type: 'notification-action-done', id: data.id });
+    })
+    .catch((error) => event.source && event.source.postMessage({ type: 'notification-action-done', id: data.id, error: String(error) })));
+});
+
+/**
+ * Registra o botão da notificação direto no banco deste aparelho e avisa o servidor,
+ * sem abrir o app. A sincronização completa acontece na próxima vez que o app abrir.
+ */
+async function actInBackground(action, id) {
+  const database = await openDb();
+  try {
+    await registerAction(database, action, id);
+  } finally {
+    database.close();
+  }
+}
+
+async function registerAction(database, action, id) {
+  const task = await idb(database, 'tasks', 'readonly', (store) => store.get(id));
+  if (!task) throw new Error('Tarefa não encontrada neste aparelho.');
+  const result = notificationAction(task, action, new Date());
+  if (result.error) {
+    // Já concluída ou mudada em outro aparelho: nada a fazer.
+    return;
+  }
+  const now = Date.now();
+  const saved = stamp(task, result.task, now);
+  await idb(database, 'tasks', 'readwrite', (store) => store.put(saved));
+  const records = [{ kind: 'tasks', id, data: toWire(saved) }];
+  if (result.log) {
+    const entry = stamp(null, { ...result.log, id: crypto.randomUUID() }, now);
+    await idb(database, 'log', 'readwrite', (store) => store.put(entry));
+    records.push({ kind: 'log', id: entry.id, data: toWire(entry) });
+  }
+  const sync = await idb(database, 'meta', 'readonly', (store) => store.get('sync'));
+  if (!sync || !sync.token) return;
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${sync.token}` };
+  try {
+    // "since" não avança aqui: o app recebe tudo na próxima sincronização (a junção é campo a campo).
+    await fetch(`${SYNC_URL}/sync`, { method: 'POST', headers, body: JSON.stringify({ since: sync.since || 0, records, deletes: [] }) });
+    // Refaz a agenda dos avisos, para os outros aparelhos não avisarem de uma tarefa já resolvida.
+    const push = await idb(database, 'meta', 'readonly', (store) => store.get('push'));
+    const tasks = await idb(database, 'tasks', 'readonly', (store) => store.getAll());
+    const items = buildSchedule(tasks, new Date(), normalizePushSettings(push && push.settings));
+    await fetch(`${SYNC_URL}/push/schedule`, { method: 'POST', headers, body: JSON.stringify({ items }) });
+    if (push) await idb(database, 'meta', 'readwrite', (store) => store.put({ ...push, hash: null }));
+  } catch (error) {
+    // Sem internet: a mudança fica guardada (marcada para enviar) e sobe quando o app abrir.
+    console.warn('Ação guardada; será enviada depois', error);
+  }
+}
 
 /* ---------- Avisos com o app fechado ---------- */
 // O push chega sem conteúdo. O aviso vem de /push/due; sem internet, das tarefas guardadas aqui.

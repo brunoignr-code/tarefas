@@ -13,13 +13,15 @@ import {
   ACCENTS, CHROME, DEFAULT_ACCENT, DEFAULT_MODE, MODES, accentVars, normalizeAccent, normalizeMode, resolveMode,
 } from './theme.js';
 import { stamp, stampAll } from './sync-core.js';
+import {
+  SNOOZE_MINUTES, blockedByDeadline, dateChanges, editFields,
+} from './actions-core.js';
 import { authenticate, changePassword, createSync, endSession } from './sync.js';
 
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v14.5 · 10/11/2026';
-const SNOOZE_MINUTES = 10;
+const APP_VERSION = 'v15 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -240,24 +242,6 @@ function byListOrder(a, b) {
 }
 const sortedLists = () => state.lists.slice().sort(byListOrder);
 
-/** Os campos atuais da tarefa no formato de applyEdit, para mudar só um deles. */
-const editFields = (task, changes = {}) => ({
-  title: task.title,
-  notes: task.notes,
-  listId: task.listId,
-  steps: task.steps,
-  when: task.when,
-  repeat: task.repeat,
-  deadline: task.deadline,
-  seriesEnd: task.seriesEnd,
-  important: task.important,
-  tags: task.tags || [],
-  remindAt: task.remindAt,
-  extraReminders: task.extraReminders || [],
-  remindEach: task.remindEach !== false,
-  insist: task.insist,
-  ...changes,
-});
 
 /** Ordena as tarefas de uma lista conforme a escolha da lista. */
 function sortTasks(tasks, mode = 'manual') {
@@ -296,6 +280,18 @@ async function addTask(title, context, parsed = null, extra = {}) {
   });
   render();
   return id;
+}
+
+/** Rola até a tarefa recém-criada, se ela aparece nesta tela, e a destaca por um instante. */
+function revealTask(id) {
+  if (!id) return;
+  setTimeout(() => {
+    const row = document.querySelector(`#view .task[data-id="${id}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: 'nearest' });
+    row.classList.add('just-added');
+    setTimeout(() => row.classList.remove('just-added'), 1600);
+  }, 30);
 }
 
 /** Nova posição entre os vizinhos, sem renumerar a lista inteira. */
@@ -1652,15 +1648,8 @@ function openSheet(title, items, subtitle = '', { tiles = [], meta = '', lead = 
   dialog.querySelector('.tile, .sheet-item:not(:disabled)')?.focus();
 }
 
-/** Muda a data (Quando) e leva junto o lembrete marcado para o mesmo dia. */
-function dateChanges(task, date) {
-  const changes = { when: date };
-  if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
-  return changes;
-}
 
 /** O prazo (Até) não deixa Quando passar dele: explica em vez de só recusar. */
-const blockedByDeadline = (task, date) => !!(date && task.deadline && date > task.deadline);
 const deadlineMessage = (task) => `Não dá para mudar: o prazo era ${formatDate(task.deadline).toLowerCase()}. Mude o prazo nos detalhes.`;
 
 async function moveToDate(id, date) {
@@ -1943,7 +1932,7 @@ function openTask(id) {
       <div class="form-head sticky-head">
         <button type="button" class="btn small" data-action="close-dialog">Fechar</button>
         <h2>Tarefa</h2>
-        <button class="btn small primary" style="min-width:88px">Salvar</button>
+        <span class="head-spacer" aria-hidden="true"></span>
       </div>
       <div class="error" id="form-error" role="alert" hidden></div>
       <div class="title-row">
@@ -1960,17 +1949,19 @@ function openTask(id) {
           <button type="button" class="chip" data-action="set-when" data-days="7">Próx. semana</button>
           <button type="button" class="chip" data-action="clear-when">Sem data</button>
         </div>
-        <div class="when-row">
-          <div class="field"><label for="f-when">Quando</label><input id="f-when" type="date" name="when" value="${task.when || ''}"></div>
-          <div class="field field-time"><label for="f-time">Hora</label><input id="f-time" type="time" value="${whenTime}"></div>
-        </div>
+        <input id="f-when" type="hidden" name="when" value="${task.when || ''}">
+        <input id="f-time" type="hidden" value="${whenTime}">
+        <button type="button" class="when-pick" id="when-pick" data-action="pick-when">
+          ${ico('calendar')}<span class="grow"><small>Quando</small><b id="when-text"></b></span>${ico('right')}
+        </button>
         <label class="remind-row">
           ${ico('bell')}
           <span class="grow"><b id="remind-title">Lembrar</b><small id="remind-help"></small></span>
           <input type="checkbox" class="sw" role="switch" id="f-remind-on" ${task.remindAt ? 'checked' : ''} aria-label="Lembrar">
         </label>
         <div class="field" id="remind-field">
-          <input id="f-remind" type="datetime-local" name="remindAt" value="${task.remindAt || ''}" aria-label="Data e hora do lembrete">
+          <input id="f-remind" type="hidden" name="remindAt" value="${task.remindAt || ''}">
+          <button type="button" class="when-pick small-pick" data-action="pick-remind">${ico('bell')}<span class="grow"><small>Lembrar em</small><b id="remind-text"></b></span>${ico('right')}</button>
         </div>
         <button type="button" class="link" id="remind-other" data-action="show-remind-field" hidden>${ico('clock')}Outro dia ou horário para lembrar</button>
       </section>
@@ -2047,8 +2038,9 @@ function openTask(id) {
         <button type="button" class="ib" data-action="duplicate-from-dialog" data-id="${task.id}" aria-label="Duplicar" title="Duplicar">${ico('copy')}</button>
         ${task.repeat && task.status === 'open' ? `<button type="button" class="btn small text" data-action="skip" data-id="${task.id}">Pular esta</button>` : ''}
         ${task.status === 'open'
-    ? `<button type="button" class="btn primary done-btn" data-action="complete-from-dialog" data-id="${task.id}"><span>${ico('check')}Concluir</span>${next ? `<small>próxima: ${escapeHtml(formatDate(next).toLowerCase())}</small>` : ''}</button>`
-    : `<button type="button" class="btn done-btn" data-action="reopen-from-dialog" data-id="${task.id}">${ico('undo')}Reabrir</button>`}
+    ? `<button type="button" class="btn small complete-small" data-action="complete-from-dialog" data-id="${task.id}" title="${next ? `Concluir; a próxima fica para ${escapeHtml(formatDate(next).toLowerCase())}` : 'Concluir a tarefa'}">${ico('check')}Concluir</button>`
+    : `<button type="button" class="btn small" data-action="reopen-from-dialog" data-id="${task.id}">${ico('undo')}Reabrir</button>`}
+        <button class="btn primary save-btn">Salvar</button>
       </div>
     </form>`;
   renderSteps();
@@ -2056,6 +2048,168 @@ function openTask(id) {
   if (!dialog.open) dialog.showModal();
   dialogSnapshot = formSnapshot();
 }
+
+/* ---------- Seletor de dia e hora (abas Dia e Hora, um só "Definir") ---------- */
+
+const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+let picker = null;
+
+/** target: 'when' (Quando + Hora) ou 'remind' (data e hora do lembrete). */
+function openDateTimePicker(target) {
+  if (!$('form[data-form="task"]')) return;
+  let date = '';
+  let time = '';
+  if (target === 'when') {
+    date = $('#f-when').value;
+    time = $('#f-time').value;
+  } else {
+    const value = $('#f-remind').value;
+    date = value.slice(0, 10);
+    time = value.slice(11, 16);
+  }
+  const base = date || today();
+  picker = { target, date: date || (target === 'remind' ? today() : ''), time, month: base.slice(0, 7), tab: 'day' };
+  let layer = $('#dt-picker');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'dt-picker';
+    layer.className = 'dt-layer';
+    $('#dialog').append(layer);
+  }
+  renderPicker();
+}
+
+function renderPicker() {
+  const layer = $('#dt-picker');
+  if (!layer || !picker) return;
+  const p = picker;
+  const [y, m] = p.month.split('-').map(Number);
+  const weekStart = Number(state.settings.weekStart) === 1 ? 1 : 0;
+  const first = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() - weekStart + 7) % 7;
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const weekNames = [...WEEKDAYS.slice(weekStart), ...WEEKDAYS.slice(0, weekStart)];
+  const cells = [];
+  for (let i = 0; i < first; i += 1) cells.push('<span class="dt-day out" aria-hidden="true"></span>');
+  for (let d = 1; d <= days; d += 1) {
+    const date = `${p.month}-${String(d).padStart(2, '0')}`;
+    const cls = ['dt-day', date === today() ? 'today' : '', date === p.date ? 'on' : '', date < today() ? 'past' : ''].join(' ');
+    cells.push(`<button type="button" class="${cls}" data-action="dt-day" data-date="${date}" aria-pressed="${date === p.date}">${d}</button>`);
+  }
+  const monthTitle = capitalize(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+  const [hh, mm] = (p.time || '').split(':');
+  const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+  const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+  const summary = p.date
+    ? `${capitalize(formatDate(p.date))}${p.time ? ` às ${p.time}` : ', sem hora'}`
+    : 'Sem data';
+  const isDay = p.tab === 'day';
+  layer.innerHTML = `
+    <div class="dt-sheet" role="dialog" aria-label="Escolher dia e hora">
+      <div class="dt-tabs segments" role="tablist">
+        <button type="button" role="tab" class="${isDay ? 'on' : ''}" aria-selected="${isDay}" data-action="dt-tab" data-tab="day">${ico('calendar')}Dia</button>
+        <button type="button" role="tab" class="${isDay ? '' : 'on'}" aria-selected="${!isDay}" data-action="dt-tab" data-tab="time">${ico('clock')}Hora</button>
+      </div>
+      <div class="dt-track" data-tab="${p.tab}">
+        <div class="dt-pane" aria-hidden="${!isDay}">
+          <div class="dt-month">
+            <button type="button" class="ib" data-action="dt-month" data-step="-1" aria-label="Mês anterior">‹</button>
+            <strong>${escapeHtml(monthTitle)}</strong>
+            <button type="button" class="ib" data-action="dt-month" data-step="1" aria-label="Próximo mês">›</button>
+          </div>
+          <div class="dt-grid">${weekNames.map((n) => `<span class="dt-week">${n[0]}</span>`).join('')}${cells.join('')}</div>
+          <div class="dt-quick">
+            <button type="button" class="chip" data-action="dt-quick" data-days="0">Hoje</button>
+            <button type="button" class="chip" data-action="dt-quick" data-days="1">Amanhã</button>
+            <button type="button" class="chip" data-action="dt-quick" data-days="7">Próx. semana</button>
+            ${p.target === 'when' ? '<button type="button" class="chip" data-action="dt-quick" data-days="none">Sem data</button>' : ''}
+          </div>
+        </div>
+        <div class="dt-pane" aria-hidden="${isDay}">
+          <div class="dt-clock"><b>${p.time ? p.time : '--:--'}</b></div>
+          <span class="dt-label">Hora</span>
+          <div class="dt-hours">${hours.map((h) => `<button type="button" class="dt-cell ${h === hh ? 'on' : ''}" data-action="dt-hour" data-h="${h}">${h}</button>`).join('')}</div>
+          <span class="dt-label">Minutos</span>
+          <div class="dt-mins">${minutes.map((x) => `<button type="button" class="dt-cell ${x === mm ? 'on' : ''}" data-action="dt-min" data-m="${x}">:${x}</button>`).join('')}</div>
+          <div class="dt-quick">
+            ${['08:00', '09:00', '12:00', '18:00', '20:00'].map((t) => `<button type="button" class="chip ${t === p.time ? 'on' : ''}" data-action="dt-time" data-t="${t}">${t}</button>`).join('')}
+            ${p.target === 'when' ? `<button type="button" class="chip ${p.time ? '' : 'on'}" data-action="dt-time" data-t="">Sem hora</button>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="dt-foot">
+        <span class="dt-summary">${escapeHtml(summary)}</span>
+        <button type="button" class="btn small" data-action="dt-cancel">Cancelar</button>
+        <button type="button" class="btn primary" data-action="dt-ok" ${p.target === 'remind' && (!p.date || !p.time) ? 'disabled' : ''}>Definir</button>
+      </div>
+    </div>`;
+}
+
+function pickerSetDate(date) {
+  picker.date = date;
+  if (date) picker.month = date.slice(0, 7);
+  // Escolheu o dia: sugere a hora e passa para a aba Hora.
+  if (date && !picker.time && (picker.target === 'remind' || remindLinked)) picker.time = defaultRemindTime();
+  if (date) picker.tab = 'time';
+  renderPicker();
+}
+
+function closePicker() {
+  picker = null;
+  $('#dt-picker')?.remove();
+}
+
+function confirmPicker() {
+  if (!picker) return;
+  const { target, date, time } = picker;
+  closePicker();
+  if (target === 'when') {
+    $('#f-when').value = date;
+    $('#f-time').value = date ? time : '';
+    syncReminderFromWhen(false);
+  } else {
+    $('#f-remind').value = date && time ? `${date}T${time}` : '';
+    reminderEdited();
+  }
+  updateFormHints();
+}
+
+const pickerActions = {
+  'pick-when': () => openDateTimePicker('when'),
+  'pick-remind': () => openDateTimePicker('remind'),
+  'dt-tab': (el) => { picker.tab = el.dataset.tab; renderPicker(); },
+  'dt-day': (el) => pickerSetDate(el.dataset.date),
+  'dt-quick': (el) => pickerSetDate(el.dataset.days === 'none' ? '' : addDays(today(), Number(el.dataset.days))),
+  'dt-month': (el) => {
+    const [y, m] = picker.month.split('-').map(Number);
+    const index = y * 12 + m - 1 + Number(el.dataset.step);
+    picker.month = `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+    renderPicker();
+  },
+  'dt-hour': (el) => { picker.time = `${el.dataset.h}:${(picker.time || '').split(':')[1] || '00'}`; renderPicker(); },
+  'dt-min': (el) => { picker.time = `${(picker.time || defaultRemindTime()).split(':')[0]}:${el.dataset.m}`; renderPicker(); },
+  'dt-time': (el) => { picker.time = el.dataset.t; renderPicker(); },
+  'dt-cancel': () => closePicker(),
+  'dt-ok': () => confirmPicker(),
+};
+
+// Arrastar para o lado troca entre as abas Dia e Hora.
+let pickerSwipe = null;
+document.addEventListener('pointerdown', (event) => {
+  if (!picker || !event.target.closest('.dt-track')) return;
+  pickerSwipe = { x: event.clientX, y: event.clientY };
+});
+document.addEventListener('pointerup', (event) => {
+  if (!picker || !pickerSwipe) return;
+  const dx = event.clientX - pickerSwipe.x;
+  const dy = event.clientY - pickerSwipe.y;
+  pickerSwipe = null;
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  const tab = dx < 0 ? 'time' : 'day';
+  if (tab !== picker.tab) {
+    picker.tab = tab;
+    renderPicker();
+  }
+});
 
 /* ---------- Quando + Hora sugerem o lembrete ---------- */
 
@@ -2223,6 +2377,11 @@ function updateFormHints() {
   $('#remind-title').textContent = remindOn && remindValue
     ? `Lembrar ${formatDate(remindValue.slice(0, 10)).toLowerCase()} às ${remindValue.slice(11)}` : 'Lembrar';
   $('#remind-help').textContent = remindOn ? `${followsWhen ? 'Segue Quando e Hora. ' : ''}${notifyHint}` : 'Desligado.';
+  const timeValue = $('#f-time').value;
+  $('#when-text').textContent = whenValue
+    ? `${capitalize(formatDate(whenValue))}${timeValue ? ` às ${timeValue}` : ''}`
+    : 'Sem data';
+  $('#remind-text').textContent = remindValue ? `${formatDate(remindValue.slice(0, 10))} às ${remindValue.slice(11)}` : 'Escolher';
   const shortcutDates = { 0: today(), 1: addDays(today(), 1), 7: addDays(today(), 7) };
   form.querySelectorAll('[data-action="set-when"]').forEach((chip) => {
     const on = whenValue === shortcutDates[chip.dataset.days];
@@ -2754,7 +2913,7 @@ const clickActions = {
   'show-remind-field': () => {
     showRemindField = true;
     updateFormHints();
-    $('#f-remind').focus();
+    openDateTimePicker('remind');
   },
   'add-step': () => {
     const input = $('#step-input');
@@ -2914,7 +3073,7 @@ const clickActions = {
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-action]');
   if (!target) return;
-  const action = clickActions[target.dataset.action];
+  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action];
   if (action) action(target);
 });
 
@@ -2928,8 +3087,9 @@ document.addEventListener('submit', async (event) => {
     const context = { when: form.dataset.when, listId: form.dataset.list };
     state.quickIgnore = '';
     state.quick = {};
-    await addTask(v.title || text.trim(), { listId: v.listId, when: null }, v);
+    const newTaskId = await addTask(v.title || text.trim(), { listId: v.listId, when: null }, v);
     $('#quick-input')?.focus();
+    revealTask(newTaskId);
     const route = currentRoute().name;
     if (route === 'today' && v.when !== today()) {
       showToast(v.when ? `Criada para ${formatDate(v.when).toLowerCase()}: está em Próximos dias.` : `Criada sem data em ${listName(v.listId)}.`);
@@ -2964,6 +3124,12 @@ document.addEventListener('submit', async (event) => {
 
 // Esc nos detalhes: avisa se há alterações não salvas.
 $('#dialog').addEventListener('cancel', (event) => {
+  // Com o seletor de dia e hora aberto, voltar fecha só o seletor.
+  if (picker) {
+    event.preventDefault();
+    closePicker();
+    return;
+  }
   if (hasUnsavedChanges() && !confirm('Descartar as alterações desta tarefa?')) event.preventDefault();
   else dialogSnapshot = null;
 });
@@ -3291,6 +3457,9 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'notification-action') {
       handleReminderAction(event.data.action, event.data.id);
+    } else if (event.data && event.data.type === 'reload-data') {
+      // Um botão da notificação mudou uma tarefa com o app em segundo plano.
+      load().then(() => { render(); syncEngine.run(); });
     } else if (event.data && event.data.type === 'push-arrived') {
       // Com o app aberto, ele mesmo avisa; sincroniza antes, caso a tarefa venha de outro aparelho.
       syncEngine.run().finally(checkReminders);
@@ -3355,7 +3524,7 @@ async function start() {
   syncEngine.run();
   setInterval(() => syncEngine.run(), 60000);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
+    navigator.serviceWorker.register('sw.js', { type: 'module' }).catch((error) => console.warn('Service worker não registrado', error));
   }
   // A inscrição pode sumir se o navegador limpar os dados ou a permissão for retirada.
   if (state.push?.enabled && !(await currentSubscription().catch(() => null))) {
