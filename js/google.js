@@ -2,7 +2,7 @@
 // Usa a biblioteca oficial do Google (Google Identity Services), carregada só quando precisa.
 
 // ID público do cliente OAuth (o mesmo de server/worker.js). Não é segredo.
-export const GOOGLE_CLIENT_ID = 'COLOQUE_AQUI.apps.googleusercontent.com';
+export const GOOGLE_CLIENT_ID = '643498059820-hocjtrln1pfprt1naj3jmi6dk4chum6m.apps.googleusercontent.com';
 export const googleReady = () => !GOOGLE_CLIENT_ID.startsWith('COLOQUE_AQUI');
 
 const DRIVE_SCOPE = 'openid email https://www.googleapis.com/auth/drive.file';

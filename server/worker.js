@@ -368,7 +368,7 @@ async function pushDue(request, env) {
 /* ---------- Conta Google: entrar com Google e backup no Google Drive ---------- */
 // O ID do cliente OAuth é público (vai também no app). O segredo do cliente fica só no Worker,
 // como variável secreta GOOGLE_CLIENT_SECRET, cadastrada à mão no painel da Cloudflare.
-const GOOGLE_CLIENT_ID = 'COLOQUE_AQUI.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '643498059820-hocjtrln1pfprt1naj3jmi6dk4chum6m.apps.googleusercontent.com';
 const GOOGLE_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
 const DRIVE_FOLDER = 'Minha lista de afazeres';
 const DRIVE_KEEP = 30;
