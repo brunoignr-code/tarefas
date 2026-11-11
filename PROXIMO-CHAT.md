@@ -1,26 +1,34 @@
 # Prompt para continuar em um chat novo
 
-Copie o bloco abaixo no novo chat, aberto nesta mesma pasta.
+Copie o bloco abaixo no novo chat, aberto nesta mesma pasta, e troque os "[preencher]" pelos seus feedbacks.
 
 ```text
-Continuando o meu gerenciador de tarefas (PWA pessoal, alternativa ao Microsoft To Do).
+Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal, alternativa ao Microsoft To Do).
 
-Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto"), este PROXIMO-CHAT.md e o memory do projeto.
+Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v17 para trás), este PROXIMO-CHAT.md e o memory do projeto.
 
-Onde paramos:
-- v13 publicada (base v12.2): gestão completa de listas e grupos (menu ⋯, emoji, cor, ordem, ordenação, excluir com destino das tarefas), menu e ações das tarefas, seleção de várias, deslizar e toque longo, Concluídas/Lixeira/Busca com limpeza e filtros, Config. em seções. v13: Folha é o tema padrão e o ícone (Barquinho e Sistema apagados), janela da tarefa redesenhada e Quando + Hora preenchendo o Lembrar. Lembretes com o app fechado funcionando pelo servidor (cron a cada minuto).
-- Comecei do zero: todas as tarefas foram apagadas em 9/11 (as 16 listas ficaram, vazias).
-- APK Android (TWA) 1.2 (ícone da Folha) criado em 9/11: abre o site em tela cheia e se atualiza sozinho a cada publicação. Arquivo em C:\Python - local\apk-afazeres, chave em C:\Python - local\chaves-android (fora do repositório).
-- Próximo passo: instalar o APK nos celulares, mandar os feedbacks e seguir com o item 8 (usabilidade do zero) do PLANO-ANDROID-E-USABILIDADE.md. A casca Kotlin com alarmes nativos (caminho 2) fica para quando o app estiver maduro.
-- Combinado: app simples (lembrete, recorrência, listas, grupos, etapas), custo zero, sem funções novas fora do plano.
+Onde paramos (11/11/2026):
+- v17 publicada em https://brunoignr-code.github.io/tarefas/. Ela corrige um defeito da v15/v16 (o sw.js com import prendia aparelhos antigos na v14.5). Regra: nunca usar import no sw.js; depois de mudar js/rules.js, sync-core.js, push-core.js ou actions-core.js, rodar `python tools/build_sw.py`.
+- v16: entrar com Google (Config. › Conta › Ligar conta Google; nos outros aparelhos, "Entrar com Google") e backup diário no Google Drive feito pelo servidor depois das 3h, guardando os 30 últimos (Config. › Dados: conectar, fazer backup agora, restaurar, desconectar). Projeto Google Cloud "minha-lista-de-afazeres", app "Em produção", segredo GOOGLE_CLIENT_SECRET já cadastrado no Worker da Cloudflare.
+- v15: Concluir/Adiar/Amanhã na notificação sem abrir o app; tarefa recém-anotada aparece destacada; Salvar grande no rodapé da janela da tarefa (Concluir menor); seletor único de dia e hora com abas Dia e Hora.
+- v14 (design aprovado no Claude Design): tema único Folha com Modo (claro, escuro, automático) e 8 cores de destaque, logo 3 "Folha de papel", campo "Anotar…" fixo, Hoje com seções, Config. em subtelas, deslizar adia para amanhã.
+- APK Android (TWA) 1.3 em C:\Python - local\apk-afazeres (chave em C:\Python - local\chaves-android, fora do repositório). Atualiza pela web; só precisa reinstalar se mudar algo de Android.
+- Comecei do zero em 9/11 (tarefas apagadas, listas mantidas) e estou usando no note e em 2 celulares Android (um A55).
+- Combinado: app simples (lembrete, repetição, listas, grupos, etapas), custo zero.
+
+Ainda não confirmado no celular real: a atualização da v14.5 para a v17, o login com Google e o backup no Drive com a minha conta, os botões da notificação sem abrir o app, o seletor de dia e hora, e o APK instalado.
 
 Regras:
-- App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome. Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.
-- Não apague nem sobrescreva minhas tarefas. Teste só com dados descartáveis e limpe depois. Não coloque tarefas, senhas ou arquivos JSON no repositório.
-- Não peça nem guarde minha senha.
+- App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome (endpoint /content, que mantém o banco D1, o cron e o segredo). Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.
+- Não apague nem sobrescreva minhas tarefas. Teste só com dados descartáveis e limpe depois. Não coloque tarefas, senhas, segredos ou arquivos JSON de backup no repositório.
+- Não peça nem guarde minha senha nem segredos; aceites de termos e logins são comigo.
+- Ao testar atualizações, simule também um aparelho com a versão antiga já instalada, não só a instalação do zero.
 - Entregue em lotes prontos e publicados, e diga claramente o que não foi testado no celular real.
 
-Meus feedbacks de uso real (note + 2 celulares Android, um A55):
+Meus feedbacks de uso real:
+
+Versão que aparece no rodapé de Config. de cada aparelho:
+- [preencher]
 
 O que funcionou bem:
 - [preencher]
@@ -28,10 +36,10 @@ O que funcionou bem:
 Bugs (aparelho, o que fiz, o que aconteceu):
 - [preencher]
 
-Sincronização (chegou nos 3? demorou? perdeu algo?):
+Login com Google e backup no Drive:
 - [preencher]
 
-Notificações (o teste com o app fechado chegou? quanto atrasou? Concluir, Adiar, insistência e resumo funcionaram?):
+Notificações (chegou com o app fechado? Concluir e Amanhã funcionaram sem abrir o app?):
 - [preencher]
 
 Atritos no dia a dia:
@@ -40,7 +48,7 @@ Atritos no dia a dia:
 O que senti falta, em ordem de prioridade:
 - [preencher]
 
-Visual, tema, ícone e nome do app:
+Visual:
 - [preencher]
 
 Primeiro organize os feedbacks por prioridade, me diga o que corrigir agora e o que fica para depois. Depois siga com o mais importante.

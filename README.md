@@ -245,6 +245,9 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### Ainda não confirmado nos aparelhos reais
 
+- A atualização da v14.5 para a v17 no celular (a correção do service worker foi testada só no navegador).
+- Login com Google e backup no Drive com a conta real (v16).
+- Concluir, Adiar e Amanhã na notificação sem abrir o app, tarefa nova destacada e seletor de dia e hora (v15).
 - Sincronização entre o note e os dois celulares.
 - Instalação no Android e novo ícone. O Android pode demorar para trocar o ícone de um app já instalado.
 - Notificações e os botões Concluir e Adiar.
