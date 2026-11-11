@@ -73,6 +73,15 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (11 de novembro de 2026)
 
+### v16, 11 de novembro: entrar com Google e backup no Google Drive
+
+- **Entrar com Google:** em Config. › Conta, "Ligar conta Google" (com o aparelho já conectado). Nos outros aparelhos, "Entrar com Google" na tela de entrar. O servidor confere a assinatura do token do Google (chaves públicas do Google, `aud` igual ao ID do cliente, validade) e só abre sessão para a conta Google ligada. O login com senha continua valendo.
+- **Backup no Google Drive:** em Config. › Dados, "Conectar Google Drive". O servidor guarda a autorização (o *refresh token*, no D1) e, pelo cron, faz um backup por dia depois das 3h de Brasília na pasta "Minha lista de afazeres" do Drive, no mesmo formato do Exportar, mantendo os 30 mais recentes. Também há "Fazer backup agora", "Restaurar" (junta as tarefas do backup às atuais) e "Desconectar" (revoga o acesso). O app pede só `drive.file`: enxerga apenas os arquivos que ele cria.
+- **Google Cloud:** projeto `minha-lista-de-afazeres`, cliente OAuth Web "Afazeres web" (origens `https://brunoignr-code.github.io` e `http://localhost:8768`), API do Drive ativada, app "Em produção" (sem a validade de 7 dias do modo Teste; sem logotipo para não exigir verificação). Política de privacidade em https://brunoignr-code.github.io/privacidade.html.
+- **Segredo:** o "client secret" do Google fica só no Worker, como variável secreta `GOOGLE_CLIENT_SECRET` (Cloudflare › Workers › tarefas-sync › Settings › Variables and secrets), cadastrada à mão pelo dono. Sem ele, o login com Google funciona e o backup no Drive fica desativado. O ID do cliente é público e está em `js/google.js` e `server/worker.js`.
+- **Servidor:** implantado em 11/11 pelo endpoint `/content` da API da Cloudflare, que troca só o código e mantém o banco D1 e o cron. Novas rotas: `/google/login`, `/google/link`, `/google/unlink`, `/google/status`, `/drive/connect`, `/drive/backup`, `/drive/list`, `/drive/file`, `/drive/disconnect`.
+- Testado: 41 testes do servidor (`tests/worker-harness.html`), 20 deles novos, com um Google simulado (chave RSA gerada na página e Drive em memória); 63 testes das regras. O login e o Drive de verdade só podem ser testados com a sua conta.
+
 ### v15, 11 de novembro
 
 - **Notificação sem abrir o app:** Concluir, Adiar e Amanhã são registrados pelo service worker direto no banco do aparelho, enviados ao servidor (`/sync`) e a agenda dos avisos é refeita (`/push/schedule`), para os outros aparelhos não avisarem de algo já resolvido. Se o app estiver aberto na tela, ele mesmo registra, como antes; se estiver em segundo plano, recarrega os dados. As regras ficam em `js/actions-core.js`, usado pelo app e pelo service worker, que agora é um módulo (`register('sw.js', { type: 'module' })`).
