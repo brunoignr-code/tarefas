@@ -10,6 +10,7 @@ const B = '(?<![\\p{L}\\d])';
 const E = '(?![\\p{L}\\d])';
 
 const REPEATS = [
+  [`(?:quinzenal(?:mente)?|a cada (?:duas|2) semanas|de duas em duas semanas)`, () => ({ freq: 'weekly', interval: 2 })],
   [`(?:todos os dias|todo dia|diariamente)`, () => ({ freq: 'daily' })],
   [`(?:toda semana|semanalmente)`, () => ({ freq: 'weekly' })],
   [`(?:todo m[eê]s|mensalmente)`, () => ({ freq: 'monthly' })],

@@ -155,6 +155,21 @@ M['rules'] = (() => {
       remindEach: fields.remindEach !== false,
       insist: 'insist' in fields ? !!fields.insist && !!remindAt : !!prev?.insist && !!remindAt,
     };
+    // Só esta vez: a ocorrência muda de dia ou de hora e a série continua no calendário de antes.
+    // `occurrence` guarda o dia e os lembretes oficiais dessa ocorrência; some ao concluir ou pular.
+    if (prev?.repeat && repeat) {
+      const moved = occurrenceKey(task) !== occurrenceKey(prev);
+      if (fields.occurrenceOnly && moved) {
+        const original = prev.occurrence || { when: prev.when, remindAt: prev.remindAt || null, extraReminders: prev.extraReminders || [] };
+        task.repeat = prev.repeat;
+        task.occurrence = occurrenceKey(task) === occurrenceKey(original) ? null : original;
+      } else if (moved && prev.occurrence) {
+        // Esta e as próximas: a série passa a seguir a data nova.
+        task.occurrence = null;
+      }
+    } else if (prev?.occurrence) {
+      task.occurrence = null;
+    }
     if (!prev || prev.remindAt !== remindAt || (prev.extraReminders || []).join() !== extraReminders.join()) {
       task.snoozedUntil = null;
       task.snoozedFor = null;
@@ -162,6 +177,10 @@ M['rules'] = (() => {
       task.notifiedFor = null;
     }
     return { task, whenFilled };
+  }
+
+  function occurrenceKey(task) {
+    return JSON.stringify([task.when || null, task.remindAt || null, (task.extraReminders || []).join()]);
   }
 
   const TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -183,15 +202,26 @@ M['rules'] = (() => {
   function nextDate(task, today, completing = true) {
     const repeat = task.repeat;
     if (repeat.fromCompletion) return intervalAfter(today, repeat);
+    // Ocorrência mudada só desta vez: a série conta do dia oficial dela.
+    const when = task.occurrence?.when || task.when;
     if (completing && repeat.freq === 'daily') {
       // Feita hoje: a próxima vem N dias depois. Se foi adiantada, não volta para antes da data marcada.
       const next = addDays(today, repeat.interval);
-      return task.when > today && next <= task.when ? addDays(task.when, repeat.interval) : next;
+      return when > today && next <= when ? addDays(when, repeat.interval) : next;
     }
-    return nextOccurrence(repeat, task.when > today ? task.when : today);
+    return nextOccurrence(repeat, when > today ? when : today);
   }
 
-  function advance(task, today, completing) {
+  function advance(moved, today, completing) {
+    // Ocorrência mudada só desta vez: a próxima volta ao dia e ao horário oficiais.
+    const occ = moved.occurrence;
+    const task = occ
+      ? { ...moved, when: occ.when, remindAt: occ.remindAt || null, extraReminders: occ.extraReminders || [], occurrence: null }
+      : moved;
+    if (occ && !task.remindEach) {
+      task.remindAt = moved.remindAt;
+      task.extraReminders = moved.extraReminders || [];
+    }
     const done = (task.repeat.done || 0) + 1;
     if (task.repeat.count && done >= task.repeat.count) {
       return { ...task, status: 'ended', endedAt: today, repeat: { ...task.repeat, done } };
@@ -529,7 +559,9 @@ M['actions-core'] = (() => {
 
   /** Mudar a data leva junto o lembrete que estava no mesmo dia, no mesmo horário. */
   function dateChanges(task, date) {
-    const changes = { when: date };
+    // Numa tarefa que se repete, adiar ou mudar o dia pelo menu, pelo deslizar ou pela
+    // notificação vale só para esta ocorrência: a série continua no calendário de antes.
+    const changes = task.repeat ? { when: date, occurrenceOnly: true } : { when: date };
     if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
     return changes;
   }
@@ -568,7 +600,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v18';
+const CACHE = 'tarefas-v19';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [

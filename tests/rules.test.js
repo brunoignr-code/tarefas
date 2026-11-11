@@ -11,6 +11,7 @@ import {
   activeReminder, cleanTags, insistStep, isUrgent, notifyMark, reminderTimes, shownReminder,
 } from '../js/rules.js';
 import { alreadyNotified, buildSchedule, parsePushKey, pushKey } from '../js/push-core.js';
+import { dateChanges, editFields, notificationAction } from '../js/actions-core.js';
 
 const results = [];
 const eq = (actual, expected) => {
@@ -495,6 +496,59 @@ test('Pular ocorrência segue o calendário da série', () => {
   const task = make({ when: '2026-11-02', repeat: { freq: 'daily', interval: 3 } });
   eq(skipOccurrence(task, TODAY).when, '2026-11-05');
   eq(skipOccurrence(make({ when: '2026-10-30', repeat: { freq: 'daily', interval: 3 } }), TODAY).when, '2026-11-05');
+});
+
+// Só esta vez: lavar roupa todo sábado 7h; a do dia 21 vai para sexta, 20, às 8h.
+const laundry = () => make({ when: '2026-11-21', repeat: { freq: 'weekly', weekdays: [6] }, remindAt: '2026-11-21T07:00' });
+const moveOnce = (task, when, remindAt, occurrenceOnly = true) => applyEdit(task, editFields(task, { when, remindAt, occurrenceOnly }), TODAY).task;
+
+test('Só esta vez: a série e o horário continuam os de antes', () => {
+  const task = laundry();
+  const moved = moveOnce(task, '2026-11-20', '2026-11-20T08:00');
+  eq([moved.when, moved.remindAt, moved.repeat], ['2026-11-20', '2026-11-20T08:00', task.repeat]);
+  eq(moved.occurrence, { when: '2026-11-21', remindAt: '2026-11-21T07:00', extraReminders: [] });
+  const after = completeTask(moved, '2026-11-20', 'x').task;
+  eq([after.when, after.remindAt, after.occurrence], ['2026-11-28', '2026-11-28T07:00', null]);
+});
+
+test('Só esta vez: mudada para depois também volta ao sábado seguinte', () => {
+  const moved = moveOnce(laundry(), '2026-11-23', '2026-11-23T08:00');
+  eq(completeTask(moved, '2026-11-23', 'x').task.when, '2026-11-28');
+  eq(skipOccurrence(moved, '2026-11-22').when, '2026-11-28');
+  eq(skipOccurrence(moved, '2026-11-22').remindAt, '2026-11-28T07:00');
+});
+
+test('Só esta vez: mudar de novo guarda o dia oficial; voltar a ele limpa', () => {
+  const twice = moveOnce(moveOnce(laundry(), '2026-11-20', '2026-11-20T08:00'), '2026-11-19', '2026-11-19T08:00');
+  eq(twice.occurrence.when, '2026-11-21');
+  eq(moveOnce(twice, '2026-11-21', '2026-11-21T07:00').occurrence, null);
+  // Mudar o título não perde a marca.
+  eq(applyEdit(twice, editFields(twice, { title: 'Lavar roupa' }), TODAY).task.occurrence.when, '2026-11-21');
+});
+
+test('Esta e as próximas: a série segue a data nova', () => {
+  const moved = moveOnce(laundry(), '2026-11-20', '2026-11-20T08:00');
+  const all = moveOnce(moved, '2026-11-22', '2026-11-22T08:00', false);
+  eq([all.occurrence, all.repeat.anchor], [null, '2026-11-22']);
+  eq(moveOnce(laundry(), '2026-11-21', '2026-11-21T08:00', false).occurrence, undefined);
+});
+
+test('Adiar uma tarefa que se repete vale só para a ocorrência', () => {
+  const task = laundry();
+  eq(dateChanges(task, '2026-11-22').occurrenceOnly, true);
+  eq(dateChanges(make({ when: '2026-11-21' }), '2026-11-22').occurrenceOnly, undefined);
+  const { task: tomorrow } = notificationAction(task, 'tomorrow', new Date(2026, 10, 21, 7, 0));
+  eq([tomorrow.when, tomorrow.repeat.anchor, tomorrow.occurrence.when], ['2026-11-22', task.repeat.anchor, '2026-11-21']);
+  eq(completeTask(tomorrow, '2026-11-22', 'x').task.when, '2026-11-28');
+});
+
+test('Quinzenal: digitar e concluir', () => {
+  const r = parse('Lavar roupa de cama quinzenal');
+  eq([r.title, r.repeat], ['Lavar roupa de cama', { interval: 2, freq: 'weekly' }]);
+  eq(parse('Regar plantas a cada duas semanas').repeat.interval, 2);
+  eq(parse('Faxina quinzenalmente').repeat.freq, 'weekly');
+  const task = make({ when: '2026-11-07', repeat: { freq: 'weekly', interval: 2, weekdays: [6] } });
+  eq(completeTask(task, '2026-11-07', 'x').task.when, '2026-11-21');
 });
 
 const failed = results.filter((r) => !r.ok);

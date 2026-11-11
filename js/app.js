@@ -24,13 +24,16 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v18 · 11/11/2026';
+const APP_VERSION = 'v19 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
   daily: ['Diária', 'dias'], weekly: ['Semanal', 'semanas'],
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
+// Opções do Repetir. "Quinzenal" é semanal a cada 2 semanas (no banco: weekly, interval 2).
+const FREQ_OPTIONS = [['daily', 'Diária'], ['weekly', 'Semanal'], ['biweekly', 'Quinzenal'], ['monthly', 'Mensal'], ['yearly', 'Anual']];
+const isBiweekly = (repeat) => repeat?.freq === 'weekly' && Number(repeat.interval) === 2;
 
 const state = { quick: {}, lists: [], tasks: [], log: [], settings: { id: 'settings', mode: DEFAULT_MODE, accent: DEFAULT_ACCENT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -55,6 +58,7 @@ function repeatLabel(repeat) {
   if (!repeat) return '';
   const [name, unit] = FREQ_LABELS[repeat.freq];
   let label = repeat.interval > 1 ? `a cada ${repeat.interval} ${unit}` : name.toLowerCase();
+  if (isBiweekly(repeat)) label = 'quinzenal';
   if (repeat.freq === 'weekly' && repeat.weekdays?.length) label += ` (${repeat.weekdays.map((d) => WEEKDAYS[d].toLowerCase()).join(', ')})`;
   if (repeat.fromCompletion) label += ', após concluir';
   if (repeat.count) label += `, ${repeat.done || 0}/${repeat.count}`;
@@ -813,6 +817,7 @@ function openQuickRepeat() {
   openSheet('Repetir', [
     ['Todo dia', choose({ freq: 'daily', interval: 1 }), { icon: 'repeat' }],
     ['Toda semana', choose({ freq: 'weekly', interval: 1 }), { icon: 'repeat' }],
+    ['A cada 2 semanas (quinzenal)', choose({ freq: 'weekly', interval: 2 }), { icon: 'repeat' }],
     ['Todo mês', choose({ freq: 'monthly', interval: 1 }), { icon: 'repeat' }],
     ['Todo ano', choose({ freq: 'yearly', interval: 1 }), { icon: 'repeat' }],
     ['Não repetir', choose(null), { icon: 'x' }],
@@ -2088,6 +2093,7 @@ function openTask(id, { isNew = false } = {}) {
     task.createdAt && `Criada ${stampText(task.createdAt)}`,
     task.status === 'done' && task.completedAt && `Concluída ${stampText(task.completedAt)}`,
     task.deletedAt && `Na lixeira desde ${stampText(task.deletedAt)}`,
+    task.occurrence?.when && `Mudada só desta vez: o normal seria ${formatDate(task.occurrence.when).toLowerCase()}${task.occurrence.remindAt ? ` às ${task.occurrence.remindAt.slice(11)}` : ''}`,
   ].filter(Boolean).join(' · ');
   const granted = 'Notification' in window && Notification.permission === 'granted';
   notifyHint = 'Só um sinal no app. Para receber notificação, ative em Config. › Avisos.';
@@ -2168,7 +2174,7 @@ function openTask(id, { isNew = false } = {}) {
           ${ico('repeat')}<label for="f-freq">Repetir</label>
           <select id="f-freq" name="freq">
             <option value="">Não repete</option>
-            ${Object.entries(FREQ_LABELS).map(([value, [name]]) => `<option value="${value}" ${repeat.freq === value ? 'selected' : ''}>${name}</option>`).join('')}
+            ${FREQ_OPTIONS.map(([value, name]) => `<option value="${value}" ${(isBiweekly(repeat) ? 'biweekly' : repeat.freq) === value ? 'selected' : ''}>${name}</option>`).join('')}
           </select>
         </div>
         <div id="repeat-options" class="inline-field" hidden>
@@ -2233,7 +2239,7 @@ function openTask(id, { isNew = false } = {}) {
     ? `<button type="button" class="btn small" data-action="restore" data-id="${task.id}">${ico('undo')}Restaurar</button>`
     : `<button type="button" class="ib danger-ib" data-action="trash" data-id="${task.id}" aria-label="Mandar para a Lixeira" title="Mandar para a Lixeira">${ico('trash')}</button>`}
         <button type="button" class="ib" data-action="duplicate-from-dialog" data-id="${task.id}" aria-label="Duplicar" title="Duplicar">${ico('copy')}</button>
-        ${task.repeat && task.status === 'open' ? `<button type="button" class="btn small text" data-action="skip" data-id="${task.id}">Pular esta</button>` : ''}
+        ${task.repeat && task.status === 'open' ? `<button type="button" class="ib" data-action="skip" data-id="${task.id}" aria-label="Pular esta ocorrência" title="Pular esta ocorrência">${ico('next')}</button>` : ''}
         ${task.status === 'open'
     ? `<button type="button" class="btn small complete-small" data-action="complete-from-dialog" data-id="${task.id}" title="${next ? `Concluir; a próxima fica para ${escapeHtml(formatDate(next).toLowerCase())}` : 'Concluir a tarefa'}">${ico('check')}Concluir</button>`
     : `<button type="button" class="btn small" data-action="reopen-from-dialog" data-id="${task.id}">${ico('undo')}Reabrir</button>`}
@@ -2683,7 +2689,11 @@ function hideUnsavedGuard() {
 async function saveTaskFormIfChanged() {
   const form = $('form[data-form="task"]');
   if (!form || !hasUnsavedChanges()) return true;
-  const result = applyEdit(findTask(form.dataset.id), readForm(form), today());
+  const prev = findTask(form.dataset.id);
+  let fields = readForm(form);
+  // Concluir ou pular depois de mudar o dia: a mudança vale só para esta ocorrência.
+  if (movesOccurrence(prev, fields)) fields = { ...fields, occurrenceOnly: true };
+  const result = applyEdit(prev, fields, today());
   if (result.error) {
     hideUnsavedGuard();
     const errorBox = $('#form-error');
@@ -2735,7 +2745,8 @@ function renderSteps() {
 
 function readForm(form) {
   const data = new FormData(form);
-  const freq = data.get('freq');
+  const rawFreq = data.get('freq');
+  const freq = rawFreq === 'biweekly' ? 'weekly' : rawFreq;
   const fields = {
     title: data.get('title'),
     when: data.get('when'),
@@ -2750,7 +2761,7 @@ function readForm(form) {
     steps: draftSteps.filter((step) => step.title.trim()),
     repeat: freq ? {
       freq,
-      interval: data.get('interval'),
+      interval: rawFreq === 'biweekly' ? 2 : data.get('interval'),
       weekdays: data.getAll('weekday').map(Number),
       fromCompletion: data.get('fromCompletion') === 'on',
       count: data.get('count'),
@@ -2769,7 +2780,8 @@ function readForm(form) {
 function updateFormHints() {
   const form = $('form[data-form="task"]');
   if (!form) return;
-  const freq = form.elements.freq.value;
+  const rawFreq = form.elements.freq.value;
+  const freq = rawFreq === 'biweekly' ? 'weekly' : rawFreq;
   const mode = untilMode();
   if (mode === 'A') {
     $('#until-label').textContent = freq ? 'Até (fim da repetição)' : 'Até (prazo)';
@@ -2786,7 +2798,8 @@ function updateFormHints() {
     }
   }
   $('#repeat-extra').hidden = !freq;
-  $('#repeat-options').hidden = !freq;
+  // Quinzenal já diz o intervalo: o "A cada" some.
+  $('#repeat-options').hidden = !freq || rawFreq === 'biweekly';
   $('#weekday-field').hidden = freq !== 'weekly';
   const remindOn = $('#f-remind-on').checked;
   const remindValue = form.elements.remindAt.value;
@@ -2825,9 +2838,71 @@ function updateFormHints() {
   }
 }
 
+/* Tarefa que se repete com dia ou hora mudados: só esta vez ou esta e as próximas? */
+const occurrenceKey = (task) => JSON.stringify([task.when || null, task.remindAt || null, (task.extraReminders || []).join()]);
+const samePattern = (a, b) => !!a && !!b && a.freq === b.freq && Number(a.interval) === Number(b.interval)
+  && (a.weekdays || []).join() === (b.weekdays || []).join() && !!a.fromCompletion === !!b.fromCompletion
+  && Number(a.count || 0) === Number(b.count || 0);
+
+/** A edição muda o dia ou a hora de uma ocorrência sem mudar a regra da repetição? */
+function movesOccurrence(prev, fields) {
+  if (!prev?.repeat || !fields.repeat?.freq || prev.status !== 'open') return false;
+  const draft = applyEdit(prev, fields, today());
+  if (draft.error || !samePattern(prev.repeat, draft.task.repeat)) return false;
+  return occurrenceKey(draft.task) !== occurrenceKey(prev);
+}
+
+/** "Esta e as próximas" numa semanal de um dia só: o dia da semana passa a ser o da data nova. */
+function seriesFields(prev, fields) {
+  const r = fields.repeat;
+  if (!r || r.freq !== 'weekly' || !fields.when || (prev.repeat.weekdays || []).length !== 1) return fields;
+  if ((r.weekdays || []).join() !== prev.repeat.weekdays.join()) return fields;
+  const [y, m, d] = fields.when.split('-').map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return day === prev.repeat.weekdays[0] ? fields : { ...fields, repeat: { ...r, weekdays: [day] } };
+}
+
+function askOccurrenceScope(prev, fields) {
+  return new Promise((resolve) => {
+    const layer = document.createElement('div');
+    layer.className = 'dt-layer';
+    layer.id = 'scope-ask';
+    const official = prev.occurrence || prev;
+    const moment = (when, remindAt) => (when ? `${formatDate(when).toLowerCase()}${remindAt && remindAt.slice(0, 10) === when ? ` às ${remindAt.slice(11)}` : ''}` : 'sem data');
+    const from = moment(official.when, official.remindAt);
+    const to = moment(fields.when, fields.remindAt);
+    layer.innerHTML = `
+      <div class="dt-sheet guard-sheet" role="alertdialog" aria-modal="true" aria-labelledby="scope-title">
+        <h3 id="scope-title">Só desta vez?</h3>
+        <p class="help">Esta tarefa se repete (${escapeHtml(repeatLabel(prev.repeat))}). Você mudou de <b>${escapeHtml(from)}</b> para <b>${escapeHtml(to)}</b>.</p>
+        <button type="button" class="btn primary" data-scope="once">Só esta vez<small class="btn-sub">as próximas continuam como antes</small></button>
+        <button type="button" class="btn" data-scope="all">Esta e as próximas<small class="btn-sub">a repetição passa a seguir a data nova</small></button>
+        <button type="button" class="btn text" data-scope="cancel">Cancelar</button>
+      </div>`;
+    const done = (answer) => {
+      layer.remove();
+      resolve(answer);
+    };
+    layer.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-scope]');
+      if (button) done(button.dataset.scope);
+    });
+    scopeCancel = () => done('cancel');
+    $('#dialog').append(layer);
+    layer.querySelector('[data-scope="once"]').focus();
+  });
+}
+let scopeCancel = null;
+
 async function submitTask(form) {
   const prev = findTask(form.dataset.id);
-  const fields = readForm(form);
+  let fields = readForm(form);
+  if (movesOccurrence(prev, fields)) {
+    const scope = await askOccurrenceScope(prev, fields);
+    scopeCancel = null;
+    if (scope === 'cancel') return;
+    fields = scope === 'once' ? { ...fields, occurrenceOnly: true } : seriesFields(prev, fields);
+  }
   const result = applyEdit(prev, fields, today());
   const errorBox = $('#form-error');
   if (result.error) {
@@ -3585,6 +3660,12 @@ $('#dialog').addEventListener('cancel', (event) => {
     closePicker();
     return;
   }
+  // Voltar com a pergunta "Só esta vez" na tela: cancela e continua editando.
+  if ($('#scope-ask')) {
+    event.preventDefault();
+    scopeCancel?.();
+    return;
+  }
   // Voltar com a pergunta na tela: continua editando.
   if ($('#unsaved-guard')) {
     event.preventDefault();
@@ -3649,7 +3730,13 @@ document.addEventListener('input', (event) => {
 
 document.addEventListener('change', async (event) => {
   const { target } = event;
-  if (target.id === 'f-remind-on') {
+  if (target.id === 'f-freq') {
+    // Sair de Quinzenal para Semanal volta a "a cada 1 semana".
+    const interval = $('#f-interval');
+    if (target.value === 'biweekly') interval.value = 2;
+    else if (target.value === 'weekly' && Number(interval.value) === 2) interval.value = 1;
+    updateFormHints();
+  } else if (target.id === 'f-remind-on') {
     reminderToggled();
   } else if (target.id === 'default-remind-time' && target.value) {
     await saveSettings({ defaultRemindTime: target.value });

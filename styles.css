@@ -635,8 +635,10 @@ details.more-row[open] > summary > .i:last-child { transform: rotate(90deg); }
 
 /* ---------- v15: Salvar no rodapé, tarefa nova em destaque, seletor de dia e hora ---------- */
 .head-spacer { width: 72px; flex: none; }
-.save-btn { margin-left: auto; min-height: 50px; min-width: 132px; font-size: 1.05rem; padding: 0 22px; }
-.complete-small { color: var(--primary); border-color: var(--line); background: transparent; }
+.save-btn { margin-left: auto; min-height: 50px; min-width: 0; flex: 1 1 96px; max-width: 180px; font-size: 1.05rem; padding: 0 18px; }
+.sticky-foot > * { flex-shrink: 0; }
+.sticky-foot > .save-btn { flex-shrink: 1; }
+.complete-small { color: var(--primary); border-color: var(--line); background: transparent; padding-left: 10px; padding-right: 12px; }
 .complete-small .i { width: 18px; height: 18px; }
 
 .task { scroll-margin-top: 80px; scroll-margin-bottom: calc(var(--nav-h) + 120px); }
@@ -658,7 +660,9 @@ details.more-row[open] > summary > .i:last-child { transform: rotate(90deg); }
 .guard-sheet h3 { margin: 4px 0 0; font-size: 1.15rem; }
 .guard-sheet .help { margin: 0 0 6px; }
 .guard-sheet .btn { width: 100%; justify-content: center; min-height: 48px; }
-#unsaved-guard { z-index: 40; }
+#unsaved-guard, #scope-ask { z-index: 40; }
+.guard-sheet .btn:has(.btn-sub) { flex-direction: column; gap: 0; min-height: 56px; }
+.btn-sub { display: block; font-size: .78rem; font-weight: 600; opacity: .85; }
 
 .dt-layer { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .35); display: flex; align-items: flex-end; justify-content: center; }
 .dt-sheet {

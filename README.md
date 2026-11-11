@@ -71,7 +71,18 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (11 de novembro de 2026, v18)
+## Estado do projeto (11 de novembro de 2026, v19)
+
+### v19, 11 de novembro: "Só esta vez" nas repetições e Quinzenal
+
+- **Só esta vez:** numa tarefa que se repete, mudar o dia ou a hora na janela da tarefa e tocar em Salvar pergunta "Só desta vez?", mostrando de quando para quando ("de sáb, 14/11 às 07:00 para sex, 13/11 às 08:00"):
+  - **Só esta vez:** a ocorrência fica no dia e na hora novos; ao concluir ou pular, a série volta ao calendário e ao horário de antes (no exemplo, sáb, 21/11 às 07:00), sem repetir no dia seguinte. A janela mostra "Mudada só desta vez: o normal seria sáb, 14/11 às 07:00". Voltar para o dia e a hora oficiais desfaz a marca.
+  - **Esta e as próximas:** a repetição passa a seguir a data nova. Numa semanal de um dia só, o dia da semana muda junto (sábado → sexta).
+  - Adiar pelo menu (Amanhã, Fazer hoje, Escolher outra data), pelo deslizar, pela seleção e pelo botão Amanhã da notificação vale **só para a ocorrência**, sem perguntar. Concluir ou Pular logo depois de mudar o dia na janela também.
+- **Quinzenal** no Repetir (a cada 2 semanas, no mesmo dia da semana), no atalho Repetir do campo Anotar ("A cada 2 semanas (quinzenal)") e no texto digitado ("quinzenal", "quinzenalmente", "a cada duas semanas"). A tarefa mostra "quinzenal (sex)".
+- **Correção:** nas tarefas que se repetem, o rodapé da janela passava da largura do celular e empurrava a janela para a direita (Repetir e a chave do Lembrar ficavam cortados). "Pular esta" virou um ícone (seta) e o Salvar encolhe para caber.
+- **Formato dos dados (avisado e autorizado):** as tarefas que se repetem ganham o campo opcional `occurrence` ({ when, remindAt, extraReminders } oficiais da ocorrência mudada), que volta a `null` ao concluir ou pular. Nada foi removido nem renomeado; Quinzenal é `weekly` com `interval: 2`. Aparelhos numa versão antiga ignoram o campo: lá, concluir uma ocorrência mudada se comporta como antes (segue a data mudada).
+- Testado: 69 testes das regras (6 novos: só esta vez, mudada para depois, mudar de novo e voltar, esta e as próximas, adiar pela notificação, quinzenal); no navegador em tamanho de celular, com dados descartáveis apagados depois; service worker da v18 atualizando para a v19. As regras novas foram embutidas no `sw.js` (`tools/build_sw.py`).
 
 ### v18, 11 de novembro: anotar abre a tarefa, trava contra perder edições e relógio de ponteiro
 
@@ -254,6 +265,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### Ainda não confirmado nos aparelhos reais
 
+- v19 no celular: a pergunta "Só desta vez?", o Amanhã da notificação numa tarefa que se repete (deve manter a série) e o rodapé da janela cabendo na tela.
 - v18 no celular: anotar abrindo a tarefa, a pergunta "Sair sem salvar?" no gesto de voltar do Android (no navegador foi testada com Esc e com o fechamento forçado), a rolagem até a tarefa nova e o relógio de ponteiro com o dedo (testado com mouse e toque simulado).
 - A atualização da v14.5 para a v17 no celular (a correção do service worker foi testada só no navegador).
 - Login com Google e backup no Drive com a conta real (v16).

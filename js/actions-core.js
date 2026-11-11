@@ -27,7 +27,9 @@ export const editFields = (task, changes = {}) => ({
 
 /** Mudar a data leva junto o lembrete que estava no mesmo dia, no mesmo horário. */
 export function dateChanges(task, date) {
-  const changes = { when: date };
+  // Numa tarefa que se repete, adiar ou mudar o dia pelo menu, pelo deslizar ou pela
+  // notificação vale só para esta ocorrência: a série continua no calendário de antes.
+  const changes = task.repeat ? { when: date, occurrenceOnly: true } : { when: date };
   if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
   return changes;
 }
