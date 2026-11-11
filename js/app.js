@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v16 · 11/11/2026';
+const APP_VERSION = 'v17 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -3707,7 +3707,7 @@ async function start() {
   syncEngine.run();
   setInterval(() => syncEngine.run(), 60000);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js', { type: 'module' }).catch((error) => console.warn('Service worker não registrado', error));
+    navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
   }
   // A inscrição pode sumir se o navegador limpar os dados ou a permissão for retirada.
   if (state.push?.enabled && !(await currentSubscription().catch(() => null))) {

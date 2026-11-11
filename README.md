@@ -73,6 +73,13 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ## Estado do projeto (11 de novembro de 2026)
 
+### v17, 11 de novembro: correção da atualização presa na v14.5
+
+- **Defeito da v15 e v16:** o `sw.js` passou a usar `import` (service worker como módulo). Aparelhos com o service worker registrado no formato clássico (até a v14.5) não conseguiam carregar o arquivo novo ("ServiceWorker script evaluation failed") e ficavam presos na v14.5, com "Buscar atualização" dizendo que já era a mais nova.
+- **Correção:** o `sw.js` voltou a não ter `import`. As regras que ele usa (Concluir, Adiar, Amanhã, junção da sincronização e agenda dos avisos) são embutidas nele por `python tools/build_sw.py`, a partir de `js/rules.js`, `js/sync-core.js`, `js/push-core.js` e `js/actions-core.js`. Assim o mesmo arquivo funciona registrado como clássico ou como módulo, e o app voltou a registrar no formato clássico.
+- **Regra nova:** depois de mudar qualquer um desses quatro arquivos, rode `python tools/build_sw.py` antes de publicar.
+- Testado no navegador: service worker da v14.5 (clássico) atualizando para a v17; o da v16 (módulo) atualizando para a v17 e voltando ao formato clássico; e o Concluir pela notificação com as regras embutidas. 63 testes das regras passando.
+
 ### v16, 11 de novembro: entrar com Google e backup no Google Drive
 
 - **Entrar com Google:** em Config. › Conta, "Ligar conta Google" (com o aparelho já conectado). Nos outros aparelhos, "Entrar com Google" na tela de entrar. O servidor confere a assinatura do token do Google (chaves públicas do Google, `aud` igual ao ID do cliente, validade) e só abre sessão para a conta Google ligada. O login com senha continua valendo.
@@ -268,6 +275,6 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - `js/theme.js`: temas e cálculos de cor do marca-texto.
 - `js/db.js`: armazenamento local em IndexedDB.
 - `js/app.js`: telas e interações.
-- `sw.js`: cache offline, avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config.
+- `sw.js`: cache offline (sem `import`; as regras são embutidas por `tools/build_sw.py`), avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config.
 - `tests/`: testes das regras, executados no navegador.
 - `icons/`: capa (`folha.svg`) e ícone (`icon-folha.svg`). Os PNG são gerados do SVG com o Chrome sem janela (`--headless --screenshot`); o maskable é o ícone reduzido sobre o mesmo fundo. `tools/make_icons.py` é o gerador antigo, do primeiro ícone.
