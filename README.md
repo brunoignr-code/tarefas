@@ -71,7 +71,16 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (11 de novembro de 2026)
+## Estado do projeto (11 de novembro de 2026, v18)
+
+### v18, 11 de novembro: anotar abre a tarefa, trava contra perder edições e relógio de ponteiro
+
+- **Anotar abre a tarefa:** depois do Enter no "Anotar…", a tarefa é criada (com o que foi entendido do texto) e a janela dela abre na hora, como "Nova tarefa", para completar dia, hora, repetição e o resto, sem abrir o teclado. Em Config. › Geral › "Depois de anotar" dá para voltar a "Continuar anotando".
+- **Tarefa nova no topo:** entra no começo da lista (como no To Do). Ao fechar a janela (Salvar, Fechar ou Descartar), a tela rola até ela, no meio da tela, e ela pisca. Se ela não aparece na tela atual (ex.: criada para amanhã em Hoje), um aviso diz onde está.
+- **Trava contra perder o que foi digitado:** com alterações não salvas, Fechar, Esc e o voltar do Android mostram "Sair sem salvar?" com Salvar e fechar, Continuar editando e Descartar. Voltar de novo com a pergunta aberta continua editando. Se o Chrome do Android fechar a janela sem deixar o app impedir, ela reabre com o que foi digitado e pergunta. Concluir, Reabrir, Duplicar e Pular dentro da janela agora salvam antes o que foi mudado (antes, perdiam).
+- **Seletor de data e horário no modelo do To Do no Android:** abas Data e Horário com sublinhado, faixa grande com a data ("Qua., 11 de nov.") ou o horário ("16:00"), calendário do mês e **relógio de ponteiro de 24 h** (anel de fora 1 a 12, de dentro 13 a 00): tocar ou arrastar escolhe a hora e passa sozinho para os minutos. Tocar na hora ou nos minutos do topo volta para eles; o botão de teclado permite digitar. Hoje, Amanhã, Próx. semana e Sem data continuam embaixo do calendário. A grade de botões de hora e minuto saiu.
+- Sem mudança no formato dos dados, no login ou no servidor. A opção "Depois de anotar" fica no aparelho, como as outras de Config.
+- Testado no navegador em tamanho de celular (claro e escuro), numa origem local sem conta e com dados descartáveis apagados depois; 63 testes das regras passando; service worker da v17 já instalado atualizando para a v18.
 
 ### v17, 11 de novembro: correção da atualização presa na v14.5
 
@@ -94,7 +103,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - **Notificação sem abrir o app:** Concluir, Adiar e Amanhã são registrados pelo service worker direto no banco do aparelho, enviados ao servidor (`/sync`) e a agenda dos avisos é refeita (`/push/schedule`), para os outros aparelhos não avisarem de algo já resolvido. Se o app estiver aberto na tela, ele mesmo registra, como antes; se estiver em segundo plano, recarrega os dados. As regras ficam em `js/actions-core.js`, usado pelo app e pelo service worker, que agora é um módulo (`register('sw.js', { type: 'module' })`).
 - **Tarefa nova à vista:** depois de anotar, a tela rola até a tarefa nova (acima do campo Anotar) e ela pisca em verde; o teclado continua no campo.
 - **Salvar no lugar do Concluir:** na janela da tarefa, Salvar virou o botão grande do rodapé; Concluir ficou pequeno ao lado (e no círculo junto ao título). O topo tem só Fechar.
-- **Seletor único de dia e hora:** Quando abre uma folha com as abas Dia (calendário do mês, Hoje, Amanhã, Próx. semana, Sem data) e Hora (grade de horas, minutos de 5 em 5, atalhos 08:00 a 20:00 e Sem hora). Escolher o dia passa para a aba Hora; arrastar para o lado troca de aba; um só Definir confirma os dois. O "Lembrar em" usa o mesmo seletor.
+- **Seletor único de dia e hora** (trocado na v18 pelo de calendário e relógio de ponteiro): Quando abre uma folha com as abas Dia (calendário do mês, Hoje, Amanhã, Próx. semana, Sem data) e Hora (grade de horas, minutos de 5 em 5, atalhos 08:00 a 20:00 e Sem hora). Escolher o dia passa para a aba Hora; arrastar para o lado troca de aba; um só Definir confirma os dois. O "Lembrar em" usa o mesmo seletor.
 - Sem mudança no formato dos dados, no login ou no servidor. Testado no navegador em tamanho de celular, com dados descartáveis apagados depois; 63 testes automáticos passando. A ida ao servidor a partir da notificação não foi testada com a conta real.
 
 ### v14.5, 10 de novembro: janela da tarefa, seleção e telas de lista
@@ -245,6 +254,7 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 
 ### Ainda não confirmado nos aparelhos reais
 
+- v18 no celular: anotar abrindo a tarefa, a pergunta "Sair sem salvar?" no gesto de voltar do Android (no navegador foi testada com Esc e com o fechamento forçado), a rolagem até a tarefa nova e o relógio de ponteiro com o dedo (testado com mouse e toque simulado).
 - A atualização da v14.5 para a v17 no celular (a correção do service worker foi testada só no navegador).
 - Login com Google e backup no Drive com a conta real (v16).
 - Concluir, Adiar e Amanhã na notificação sem abrir o app, tarefa nova destacada e seletor de dia e hora (v15).

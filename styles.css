@@ -653,6 +653,13 @@ details.more-row[open] > summary > .i:last-child { transform: rotate(90deg); }
 .when-pick .i { color: var(--primary); flex: none; }
 .small-pick { min-height: 48px; }
 
+/* Pergunta "Sair sem salvar?" dentro da janela da tarefa. */
+.guard-sheet { gap: 10px; }
+.guard-sheet h3 { margin: 4px 0 0; font-size: 1.15rem; }
+.guard-sheet .help { margin: 0 0 6px; }
+.guard-sheet .btn { width: 100%; justify-content: center; min-height: 48px; }
+#unsaved-guard { z-index: 40; }
+
 .dt-layer { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .35); display: flex; align-items: flex-end; justify-content: center; }
 .dt-sheet {
   width: min(480px, 100%); max-height: 92dvh; overflow-y: auto; display: grid; gap: 12px;
@@ -660,8 +667,6 @@ details.more-row[open] > summary > .i:last-child { transform: rotate(90deg); }
   box-shadow: 0 -10px 30px rgb(0 0 0 / .2);
 }
 @media (min-width: 800px) { .dt-layer { align-items: center; } .dt-sheet { border-radius: 22px; } }
-.dt-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-.dt-tabs .i { width: 18px; height: 18px; }
 .dt-track { touch-action: pan-y; }
 .dt-track[data-tab="day"] .dt-pane:nth-child(2), .dt-track[data-tab="time"] .dt-pane:nth-child(1) { display: none; }
 .dt-pane { display: grid; gap: 10px; }
@@ -675,13 +680,43 @@ details.more-row[open] > summary > .i:last-child { transform: rotate(90deg); }
 .dt-day.today { box-shadow: inset 0 0 0 1.5px var(--primary); color: var(--primary); }
 .dt-day.on { background: var(--primary); color: var(--on-primary); box-shadow: none; }
 .dt-quick { display: flex; flex-wrap: wrap; gap: 6px; }
-.dt-clock { text-align: center; }
-.dt-clock b { font-size: 2.4rem; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-.dt-label { color: var(--muted); font-size: .8rem; font-weight: 700; }
-.dt-hours { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-.dt-mins { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-.dt-cell { min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text); }
-.dt-cell.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+
+/* Abas Data e Horário com sublinhado, como no Android. */
+.dt-material { padding-top: 6px; gap: 10px; }
+.dt-tabs2 { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); margin: 0 -16px; }
+.dt-tabs2 button {
+  display: grid; justify-items: center; gap: 1px; padding: 10px 6px 9px; border: 0; background: none; color: var(--muted);
+  font-weight: 800; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; border-bottom: 3px solid transparent; margin-bottom: -1px;
+}
+.dt-tabs2 button small { font-weight: 600; font-size: .78rem; letter-spacing: 0; text-transform: none; }
+.dt-tabs2 button.on { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* Faixa do topo com a data ou o horário em letra grande. */
+.dt-head { display: grid; gap: 0; padding: 10px 14px 12px; border-radius: 16px; background: var(--primary); color: var(--on-primary); min-height: 84px; align-content: center; }
+.dt-head small { font-weight: 650; opacity: .8; font-size: .9rem; }
+.dt-head b { font-size: 1.85rem; line-height: 1.15; font-weight: 800; }
+.dt-head-time { display: flex; justify-content: center; align-items: center; gap: 2px; }
+.dt-hm { border: 0; background: none; color: var(--on-primary); opacity: .55; font: inherit; font-size: 3.1rem; font-weight: 700; line-height: 1; padding: 4px 8px; border-radius: 12px; font-variant-numeric: tabular-nums; }
+.dt-hm.on { opacity: 1; background: rgb(255 255 255 / .14); }
+.dt-colon { font-size: 2.6rem; font-weight: 700; opacity: .7; }
+
+/* Relógio de ponteiro. */
+.dt-time-pane { justify-items: center; }
+.dt-dial { width: min(256px, 74vw); aspect-ratio: 1; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; border-radius: 50%; outline-offset: 4px; }
+.dial-face { position: relative; width: 100%; height: 100%; border-radius: 50%; background: var(--soft); }
+.dial-face .dl { position: absolute; transform: translate(-50%, -50%); width: 40px; height: 40px; display: grid; place-items: center; font-weight: 700; font-size: 1rem; color: var(--text); pointer-events: none; font-variant-numeric: tabular-nums; z-index: 1; }
+.dial-face .dl.in { width: 32px; height: 32px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.dial-face .dl.on { color: var(--on-primary); }
+.dial-hand { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.dial-hand line { stroke: var(--primary); stroke-width: 2.5; }
+.dial-hand circle { fill: var(--primary); }
+.dial-hand .dot { fill: var(--on-primary); }
+.dt-time-tools { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; }
+.dt-typing { display: flex; align-items: flex-start; justify-content: center; gap: 8px; padding: 18px 0 8px; }
+.dt-typing label { display: grid; gap: 4px; justify-items: center; color: var(--muted); font-size: .8rem; font-weight: 600; }
+.dt-typing input { width: 96px; height: 76px; text-align: center; font-size: 2.6rem; font-weight: 700; border: 2px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--text); font-variant-numeric: tabular-nums; }
+.dt-typing input:focus { border-color: var(--primary); outline: none; }
+.dt-typing .dt-colon { padding-top: 10px; color: var(--text); }
 .dt-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
 .dt-summary { flex: 1; min-width: 0; font-weight: 700; font-size: .92rem; }
 .dt-foot .btn.primary { min-width: 108px; min-height: 48px; }

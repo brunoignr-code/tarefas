@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v17 · 11/11/2026';
+const APP_VERSION = 'v18 · 11/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -224,6 +224,9 @@ const findTask = (id) => state.tasks.find((t) => t.id === id);
 const findList = (id) => state.lists.find((l) => l.id === id);
 const listName = (id) => (findList(id) || { name: 'Entrada' }).name;
 const nextOrder = () => state.tasks.reduce((max, t) => Math.max(max, t.order || 0), 0) + 1;
+const topOrder = () => state.tasks.reduce((min, t) => Math.min(min, t.order || 0), 1) - 1;
+// Depois de anotar: abrir a janela da tarefa (padrão) ou continuar no campo Anotar.
+const afterAdd = () => (state.settings.afterAdd === 'keep' ? 'keep' : 'open');
 /** Lista padrão das tarefas novas que não vêm de uma lista (Hoje, compartilhar). */
 const defaultListId = () => (findList(state.settings.defaultList) ? state.settings.defaultList : INBOX);
 
@@ -278,7 +281,8 @@ async function addTask(title, context, parsed = null, extra = {}) {
     ...result.task,
     id,
     status: 'open',
-    order: nextOrder(),
+    // Tarefa nova entra no topo, como no To Do.
+    order: topOrder(),
     createdAt: new Date().toISOString(),
   });
   render();
@@ -291,10 +295,36 @@ function revealTask(id) {
   setTimeout(() => {
     const row = document.querySelector(`#view .task[data-id="${id}"]`);
     if (!row) return;
-    row.scrollIntoView({ block: 'nearest' });
+    // No meio da tela: no fim ela ficaria atrás do campo Anotar e das abas.
+    // Sem rolagem suave: ela pode não acontecer em alguns aparelhos.
+    row.scrollIntoView({ block: 'center' });
     row.classList.add('just-added');
-    setTimeout(() => row.classList.remove('just-added'), 1600);
-  }, 30);
+    setTimeout(() => row.classList.remove('just-added'), 1800);
+  }, 60);
+}
+
+/** Onde a tarefa nova foi parar, quando não aparece na tela atual. */
+function createdMessage(task, contextListId) {
+  if (!task || task.deletedAt || task.status !== 'open') return '';
+  const route = currentRoute().name;
+  if (route === 'today' && task.when !== today() && !(task.when && task.when < today())) {
+    return task.when ? `Criada para ${formatDate(task.when).toLowerCase()}: está em Próximos dias.` : `Criada sem data em ${listName(task.listId)}.`;
+  }
+  if (route === 'upcoming' && !task.when) return `Criada sem data em ${listName(task.listId)}.`;
+  if (contextListId && task.listId !== contextListId) return `Criada em ${listName(task.listId)}.`;
+  return '';
+}
+
+// Tarefa recém-anotada: ao fechar a janela, a tela rola até ela.
+let pendingReveal = null;
+function runPendingReveal() {
+  if (!pendingReveal) return;
+  const { id, listId } = pendingReveal;
+  pendingReveal = null;
+  render();
+  revealTask(id);
+  const message = createdMessage(findTask(id), listId);
+  if (message) showToast(message);
 }
 
 /** Nova posição entre os vizinhos, sem renumerar a lista inteira. */
@@ -1522,6 +1552,9 @@ function settingsView(page) {
         ${sortedLists().map((list) => `<option value="${list.id}" ${list.id === defaultListId() ? 'selected' : ''}>${escapeHtml(`${list.emoji ? `${list.emoji} ` : ''}${list.name}`)}</option>`).join('')}
       </select></div>
       <p class="help" style="margin:4px 0 14px">Vale para Hoje, o atalho do ícone e o que vier de “Compartilhar”.</p>
+      <span class="lbl">Depois de anotar no campo Anotar</span>
+      ${segmented('Depois de anotar', 'set-after-add', [['open', 'Abrir a tarefa'], ['keep', 'Continuar anotando']], afterAdd())}
+      <p class="help" style="margin:4px 0 14px">${afterAdd() === 'open' ? 'A tarefa abre para você completar dia, hora e repetição.' : 'O campo continua pronto para a próxima tarefa.'}</p>
       <label class="sr" style="border:0;padding:0"><span class="grow">Horário sugerido para lembrar<small>Ao escolher a data, a Hora e o Lembrar já vêm com ele.</small></span><input type="time" class="time-in" id="default-remind-time" value="${defaultRemindTime()}"></label>
     </section>
     <section class="panel">
@@ -2043,7 +2076,7 @@ async function submitGroup(form) {
 
 let draftSteps = [];
 
-function openTask(id) {
+function openTask(id, { isNew = false } = {}) {
   const task = findTask(id);
   if (!task) return;
   draftSteps = (task.steps || []).map((step) => ({ ...step }));
@@ -2095,7 +2128,7 @@ function openTask(id) {
     <form class="form task-form" data-form="task" data-id="${task.id}" novalidate>
       <div class="form-head sticky-head">
         <button type="button" class="btn small" data-action="close-dialog">Fechar</button>
-        <h2>Tarefa</h2>
+        <h2>${isNew ? 'Nova tarefa' : 'Tarefa'}</h2>
         <span class="head-spacer" aria-hidden="true"></span>
       </div>
       <div class="error" id="form-error" role="alert" hidden></div>
@@ -2213,7 +2246,7 @@ function openTask(id) {
   dialogSnapshot = formSnapshot();
 }
 
-/* ---------- Seletor de dia e hora (abas Dia e Hora, um só "Definir") ---------- */
+/* ---------- Seletor de data e horário (abas Data e Horário, calendário e relógio de ponteiro) ---------- */
 
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 let picker = null;
@@ -2232,7 +2265,7 @@ function openDateTimePicker(target) {
     time = value.slice(11, 16);
   }
   const base = date || today();
-  picker = { target, date: date || (target === 'remind' ? today() : ''), time, month: base.slice(0, 7), tab: 'day' };
+  picker = { target, date: date || (target === 'remind' ? today() : ''), time, month: base.slice(0, 7), tab: 'day', mode: 'h', typing: false };
   let layer = $('#dt-picker');
   if (!layer) {
     layer = document.createElement('div');
@@ -2260,25 +2293,34 @@ function renderPicker() {
     cells.push(`<button type="button" class="${cls}" data-action="dt-day" data-date="${date}" aria-pressed="${date === p.date}">${d}</button>`);
   }
   const monthTitle = capitalize(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
-  const [hh, mm] = (p.time || '').split(':');
-  const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
-  const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
-  const summary = p.date
-    ? `${capitalize(formatDate(p.date))}${p.time ? ` às ${p.time}` : ', sem hora'}`
-    : 'Sem data';
+  const [hh, mm] = p.time ? p.time.split(':') : ['--', '--'];
   const isDay = p.tab === 'day';
+  const dateShort = p.date ? new Date(`${p.date}T12:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+  const head = isDay
+    ? `<div class="dt-head"><small>${p.date ? p.date.slice(0, 4) : '&nbsp;'}</small><b>${p.date ? escapeHtml(capitalize(dateShort)) : 'Sem data'}</b></div>`
+    : `<div class="dt-head dt-head-time">
+        <button type="button" class="dt-hm ${p.mode === 'h' ? 'on' : ''}" data-action="dt-mode" data-mode="h" aria-label="Escolher a hora">${hh}</button><span class="dt-colon">:</span><button type="button" class="dt-hm ${p.mode === 'm' ? 'on' : ''}" data-action="dt-mode" data-mode="m" aria-label="Escolher os minutos">${mm}</button>
+      </div>`;
+  const timePane = p.typing
+    ? `<div class="dt-typing">
+        <label><input id="dt-type-h" inputmode="numeric" maxlength="2" value="${p.time ? hh : ''}" placeholder="00" aria-label="Hora"><small>Hora</small></label>
+        <span class="dt-colon">:</span>
+        <label><input id="dt-type-m" inputmode="numeric" maxlength="2" value="${p.time ? mm : ''}" placeholder="00" aria-label="Minutos"><small>Minutos</small></label>
+      </div>`
+    : `<div class="dt-dial" id="dt-dial" role="slider" tabindex="0" aria-label="${p.mode === 'h' ? 'Hora' : 'Minutos'}" aria-valuetext="${p.time || 'sem hora'}">${dialFace()}</div>`;
   layer.innerHTML = `
-    <div class="dt-sheet" role="dialog" aria-label="Escolher dia e hora">
-      <div class="dt-tabs segments" role="tablist">
-        <button type="button" role="tab" class="${isDay ? 'on' : ''}" aria-selected="${isDay}" data-action="dt-tab" data-tab="day">${ico('calendar')}Dia</button>
-        <button type="button" role="tab" class="${isDay ? '' : 'on'}" aria-selected="${!isDay}" data-action="dt-tab" data-tab="time">${ico('clock')}Hora</button>
+    <div class="dt-sheet dt-material" role="dialog" aria-label="Escolher data e horário">
+      <div class="dt-tabs2" role="tablist">
+        <button type="button" role="tab" class="${isDay ? 'on' : ''}" aria-selected="${isDay}" data-action="dt-tab" data-tab="day">Data<small>${p.date ? escapeHtml(formatDate(p.date)) : 'sem data'}</small></button>
+        <button type="button" role="tab" class="${isDay ? '' : 'on'}" aria-selected="${!isDay}" data-action="dt-tab" data-tab="time">Horário<small>${p.time || 'sem hora'}</small></button>
       </div>
+      ${head}
       <div class="dt-track" data-tab="${p.tab}">
         <div class="dt-pane" aria-hidden="${!isDay}">
           <div class="dt-month">
-            <button type="button" class="ib" data-action="dt-month" data-step="-1" aria-label="Mês anterior">‹</button>
+            <button type="button" class="ib" data-action="dt-month" data-step="-1" aria-label="Mês anterior">${ico('left')}</button>
             <strong>${escapeHtml(monthTitle)}</strong>
-            <button type="button" class="ib" data-action="dt-month" data-step="1" aria-label="Próximo mês">›</button>
+            <button type="button" class="ib" data-action="dt-month" data-step="1" aria-label="Próximo mês">${ico('right')}</button>
           </div>
           <div class="dt-grid">${weekNames.map((n) => `<span class="dt-week">${n[0]}</span>`).join('')}${cells.join('')}</div>
           <div class="dt-quick">
@@ -2288,42 +2330,183 @@ function renderPicker() {
             ${p.target === 'when' ? '<button type="button" class="chip" data-action="dt-quick" data-days="none">Sem data</button>' : ''}
           </div>
         </div>
-        <div class="dt-pane" aria-hidden="${isDay}">
-          <div class="dt-clock"><b>${p.time ? p.time : '--:--'}</b></div>
-          <span class="dt-label">Hora</span>
-          <div class="dt-hours">${hours.map((h) => `<button type="button" class="dt-cell ${h === hh ? 'on' : ''}" data-action="dt-hour" data-h="${h}">${h}</button>`).join('')}</div>
-          <span class="dt-label">Minutos</span>
-          <div class="dt-mins">${minutes.map((x) => `<button type="button" class="dt-cell ${x === mm ? 'on' : ''}" data-action="dt-min" data-m="${x}">:${x}</button>`).join('')}</div>
-          <div class="dt-quick">
-            ${['08:00', '09:00', '12:00', '18:00', '20:00'].map((t) => `<button type="button" class="chip ${t === p.time ? 'on' : ''}" data-action="dt-time" data-t="${t}">${t}</button>`).join('')}
-            ${p.target === 'when' ? `<button type="button" class="chip ${p.time ? '' : 'on'}" data-action="dt-time" data-t="">Sem hora</button>` : ''}
+        <div class="dt-pane dt-time-pane" aria-hidden="${isDay}">
+          ${timePane}
+          <div class="dt-time-tools">
+            <button type="button" class="ib" data-action="dt-typing" aria-label="${p.typing ? 'Escolher no relógio' : 'Digitar o horário'}" title="${p.typing ? 'Relógio' : 'Digitar'}">${p.typing ? ico('clock') : KEYBOARD_ICON}</button>
+            ${p.target === 'when' && p.time ? '<button type="button" class="btn small text" data-action="dt-time" data-t="">Sem hora</button>' : ''}
           </div>
         </div>
       </div>
       <div class="dt-foot">
-        <span class="dt-summary">${escapeHtml(summary)}</span>
-        <button type="button" class="btn small" data-action="dt-cancel">Cancelar</button>
+        <span class="dt-summary"></span>
+        <button type="button" class="btn small text" data-action="dt-cancel">Cancelar</button>
         <button type="button" class="btn primary" data-action="dt-ok" ${p.target === 'remind' && (!p.date || !p.time) ? 'disabled' : ''}>Definir</button>
       </div>
     </div>`;
 }
 
+const KEYBOARD_ICON = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 10h1M9.5 10h1M13 10h1M16.5 10h1M6 13.5h1M17 13.5h1M9 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+
+/* Relógio de ponteiro, como o do Android: anel de fora 1 a 12, de dentro 13 a 00; depois os minutos. */
+const DIAL = { size: 256, outer: 104, inner: 70 };
+
+function dialPoint(index, radius) {
+  const angle = (index * 30 - 90) * (Math.PI / 180);
+  return [DIAL.size / 2 + radius * Math.cos(angle), DIAL.size / 2 + radius * Math.sin(angle)];
+}
+
+const pct = (value) => `${((value / DIAL.size) * 100).toFixed(2)}%`;
+
+function dialFace() {
+  const p = picker;
+  const [h, mi] = p.time ? p.time.split(':').map(Number) : [null, null];
+  const labels = [];
+  let hand = null;
+  if (p.mode === 'h') {
+    for (let i = 0; i < 12; i += 1) {
+      const outer = i === 0 ? 12 : i;
+      const inner = i === 0 ? 0 : i + 12;
+      const [ox, oy] = dialPoint(i, DIAL.outer);
+      const [ix, iy] = dialPoint(i, DIAL.inner);
+      labels.push(`<span class="dl ${outer === h ? 'on' : ''}" style="left:${pct(ox)};top:${pct(oy)}">${outer}</span>`);
+      labels.push(`<span class="dl in ${inner === h ? 'on' : ''}" style="left:${pct(ix)};top:${pct(iy)}">${String(inner).padStart(2, '0')}</span>`);
+    }
+    if (h !== null) hand = { angle: (h % 12) * 30, radius: h >= 1 && h <= 12 ? DIAL.outer : DIAL.inner };
+  } else {
+    for (let i = 0; i < 12; i += 1) {
+      const value = i * 5;
+      const [x, y] = dialPoint(i, DIAL.outer);
+      labels.push(`<span class="dl ${value === mi ? 'on' : ''}" style="left:${pct(x)};top:${pct(y)}">${String(value).padStart(2, '0')}</span>`);
+    }
+    if (mi !== null) hand = { angle: mi * 6, radius: DIAL.outer, between: mi % 5 !== 0 };
+  }
+  const c = DIAL.size / 2;
+  let svg = '';
+  if (hand) {
+    const a = (hand.angle - 90) * (Math.PI / 180);
+    const x = c + hand.radius * Math.cos(a);
+    const y = c + hand.radius * Math.sin(a);
+    svg = `<svg class="dial-hand" viewBox="0 0 ${DIAL.size} ${DIAL.size}" aria-hidden="true">
+      <line x1="${c}" y1="${c}" x2="${x}" y2="${y}"/><circle cx="${c}" cy="${c}" r="4"/>
+      <circle class="knob" cx="${x}" cy="${y}" r="${hand.radius === DIAL.inner ? 17 : 21}"/>${hand.between ? `<circle cx="${x}" cy="${y}" r="3" class="dot"/>` : ''}</svg>`;
+  }
+  return `<div class="dial-face">${svg}${labels.join('')}</div>`;
+}
+
+/** Valor do relógio no ponto tocado. */
+function dialValueAt(event) {
+  const face = $('#dt-dial .dial-face');
+  const rect = face.getBoundingClientRect();
+  const scale = rect.width / DIAL.size;
+  const dx = (event.clientX - rect.left) / scale - DIAL.size / 2;
+  const dy = (event.clientY - rect.top) / scale - DIAL.size / 2;
+  const angle = (Math.atan2(dy, dx) * (180 / Math.PI) + 90 + 360) % 360;
+  if (picker.mode === 'h') {
+    const index = Math.round(angle / 30) % 12;
+    const inner = Math.hypot(dx, dy) < (DIAL.outer + DIAL.inner) / 2;
+    const hour = inner ? (index === 0 ? 0 : index + 12) : (index === 0 ? 12 : index);
+    return { hour };
+  }
+  return { minute: Math.round(angle / 6) % 60 };
+}
+
+/** Mostra o horário escolhido no cabeçalho, na aba e no botão Definir, sem redesenhar o seletor. */
+function pickerShowTime() {
+  const [nh, nm] = picker.time ? picker.time.split(':') : ['--', '--'];
+  const hm = [...document.querySelectorAll('#dt-picker .dt-hm')];
+  if (hm.length === 2) { hm[0].textContent = nh; hm[1].textContent = nm; }
+  const tab = $('#dt-picker [data-tab="time"] small');
+  if (tab) tab.textContent = picker.time || 'sem hora';
+  const ok = $('#dt-picker [data-action="dt-ok"]');
+  if (ok) ok.disabled = picker.target === 'remind' && (!picker.date || !picker.time);
+}
+
+function dialApply(value) {
+  const [h, mi] = picker.time ? picker.time.split(':') : [defaultRemindTime().split(':')[0], '00'];
+  if (value.hour !== undefined) picker.time = `${String(value.hour).padStart(2, '0')}:${mi}`;
+  else picker.time = `${h}:${String(value.minute).padStart(2, '0')}`;
+  // Atualiza só o relógio, para não perder o dedo no meio do arraste.
+  const dial = $('#dt-dial');
+  dial.innerHTML = dialFace();
+  dial.setAttribute('aria-valuetext', picker.time);
+  pickerShowTime();
+}
+
+let dialDrag = false;
+document.addEventListener('pointerdown', (event) => {
+  const dial = event.target.closest('#dt-dial');
+  if (!picker || !dial) return;
+  event.preventDefault();
+  dialDrag = true;
+  try { dial.setPointerCapture(event.pointerId); } catch { /* sem captura, segue igual */ }
+  dialApply(dialValueAt(event));
+});
+document.addEventListener('pointermove', (event) => {
+  if (!dialDrag || !picker || !$('#dt-dial')) return;
+  dialApply(dialValueAt(event));
+});
+document.addEventListener('pointerup', () => {
+  if (!dialDrag || !picker) return;
+  dialDrag = false;
+  // Escolheu a hora: passa para os minutos, como no Android.
+  if (picker.mode === 'h') {
+    picker.mode = 'm';
+    renderPicker();
+  }
+});
+document.addEventListener('pointercancel', () => { dialDrag = false; });
+
+// Setas do teclado no relógio (note).
+document.addEventListener('keydown', (event) => {
+  if (!picker || event.target.id !== 'dt-dial') return;
+  const step = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[event.key];
+  if (!step) return;
+  event.preventDefault();
+  const [h, mi] = (picker.time || `${defaultRemindTime().split(':')[0]}:00`).split(':').map(Number);
+  if (picker.mode === 'h') dialApply({ hour: (h + step + 24) % 24 });
+  else dialApply({ minute: (mi + step * 5 + 60) % 60 });
+});
+
+/** Horário digitado (modo teclado). */
+function readTypedTime() {
+  const h = $('#dt-type-h');
+  const mi = $('#dt-type-m');
+  if (!h || !mi) return;
+  const hv = Number(h.value);
+  const mv = Number(mi.value || 0);
+  if (h.value === '' || !Number.isInteger(hv) || hv < 0 || hv > 23 || !Number.isInteger(mv) || mv < 0 || mv > 59) return;
+  picker.time = `${String(hv).padStart(2, '0')}:${String(mv).padStart(2, '0')}`;
+  pickerShowTime();
+}
+document.addEventListener('input', (event) => {
+  if (!picker || !['dt-type-h', 'dt-type-m'].includes(event.target.id)) return;
+  event.target.value = event.target.value.replace(/\D/g, '').slice(0, 2);
+  readTypedTime();
+  if (event.target.id === 'dt-type-h' && event.target.value.length === 2) $('#dt-type-m')?.focus();
+});
+
 function pickerSetDate(date) {
   picker.date = date;
   if (date) picker.month = date.slice(0, 7);
-  // Escolheu o dia: sugere a hora e passa para a aba Hora.
+  // Escolheu o dia: sugere a hora e passa para a aba Horário.
   if (date && !picker.time && (picker.target === 'remind' || remindLinked)) picker.time = defaultRemindTime();
-  if (date) picker.tab = 'time';
+  if (date) {
+    picker.tab = 'time';
+    picker.mode = 'h';
+  }
   renderPicker();
 }
 
 function closePicker() {
   picker = null;
+  dialDrag = false;
   $('#dt-picker')?.remove();
 }
 
 function confirmPicker() {
   if (!picker) return;
+  if (picker.typing) readTypedTime();
   const { target, date, time } = picker;
   closePicker();
   if (target === 'when') {
@@ -2337,10 +2520,17 @@ function confirmPicker() {
   updateFormHints();
 }
 
+function pickerGoTab(tab) {
+  if (picker.typing) readTypedTime();
+  picker.tab = tab;
+  if (tab === 'time') picker.mode = 'h';
+  renderPicker();
+}
+
 const pickerActions = {
   'pick-when': () => openDateTimePicker('when'),
   'pick-remind': () => openDateTimePicker('remind'),
-  'dt-tab': (el) => { picker.tab = el.dataset.tab; renderPicker(); },
+  'dt-tab': (el) => pickerGoTab(el.dataset.tab),
   'dt-day': (el) => pickerSetDate(el.dataset.date),
   'dt-quick': (el) => pickerSetDate(el.dataset.days === 'none' ? '' : addDays(today(), Number(el.dataset.days))),
   'dt-month': (el) => {
@@ -2349,17 +2539,27 @@ const pickerActions = {
     picker.month = `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
     renderPicker();
   },
-  'dt-hour': (el) => { picker.time = `${el.dataset.h}:${(picker.time || '').split(':')[1] || '00'}`; renderPicker(); },
-  'dt-min': (el) => { picker.time = `${(picker.time || defaultRemindTime()).split(':')[0]}:${el.dataset.m}`; renderPicker(); },
-  'dt-time': (el) => { picker.time = el.dataset.t; renderPicker(); },
+  'dt-mode': (el) => {
+    if (picker.typing) readTypedTime();
+    picker.typing = false;
+    picker.mode = el.dataset.mode;
+    renderPicker();
+  },
+  'dt-typing': () => {
+    if (picker.typing) readTypedTime();
+    picker.typing = !picker.typing;
+    renderPicker();
+    if (picker.typing) $('#dt-type-h')?.focus();
+  },
+  'dt-time': (el) => { picker.time = el.dataset.t; picker.mode = 'h'; renderPicker(); },
   'dt-cancel': () => closePicker(),
   'dt-ok': () => confirmPicker(),
 };
 
-// Arrastar para o lado troca entre as abas Dia e Hora.
+// Arrastar para o lado (fora do relógio) troca entre as abas Data e Horário.
 let pickerSwipe = null;
 document.addEventListener('pointerdown', (event) => {
-  if (!picker || !event.target.closest('.dt-track')) return;
+  if (!picker || !event.target.closest('.dt-track') || event.target.closest('#dt-dial')) return;
   pickerSwipe = { x: event.clientX, y: event.clientY };
 });
 document.addEventListener('pointerup', (event) => {
@@ -2369,10 +2569,7 @@ document.addEventListener('pointerup', (event) => {
   pickerSwipe = null;
   if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
   const tab = dx < 0 ? 'time' : 'day';
-  if (tab !== picker.tab) {
-    picker.tab = tab;
-    renderPicker();
-  }
+  if (tab !== picker.tab) pickerGoTab(tab);
 });
 
 /* ---------- Quando + Hora sugerem o lembrete ---------- */
@@ -2451,10 +2648,69 @@ function formSnapshot() {
 const hasUnsavedChanges = () => dialogSnapshot !== null && formSnapshot() !== null && formSnapshot() !== dialogSnapshot;
 
 function closeDialog() {
-  if (hasUnsavedChanges() && !confirm('Descartar as alterações desta tarefa?')) return;
+  if (hasUnsavedChanges()) {
+    showUnsavedGuard();
+    return;
+  }
   dialogSnapshot = null;
   $('#dialog').close();
+  runPendingReveal();
 }
+
+/** Pergunta, dentro da janela da tarefa, o que fazer com as alterações não salvas. */
+function showUnsavedGuard() {
+  if ($('#unsaved-guard')) return;
+  const layer = document.createElement('div');
+  layer.className = 'dt-layer';
+  layer.id = 'unsaved-guard';
+  layer.innerHTML = `
+    <div class="dt-sheet guard-sheet" role="alertdialog" aria-modal="true" aria-labelledby="guard-title" aria-describedby="guard-text">
+      <h3 id="guard-title">Sair sem salvar?</h3>
+      <p class="help" id="guard-text">Você mudou esta tarefa. O que fazer com as alterações?</p>
+      <button type="button" class="btn primary" data-action="guard-save">${ico('check')}Salvar e fechar</button>
+      <button type="button" class="btn" data-action="guard-stay">Continuar editando</button>
+      <button type="button" class="btn text danger" data-action="guard-discard">Descartar alterações</button>
+    </div>`;
+  $('#dialog').append(layer);
+  layer.querySelector('[data-action="guard-save"]').focus();
+}
+
+function hideUnsavedGuard() {
+  $('#unsaved-guard')?.remove();
+}
+
+/** Salva o que está na janela da tarefa, se mudou. Devolve false se há erro no formulário. */
+async function saveTaskFormIfChanged() {
+  const form = $('form[data-form="task"]');
+  if (!form || !hasUnsavedChanges()) return true;
+  const result = applyEdit(findTask(form.dataset.id), readForm(form), today());
+  if (result.error) {
+    hideUnsavedGuard();
+    const errorBox = $('#form-error');
+    errorBox.textContent = result.error;
+    errorBox.hidden = false;
+    errorBox.scrollIntoView({ block: 'center' });
+    return false;
+  }
+  await saveTask(result.task);
+  dialogSnapshot = formSnapshot();
+  return true;
+}
+
+const guardActions = {
+  'guard-save': () => {
+    const form = $('form[data-form="task"]');
+    hideUnsavedGuard();
+    if (form) submitTask(form);
+  },
+  'guard-stay': () => hideUnsavedGuard(),
+  'guard-discard': () => {
+    dialogSnapshot = null;
+    hideUnsavedGuard();
+    $('#dialog').close();
+    runPendingReveal();
+  },
+};
 
 function extraReminderRow(value = '') {
   return `
@@ -2584,6 +2840,7 @@ async function submitTask(form) {
   dialogSnapshot = null;
   $('#dialog').close();
   render();
+  runPendingReveal();
   await checkReminders();
   if (result.whenFilled) showToast(`Quando preenchido com ${formatDate(result.task.when).toLowerCase()}.`);
 }
@@ -2953,16 +3210,22 @@ const clickActions = {
     render();
   },
   'close-dialog': () => closeDialog(),
+  // Concluir, Reabrir, Duplicar e Pular salvam antes o que foi mudado na janela.
   'complete-from-dialog': async (el) => {
+    if (!(await saveTaskFormIfChanged())) return;
+    dialogSnapshot = null;
     $('#dialog').close();
     await complete(el.dataset.id);
   },
   'reopen-from-dialog': async (el) => {
+    if (!(await saveTaskFormIfChanged())) return;
+    dialogSnapshot = null;
     $('#dialog').close();
     await reopen(el.dataset.id);
   },
   'duplicate-from-dialog': async (el) => {
-    if (hasUnsavedChanges() && !confirm('Duplicar sem salvar as alterações desta tarefa?')) return;
+    if (!(await saveTaskFormIfChanged())) return;
+    dialogSnapshot = null;
     $('#dialog').close();
     const id = await duplicateTask(el.dataset.id);
     if (id) openTask(id);
@@ -3135,9 +3398,11 @@ const clickActions = {
     await moveToTrash(el.dataset.id);
   },
   skip: async (el) => {
+    if (!(await saveTaskFormIfChanged())) return;
     const updated = skipOccurrence(findTask(el.dataset.id), today());
     const before = findTask(el.dataset.id);
     await saveTask(updated);
+    dialogSnapshot = null;
     $('#dialog').close();
     render();
     showToast(
@@ -3151,6 +3416,7 @@ const clickActions = {
   'move-up': (el) => moveTask(el.dataset.id, -1),
   'move-down': (el) => moveTask(el.dataset.id, 1),
   restore: async (el) => {
+    dialogSnapshot = null;
     if ($('#dialog').open) $('#dialog').close();
     await restoreTask(el.dataset.id);
     render();
@@ -3225,6 +3491,10 @@ const clickActions = {
     await saveSettings({ notifySecond: el.dataset.value });
     render();
   },
+  'set-after-add': async (el) => {
+    await saveSettings({ afterAdd: el.dataset.value });
+    render();
+  },
   'set-swipe-left': async (el) => {
     await saveSettings({ swipeLeft: el.dataset.value });
     render();
@@ -3256,7 +3526,7 @@ const clickActions = {
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-action]');
   if (!target) return;
-  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action] || googleActions[target.dataset.action];
+  const action = clickActions[target.dataset.action] || pickerActions[target.dataset.action] || googleActions[target.dataset.action] || guardActions[target.dataset.action];
   if (action) action(target);
 });
 
@@ -3271,16 +3541,18 @@ document.addEventListener('submit', async (event) => {
     state.quickIgnore = '';
     state.quick = {};
     const newTaskId = await addTask(v.title || text.trim(), { listId: v.listId, when: null }, v);
+    if (!newTaskId) return;
+    if (afterAdd() === 'open') {
+      // Abre a tarefa para completar data, hora e repetição, sem abrir o teclado.
+      $('#quick-input')?.blur();
+      pendingReveal = { id: newTaskId, listId: context.listId };
+      openTask(newTaskId, { isNew: true });
+      return;
+    }
     $('#quick-input')?.focus();
     revealTask(newTaskId);
-    const route = currentRoute().name;
-    if (route === 'today' && v.when !== today()) {
-      showToast(v.when ? `Criada para ${formatDate(v.when).toLowerCase()}: está em Próximos dias.` : `Criada sem data em ${listName(v.listId)}.`);
-    } else if (route === 'upcoming' && (!v.when || v.when <= today())) {
-      if (!v.when) showToast(`Criada sem data em ${listName(v.listId)}.`);
-    } else if (context.listId && v.listId !== context.listId) {
-      showToast(`Criada em ${listName(v.listId)}.`);
-    }
+    const message = createdMessage(findTask(newTaskId), context.listId);
+    if (message) showToast(message);
   } else if (form.dataset.form === 'pick-date') {
     const date = form.elements.date.value;
     if (!date) return;
@@ -3305,7 +3577,7 @@ document.addEventListener('submit', async (event) => {
   }
 });
 
-// Esc nos detalhes: avisa se há alterações não salvas.
+// Esc no note ou voltar no Android: com alterações não salvas, pergunta antes de fechar.
 $('#dialog').addEventListener('cancel', (event) => {
   // Com o seletor de dia e hora aberto, voltar fecha só o seletor.
   if (picker) {
@@ -3313,8 +3585,33 @@ $('#dialog').addEventListener('cancel', (event) => {
     closePicker();
     return;
   }
-  if (hasUnsavedChanges() && !confirm('Descartar as alterações desta tarefa?')) event.preventDefault();
-  else dialogSnapshot = null;
+  // Voltar com a pergunta na tela: continua editando.
+  if ($('#unsaved-guard')) {
+    event.preventDefault();
+    hideUnsavedGuard();
+    return;
+  }
+  if (hasUnsavedChanges()) {
+    event.preventDefault();
+    showUnsavedGuard();
+  }
+  // Sem alterações, a janela fecha; o evento 'close' limpa o resto.
+});
+
+// Rede de segurança: o Chrome do Android pode fechar a janela no gesto de voltar sem
+// deixar o app impedir (quando não houve toque desde a última vez). Ela reabre com o
+// que foi digitado e pergunta.
+$('#dialog').addEventListener('close', () => {
+  const dialog = $('#dialog');
+  if (picker) closePicker();
+  if ($('form[data-form="task"]') && hasUnsavedChanges()) {
+    dialog.showModal();
+    showUnsavedGuard();
+    return;
+  }
+  dialogSnapshot = null;
+  hideUnsavedGuard();
+  runPendingReveal();
 });
 
 document.addEventListener('input', (event) => {
