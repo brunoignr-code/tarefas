@@ -1411,3 +1411,8 @@ body.anotar-open .qp-chips .lc:not(.plain)::before { display: inline-block; marg
 /* Anotar e abrir · Anotar outra nas mesmas duas colunas dos botões de cima. */
 body.anotar-open .dock-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 body.anotar-open .dock-actions button { min-width: 0; padding: 0 10px; text-wrap: balance; }
+
+/* v26: últimos avisos recebidos, em Config. › Avisos. */
+.push-log { margin-top: 14px; display: grid; gap: 6px; }
+.push-log ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: var(--t-sm); color: var(--muted); }
+.push-log li b { color: var(--text); font-weight: var(--w-mid); }

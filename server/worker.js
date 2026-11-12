@@ -420,22 +420,43 @@ async function pushSettings(request, env) {
 
 const clip = (value, max) => String(value ?? '').slice(0, max);
 
-/** Substitui os avisos ainda não enviados. Os já enviados ficam, para não repetir. */
-async function pushSchedule(request, env) {
+/**
+ * Substitui os avisos ainda não enviados. Os já enviados ficam, para não repetir.
+ * v26: cada aparelho monta a agenda com as tarefas que tem. Para um aparelho atrasado não apagar
+ * os avisos que outro acabou de pôr, a agenda vem com `since` (até onde ele sincronizou) e é
+ * ignorada se outro aparelho já mandou uma agenda mais nova. Por /push/task, com `taskId` (botão da
+ * notificação, com o app fechado), troca só os avisos daquela tarefa; o endereço é outro para um
+ * servidor antigo responder 404 em vez de tratar como agenda inteira. Sem `since` (versões antigas
+ * do app), vale como antes.
+ */
+// As rotas recebem (request, env, sessão): a troca por tarefa vem num quarto argumento.
+const pushTaskSchedule = (request, env, current) => pushSchedule(request, env, current, true);
+
+async function pushSchedule(request, env, current, byTask = false) {
   const body = await request.json();
   const items = Array.isArray(body.items) ? body.items : [];
   if (items.length > MAX_SCHEDULE) return reply(request, { error: 'Agenda grande demais.' }, 413);
   const valid = items.every((item) => typeof item?.key === 'string' && item.key.length <= 200
     && Number.isFinite(item.at) && PUSH_KINDS.has(item.kind) && item.kind !== 'test');
   if (!valid) return reply(request, { error: 'Agenda inválida.' }, 400);
-  const insert = env.DB.prepare('INSERT OR IGNORE INTO push_queue (key, at, task_id, kind, title, body) VALUES (?, ?, ?, ?, ?, ?)');
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND kind <> 'test'"),
-    ...items.map((item) => insert.bind(item.key, Math.round(item.at), item.taskId ? clip(item.taskId, 100) : null,
-      item.kind, clip(item.title, 300), clip(item.body, 500))),
-  ]);
+  const taskId = byTask && typeof body.taskId === 'string' && body.taskId ? clip(body.taskId, 100) : null;
+  if (byTask && (!taskId || items.some((item) => item.taskId !== taskId))) return reply(request, { error: 'Agenda inválida.' }, 400);
+  const since = !taskId && Number.isInteger(body.since) && body.since >= 0 ? body.since : null;
+  const newest = since === null ? null : await readMeta(env, 'pushScheduleSince');
+  const stale = since !== null && !!newest && since < newest.since;
+  if (!stale) {
+    const insert = env.DB.prepare('INSERT OR IGNORE INTO push_queue (key, at, task_id, kind, title, body) VALUES (?, ?, ?, ?, ?, ?)');
+    await env.DB.batch([
+      taskId
+        ? env.DB.prepare('DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ?').bind(taskId)
+        : env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND kind <> 'test'"),
+      ...items.map((item) => insert.bind(item.key, Math.round(item.at), item.taskId ? clip(item.taskId, 100) : null,
+        item.kind, clip(item.title, 300), clip(item.body, 500))),
+      ...(since !== null ? [writeMeta(env, 'pushScheduleSince', { since })] : []),
+    ]);
+  }
   const [settings, devices] = await Promise.all([readMeta(env, 'pushSettings'), deviceCount(env)]);
-  return reply(request, { ok: true, settings: normalizePushSettings(settings), devices });
+  return reply(request, { ok: true, stale, settings: normalizePushSettings(settings), devices });
 }
 
 /** Teste: um aviso daqui a 1 minuto, para dar tempo de fechar o app. */
@@ -745,6 +766,7 @@ export default {
         '/push/unsubscribe': pushUnsubscribe,
         '/push/settings': pushSettings,
         '/push/schedule': pushSchedule,
+        '/push/task': pushTaskSchedule,
         '/push/test': pushTest,
         '/google/status': googleStatus,
         '/google/link': googleLink,

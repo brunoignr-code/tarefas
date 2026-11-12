@@ -123,6 +123,29 @@ check('teste agendado para daqui a 1 minuto', test.body.at - Date.now() > 55000)
 await call('/push/schedule', { items: [] }, token);
 check('agenda nova não apaga o teste', sqlite.exec("SELECT COUNT(*) FROM push_queue WHERE kind = 'test'")[0].values[0][0] === 1);
 
+// v26: agenda de aparelho atrasado não apaga a de outro; botão da notificação troca só a tarefa dele.
+const queueKeys = () => sqlite.exec("SELECT key FROM push_queue WHERE sent_at IS NULL AND kind <> 'test' ORDER BY key")[0]?.values.map((v) => v[0]) || [];
+const later = Date.now() + 3600000;
+const item = (task, n = 0) => ({ key: `${task}|x|${n}`, at: later + n, taskId: task, kind: 'remind', title: task, body: 'b' });
+const s1 = await call('/push/schedule', { since: 5, items: [item('a1'), item('a2')] }, token);
+check('agenda com since aceita', s1.status === 200 && s1.body.stale === false && queueKeys().join() === 'a1|x|0,a2|x|0');
+const s2 = await call('/push/schedule', { since: 3, items: [item('velha')] }, token);
+check('agenda de aparelho atrasado ignorada', s2.status === 200 && s2.body.stale === true && queueKeys().join() === 'a1|x|0,a2|x|0');
+const s3 = await call('/push/schedule', { since: 5, items: [item('a1'), item('a2'), item('a3')] }, token);
+check('agenda do mesmo ponto aceita', s3.body.stale === false && queueKeys().length === 3);
+const s4 = await call('/push/task', { taskId: 'a2', items: [item('a2', 1)] }, token);
+check('botão da notificação troca só a tarefa dele', s4.body.stale === false && queueKeys().join() === 'a1|x|0,a2|x|1,a3|x|0');
+await call('/push/task', { taskId: 'a3', items: [] }, token);
+check('tarefa resolvida sai da fila sem mexer nas outras', queueKeys().join() === 'a1|x|0,a2|x|1');
+check('troca por tarefa com aviso de outra tarefa recusada', (await call('/push/task', { taskId: 'a1', items: [item('a2')] }, token)).status === 400 && (await call('/push/task', { items: [] }, token)).status === 400);
+check('troca por tarefa não mexe no ponto da agenda', JSON.parse(sqlite.exec("SELECT value FROM meta WHERE key = 'pushScheduleSince'")[0].values[0][0]).since === 5);
+check('taskId em /push/schedule não vira troca por tarefa', (await call('/push/schedule', { since: 5, taskId: 'a1', items: [item('a1')] }, token)).body.stale === false && queueKeys().join() === 'a1|x|0');
+const s5 = await call('/push/schedule', { items: [item('antigo')] }, token);
+check('versão antiga do app (sem since) continua valendo', s5.body.stale === false && queueKeys().join() === 'antigo|x|0');
+await call('/push/schedule', { since: 9, items: [] }, token);
+check('agenda mais nova sobe o ponto', JSON.parse(sqlite.exec("SELECT value FROM meta WHERE key = 'pushScheduleSince'")[0].values[0][0]).since === 9);
+check('teste continua na fila depois de tudo', sqlite.exec("SELECT COUNT(*) FROM push_queue WHERE kind = 'test'")[0].values[0][0] === 1);
+
 await call('/push/unsubscribe', { endpoint: ep1 }, token);
 check('aparelho saiu', (await call('/push/state', {}, token)).body.devices === 0);
 

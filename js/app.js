@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v25 · 12/11/2026';
+const APP_VERSION = 'v26 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -198,17 +198,40 @@ async function savePushLocal(record) {
 }
 
 let pushUploading = false;
+let pushAgain = false;
+let pushStaleRetries = 0;
 
-/** Depois de sincronizar, envia a agenda de avisos se ela mudou. */
+/**
+ * Depois de sincronizar, envia a agenda de avisos se ela mudou.
+ * v26: um pedido que chega durante um envio não se perde (antes ficava para a sincronização
+ * seguinte, que não roda com o app em segundo plano). Se o servidor responder que outro aparelho
+ * está mais atualizado, sincroniza de novo e reenvia.
+ */
 async function refreshPushSchedule(force = false) {
-  if (!state.sync?.token || pushUploading || !navigator.onLine) return;
+  if (!state.sync?.token || !navigator.onLine) return;
+  if (pushUploading) {
+    pushAgain = true;
+    return;
+  }
   pushUploading = true;
   try {
-    await uploadSchedule(state.sync.token, { tasks: () => state.tasks, local: pushLocal, saveLocal: savePushLocal }, force);
+    const result = await uploadSchedule(state.sync.token, {
+      tasks: () => state.tasks, since: () => state.sync?.since, local: pushLocal, saveLocal: savePushLocal,
+    }, force);
+    if (result === 'stale' && pushStaleRetries < 3) {
+      pushStaleRetries += 1;
+      syncEngine.schedule(300);
+    } else if (result !== 'stale') {
+      pushStaleRetries = 0;
+    }
   } catch (error) {
     console.warn('Agenda de avisos não enviada', error);
   } finally {
     pushUploading = false;
+    if (pushAgain) {
+      pushAgain = false;
+      refreshPushSchedule();
+    }
   }
 }
 
@@ -1786,6 +1809,7 @@ function mountGoogle() {
   const route = currentRoute();
   // Lista de aparelhos: busca ao abrir Conta (de novo se a sessão mudou).
   if (route.name === 'settings' && route.id === 'conta' && state.sync?.token && state.devicesFor !== state.sync.token && !state.devicesLoading) loadDevices();
+  if (route.name === 'settings' && route.id === 'avisos') loadPushLog();
   if (route.name !== 'settings' || !['conta', 'dados'].includes(route.id) || !googleReady()) return;
   loadGoogle().catch(() => {});
   if (state.sync?.token && !state.googleFetching && (!state.google || Date.now() - (state.googleAt || 0) > 60000)) {
@@ -1884,6 +1908,42 @@ const googleActions = {
   },
 };
 
+/** Como cada aviso recebido terminou, em palavras (v26). */
+function pushLogText(entry) {
+  if (entry.source === 'renewed') return 'o Chrome trocou a inscrição; renovada sozinha';
+  const where = {
+    server: '', offline: ' · sem internet, usou as tarefas daqui', 'server-404': ' · o servidor não reconheceu este aparelho',
+  }[entry.source] ?? ` · erro do servidor (${String(entry.source).replace('server-', '')})`;
+  let what = `${entry.shown} ${entry.shown === 1 ? 'aviso mostrado' : 'avisos mostrados'}`;
+  if (!entry.shown) what = entry.visible ? 'app aberto: ele mesmo avisou' : 'nada novo para mostrar';
+  return `${what}${where}`;
+}
+
+/** Os últimos avisos que chegaram a este aparelho, gravados pelo service worker. */
+function pushLogBlock() {
+  const entries = (state.pushLog || []).slice(-5).reverse();
+  const rows = entries.map((entry) => {
+    const date = new Date(entry.at);
+    return `<li><b>${escapeHtml(formatDate(localDate(date)).toLowerCase())} às ${escapeHtml(localDateTime(date).slice(11))}</b> · ${escapeHtml(pushLogText(entry))}</li>`;
+  }).join('');
+  return `
+      <div class="push-log">
+        <span class="label-text">Últimos avisos que chegaram a este aparelho</span>
+        ${rows ? `<ul>${rows}</ul>` : '<p class="help">Nenhum ainda. Depois de um teste, se nada aparecer aqui, o aviso não saiu do servidor ou não chegou a este aparelho.</p>'}
+      </div>`;
+}
+
+async function loadPushLog() {
+  try {
+    const record = await db.get('meta', 'pushLog');
+    const entries = record?.entries || [];
+    if (JSON.stringify(entries) === JSON.stringify(state.pushLog || [])) return;
+    state.pushLog = entries;
+    const route = currentRoute();
+    if (route.name === 'settings' && route.id === 'avisos') render();
+  } catch { /* Sem registro: o painel diz que nenhum chegou. */ }
+}
+
 function pushPanel() {
   const settings = pushSettings();
   const head = '<span class="lbl">Com o app fechado</span>';
@@ -1901,6 +1961,7 @@ function pushPanel() {
         </div></div>
       ${switchRow('push-digest', 'Resumo do dia', 'As tarefas de Hoje numa notificação', settings.digest, `<input type="time" class="time-in" id="push-digest-time" aria-label="Horário do resumo" value="${settings.digestTime}" ${settings.digest ? '' : 'disabled'}>`)}
       ${on ? '<button class="btn" data-action="push-test" style="width:100%;margin-top:10px">Testar com o app fechado</button>' : ''}
+      ${on ? pushLogBlock() : ''}
       <p class="help" style="margin:10px 0 0">O resumo e a insistência valem para todos os aparelhos da conta.</p>
     </section>`;
 }
@@ -4693,8 +4754,13 @@ document.addEventListener('visibilitychange', () => {
     checkReminders();
     syncEngine.run();
     checkDriveHealth();
+  } else {
+    // v26: ao sair da tela (bloquear o celular, trocar de app), envia já o que mudou e a agenda de
+    // avisos, sem esperar o intervalo da sincronização: em segundo plano o Android congela a página.
+    syncEngine.run();
   }
 });
+window.addEventListener('pagehide', () => syncEngine.run());
 window.addEventListener('online', () => syncEngine.run());
 
 // Ações de notificação abertas com o app fechado chegam pelo endereço.
@@ -4719,6 +4785,7 @@ if ('serviceWorker' in navigator) {
     } else if (event.data && event.data.type === 'push-arrived') {
       // Com o app aberto, ele mesmo avisa; sincroniza antes, caso a tarefa venha de outro aparelho.
       syncEngine.run().finally(checkReminders);
+      setTimeout(loadPushLog, 1500);
     }
   });
 }

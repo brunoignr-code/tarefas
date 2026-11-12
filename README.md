@@ -71,7 +71,23 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v25)
+## Estado do projeto (12 de novembro de 2026, v26)
+
+### v26, 12 de novembro: avisos entre celulares que não se perdem
+
+Feedback de uso: tarefa criada no A17 para avisar no minuto seguinte; o A55 avisou uma vez e falhou em outras três (com e sem economia de bateria, até com a tela ligada). Ao abrir o app, as tarefas estavam lá, sem notificação. **Precisa implantar o servidor** (`server/worker.js`) **antes de publicar o app**.
+
+- **Agenda que não chegava ao servidor:** o aparelho que cria a tarefa esperava 1,5 s para sincronizar e só então mandava a agenda de avisos. Bloquear o celular ou trocar de app nesse intervalo congelava a página, e o servidor nunca soube do aviso. Agora, ao sair da tela, o app sincroniza e manda a agenda na hora (medido: 70 ms em vez de 1,5 s).
+- **Agenda descartada:** uma mudança feita enquanto outra agenda estava sendo enviada (criar e logo ajustar o lembrete) era descartada até a sincronização seguinte, 60 s depois, que não roda em segundo plano. Agora ela vai logo depois do envio em andamento.
+- **Requisição presa:** sincronização e agenda têm tempo limite de 20 s; antes uma conexão presa podia travar os envios até reabrir o app.
+- **Agenda de aparelho atrasado apagava a dos outros (servidor):** cada envio substituía a fila inteira de avisos ainda não enviados, montada com as tarefas de quem enviou. Um aparelho desatualizado (em especial o botão Concluir, Amanhã ou Adiar de uma notificação, que roda com o app fechado e as tarefas guardadas naquele celular) apagava os avisos que outro tinha acabado de pôr. Agora:
+  - a agenda vem com `since` (até onde o aparelho sincronizou); o servidor guarda o maior (`meta.pushScheduleSince`) e ignora agendas mais antigas, respondendo `stale`; o app então sincroniza e reenvia;
+  - o botão da notificação troca só os avisos daquela tarefa, pelo endereço novo `/push/task` (um servidor antigo responderia 404 em vez de apagar a fila);
+  - versões antigas do app (sem `since`) continuam valendo como antes.
+- **Inscrição trocada pelo Chrome:** quando o Chrome renova a inscrição de push, o service worker agora se inscreve de novo e avisa o servidor sozinho. Antes, o servidor recebia "410" no endereço velho e apagava o aparelho, que só voltava a receber ao abrir o app.
+- **Config. › Avisos › Últimos avisos que chegaram a este aparelho:** as 5 últimas chegadas, com o resultado ("1 aviso mostrado", "app aberto: ele mesmo avisou", "o servidor não reconheceu este aparelho", "o Chrome trocou a inscrição; renovada sozinha"). Se depois de um teste nada aparecer ali, o push não chegou ao aparelho.
+- Testado no navegador: 70 testes do servidor (11 novos: agenda com `since`, aparelho atrasado ignorado, troca por tarefa, versão antiga); 74 das regras; o app com o `server/worker.js` rodando em memória numa página temporária (já apagada): criar tarefa, sair da tela logo depois, duas mudanças durante um envio lento, corrida entre dois aparelhos (a agenda atrasada foi ignorada e o app reenviou a completa), botão da notificação pelo `/push/task`, push chegando e mostrando o aviso, inscrição renovada; service worker da v25 já instalado atualizando para a v26.
+- **Não testado no celular de verdade:** push real entre o A17 e o A55 (depende do Firebase/Chrome e da bateria do Android) e a renovação automática da inscrição.
 
 ### v25, 12 de novembro: grupos de botões que fecham certinho
 

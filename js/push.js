@@ -4,6 +4,10 @@ import { buildSchedule, normalizePushSettings } from './push-core.js';
 
 export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
+// Uma requisição presa (rede ruim no celular) não pode travar a sincronização nem os avisos.
+const REQUEST_TIMEOUT_MS = 20000;
+const timeoutSignal = () => (AbortSignal.timeout ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : undefined);
+
 async function post(path, payload, token) {
   let response;
   try {
@@ -11,6 +15,7 @@ async function post(path, payload, token) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(payload || {}),
+      signal: timeoutSignal(),
     });
   } catch {
     throw new Error('Sem conexão com o servidor.');
@@ -82,14 +87,18 @@ export const sendPushTest = (token) => post('/push/test', {}, token);
 
 /**
  * Envia a agenda se ela mudou desde o último envio deste aparelho.
- * hooks: tasks(), local() e saveLocal(record) com { settings, hash }.
+ * hooks: tasks(), since() (até onde este aparelho sincronizou), local() e saveLocal(record) com { settings, hash }.
+ * Devolve 'stale' se o servidor já tem a agenda de um aparelho mais atualizado (v26): este aparelho
+ * precisa sincronizar antes, e a agenda vai de novo depois.
  */
 export async function uploadSchedule(token, hooks, force = false) {
   const local = hooks.local();
   const items = buildSchedule(hooks.tasks(), new Date(), local.settings);
   const hash = JSON.stringify([local.settings, items]);
   if (!force && hash === local.hash) return false;
-  const result = await post('/push/schedule', { items }, token);
+  const since = hooks.since?.();
+  const result = await post('/push/schedule', Number.isInteger(since) ? { items, since } : { items }, token);
+  if (result.stale) return 'stale';
   const settings = normalizePushSettings(result.settings);
   if (JSON.stringify(settings) !== JSON.stringify(normalizePushSettings(local.settings))) {
     // Outro aparelho mudou o resumo ou a insistência: refaz a agenda com os valores do servidor.

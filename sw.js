@@ -610,7 +610,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v25';
+const CACHE = 'tarefas-v26';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -759,11 +759,13 @@ async function registerAction(database, action, id) {
   try {
     // "since" não avança aqui: o app recebe tudo na próxima sincronização (a junção é campo a campo).
     await fetch(`${SYNC_URL}/sync`, { method: 'POST', headers, body: JSON.stringify({ since: sync.since || 0, records, deletes: [] }) });
-    // Refaz a agenda dos avisos, para os outros aparelhos não avisarem de uma tarefa já resolvida.
+    // Refaz os avisos só desta tarefa, para os outros aparelhos não avisarem de uma tarefa já
+    // resolvida (v26). Antes ia a agenda inteira, montada com as tarefas deste aparelho, que com o
+    // app fechado podem estar desatualizadas: apagava avisos que outro aparelho tinha acabado de pôr.
     const push = await idb(database, 'meta', 'readonly', (store) => store.get('push'));
-    const tasks = await idb(database, 'tasks', 'readonly', (store) => store.getAll());
-    const items = buildSchedule(tasks, new Date(), normalizePushSettings(push && push.settings));
-    await fetch(`${SYNC_URL}/push/schedule`, { method: 'POST', headers, body: JSON.stringify({ items }) });
+    const items = buildSchedule([saved], new Date(), normalizePushSettings(push && push.settings)).filter((item) => item.taskId === id);
+    // Endereço próprio: um servidor antigo responde 404 em vez de tratar como agenda inteira.
+    await fetch(`${SYNC_URL}/push/task`, { method: 'POST', headers, body: JSON.stringify({ taskId: id, items }) });
     if (push) await idb(database, 'meta', 'readwrite', (store) => store.put({ ...push, hash: null }));
   } catch (error) {
     // Sem internet: a mudança fica guardada (marcada para enviar) e sobe quando o app abrir.
@@ -775,6 +777,17 @@ async function registerAction(database, action, id) {
 // O push chega sem conteúdo. O aviso vem de /push/due; sem internet, das tarefas guardadas aqui.
 
 const SHOWN_MAX = 300;
+const LOG_MAX = 20;
+
+/** Guarda os últimos avisos que chegaram a este aparelho, para Config. › Avisos mostrar (v26). */
+async function logPush(database, entry) {
+  if (!database) return;
+  try {
+    const record = await idb(database, 'meta', 'readonly', (s) => s.get('pushLog'));
+    const entries = [...((record && record.entries) || []), { at: Date.now(), ...entry }].slice(-LOG_MAX);
+    await idb(database, 'meta', 'readwrite', (s) => s.put({ id: 'pushLog', entries }));
+  } catch { /* Só um registro: não atrapalha o aviso. */ }
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -854,6 +867,7 @@ async function onPush() {
   const second = settings && settings.notifySecond === 'snooze' ? 'snooze' : 'tomorrow';
 
   let items = null;
+  let source = 'server';
   try {
     const subscription = await self.registration.pushManager.getSubscription();
     const response = await fetch(`${SYNC_URL}/push/due`, {
@@ -862,7 +876,8 @@ async function onPush() {
       body: JSON.stringify({ endpoint: subscription && subscription.endpoint }),
     });
     if (response.ok) items = (await response.json()).items;
-  } catch { /* Sem internet: usa as tarefas guardadas. */ }
+    else source = `server-${response.status}`;
+  } catch { source = 'offline'; }
   if (!items) items = localDue(tasks, new Date());
 
   // Com o app na tela, ele mesmo mostra os lembretes; o resumo e o teste aparecem sempre.
@@ -877,12 +892,43 @@ async function onPush() {
     const keys = [...shown, ...fresh.map((item) => item.key)].slice(-SHOWN_MAX);
     await idb(database, 'meta', 'readwrite', (s) => s.put({ id: 'pushShown', keys })).catch(() => {});
   }
+  await logPush(database, { source, items: items.length, shown: latest.size, visible });
   if (!latest.size && !visible) {
     // O navegador exige um aviso a cada push. Repete em silêncio o último, ou um aviso genérico.
     const last = items[items.length - 1];
     await notify(last || { key: 'generic', kind: 'generic', title: APP_NAME, body: 'Você tem um lembrete. Toque para abrir.' }, true, second);
   }
 }
+
+/**
+ * O Chrome às vezes troca a inscrição de push (atualização, limpeza). Sem isto, o servidor seguia
+ * mandando para o endereço velho, recebia "410" e apagava o aparelho: os avisos só voltavam ao abrir o app.
+ */
+async function renewSubscription(event) {
+  let subscription = event.newSubscription || null;
+  if (!subscription) {
+    const key = event.oldSubscription && event.oldSubscription.options && event.oldSubscription.options.applicationServerKey;
+    if (!key) return;
+    subscription = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+  }
+  const database = await openDb();
+  try {
+    const sync = await idb(database, 'meta', 'readonly', (store) => store.get('sync'));
+    if (!sync || !sync.token) return;
+    await fetch(`${SYNC_URL}/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sync.token}` },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    });
+    await logPush(database, { source: 'renewed', items: 0, shown: 0, visible: false });
+  } finally {
+    database.close();
+  }
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(renewSubscription(event).catch((error) => console.warn('Inscrição não renovada', error)));
+});
 
 self.addEventListener('push', (event) => {
   event.waitUntil(onPush().catch((error) => {

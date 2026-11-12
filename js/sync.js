@@ -6,6 +6,10 @@ const BATCH = 25;
 const MAX_ROUNDS = 40;
 const KINDS = ['tasks', 'lists', 'log'];
 
+// Uma requisição presa (rede ruim no celular) não pode travar a sincronização nem os avisos.
+const REQUEST_TIMEOUT_MS = 20000;
+const timeoutSignal = () => (AbortSignal.timeout ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : undefined);
+
 async function post(path, payload, token) {
   let response;
   try {
@@ -13,6 +17,7 @@ async function post(path, payload, token) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(payload),
+      signal: timeoutSignal(),
     });
   } catch {
     throw new Error('Sem conexão com o servidor.');
