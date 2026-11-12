@@ -5,12 +5,13 @@ Copie o bloco abaixo no novo chat, aberto nesta mesma pasta. A próxima ação j
 ```text
 Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal, alternativa ao Microsoft To Do).
 
-Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v28 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
+Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v29 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
 
 PRÓXIMA AÇÃO (pedido meu):
 [escreva aqui o que quer fazer; sem pedido, siga os feedbacks de uso real no fim]
 
 Onde paramos (12/11/2026):
+- v29 publicada (servidor implantado antes): fase 0 da confiabilidade dos avisos. Conferência da bateria em Config. › Avisos (Android) e push valendo 1 hora (antes 15 min). Próximo passo grande, se eu quiser: fase 1, alarme nativo no APK (alarmes exatos do Android, push como reserva); fase 2, Concluir/Amanhã sem abrir o app pelo nativo.
 - v28 publicada: Salvar da janela da tarefa na cor de destaque também no claro (era branco e sumia contra a página).
 - v27 publicada: cartão em Hoje e Config. quando as notificações estão bloqueadas, ainda não liberadas ou só com o app aberto (Como liberar / Liberar / Ativar; Agora não esconde por 7 dias, por aparelho). O A17 tinha instalado com notificação bloqueada.
 - v26 publicada (servidor implantado antes): avisos entre celulares que não se perdem. Agenda enviada ao sair da tela, sem descarte e com tempo limite; servidor ignora agenda de aparelho atrasado (`since`, meta pushScheduleSince) e o botão da notificação troca só a tarefa dele (`/push/task`); service worker renova a inscrição sozinho; Config. › Avisos mostra os últimos avisos que chegaram ao aparelho.

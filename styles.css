@@ -1427,3 +1427,13 @@ body.anotar-open .dock-actions button { min-width: 0; padding: 0 10px; text-wrap
 .notify-actions .pill-btn:not(.primary) { background: color-mix(in srgb, var(--on-later) 14%, transparent); color: var(--on-later); }
 .notify-steps { margin: 6px 0 0; padding-left: 1.2rem; display: grid; gap: 6px; font-size: var(--t-md); font-weight: 500; color: var(--text); text-align: left; }
 .notify-steps b { font-weight: var(--w-mid); }
+
+/* v29: conferência da bateria, em Config. › Avisos (Android). */
+.battery-panel > summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.battery-panel > summary::-webkit-details-marker { display: none; }
+.battery-panel > summary .grow { display: grid; gap: 2px; }
+.battery-panel > summary .lbl { margin: 0; }
+.battery-panel > summary small { color: var(--muted); font-size: var(--t-sm); }
+.battery-panel > summary > .i { transition: transform .15s; flex: none; color: var(--muted); }
+.battery-panel[open] > summary > .i { transform: rotate(90deg); }
+.battery-steps { margin: 12px 0 10px; }

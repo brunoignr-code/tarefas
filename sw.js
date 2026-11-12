@@ -610,7 +610,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v28';
+const CACHE = 'tarefas-v29';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -821,9 +821,9 @@ function alreadyNotified(task, key) {
   return markTime === time && (Number(markStep) || 0) >= step;
 }
 
-// Sem internet: lembretes que venceram nos últimos 15 minutos, pelas tarefas deste aparelho.
+// Sem internet: lembretes que venceram na última hora, pelas tarefas deste aparelho (v29; antes 15 min).
 function localDue(tasks, now) {
-  const from = localDateTime(new Date(now.getTime() - 15 * 60000));
+  const from = localDateTime(new Date(now.getTime() - 60 * 60000));
   const to = localDateTime(now);
   return tasks.filter((task) => task.status === 'open' && !task.deletedAt).flatMap((task) => {
     const time = [task.remindAt, ...(task.extraReminders || []), task.snoozedUntil]

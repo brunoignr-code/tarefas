@@ -276,7 +276,8 @@ async function sync(request, env) {
 // nada dos 10 ms de CPU do plano gratuito.
 const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^updates\.push\.services\.mozilla\.com$/, /\.notify\.windows\.com$/, /^web\.push\.apple\.com$/];
 const MAX_SCHEDULE = 250;
-const DUE_WINDOW_MS = 15 * 60000;
+// v29: um aviso que chega atrasado (celular sem rede por um tempo) ainda aparece, até 1 hora depois.
+const DUE_WINDOW_MS = 60 * 60000;
 const STALE_MS = 6 * 3600000;
 const JWT_HOURS = 12;
 const PUSH_SUBJECT = 'https://brunoignr-code.github.io/tarefas/';
@@ -358,7 +359,7 @@ async function sendPushes(env) {
     try {
       const response = await fetch(sub.endpoint, {
         method: 'POST',
-        headers: { Authorization: await vapidAuth(env, sub.endpoint), TTL: '900', Urgency: 'high', 'Content-Length': '0' },
+        headers: { Authorization: await vapidAuth(env, sub.endpoint), TTL: '3600', Urgency: 'high', 'Content-Length': '0' },
         body: '',
       });
       // O aparelho cancelou a inscrição ou reinstalou o app.

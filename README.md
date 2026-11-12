@@ -71,7 +71,17 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v28)
+## Estado do projeto (12 de novembro de 2026, v29)
+
+### v29, 12 de novembro: fase 0 da confiabilidade dos avisos
+
+Primeiro passo para o alarme ficar mais garantido, só com web e servidor. A solução definitiva é o alarme nativo no APK (fase 1, ainda não começada). **Precisa implantar o servidor** (`server/worker.js`).
+
+- **Conferência da bateria** em Config. › Avisos, só no Android: os passos para o Afazeres e o Chrome ficarem em "Sem restrições" e, nos Samsung, em "Apps que nunca entram em suspensão" (e fora de "em suspensão profunda"), seguidos de "Testar com o app fechado". "Já conferi neste aparelho" fecha o painel (guardado só no aparelho). O app não consegue abrir essas telas do sistema pelo navegador, por isso mostra o caminho.
+- **Aviso atrasado não se perde:** o push agora vale por 1 hora no Firebase (antes 15 min), e o aparelho busca no servidor os avisos da última hora (antes 15 min). Um celular sem rede por um tempo (metrô, modo avião) recebe o lembrete quando a rede volta, em vez de nunca. Sem internet, o service worker também olha a última hora nas tarefas guardadas.
+- **Pontualidade:** medido antes, o cron roda por volta do segundo 18 de cada minuto; como os lembretes são em hora cheia de minuto, o atraso típico é de ~20 s. Trocar por um disparo exato da Cloudflare (Durable Objects) exigiria reenviar o servidor mexendo nas ligações do banco e do segredo, um risco que não compensa 20 segundos. Ficou de fora.
+- Testado: 70 testes do servidor (o push com validade de 1 hora incluso); painel da bateria num Android simulado (375 px), abrir e fechar, "Já conferi"; dados descartáveis apagados depois.
+- **Não testado no celular de verdade:** os caminhos exatos das telas em cada modelo (os nomes mudam entre versões do Android e da One UI) e o aviso chegando depois de um tempo sem rede.
 
 ### v28, 12 de novembro: Salvar na cor de destaque
 

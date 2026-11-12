@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v28 · 12/11/2026';
+const APP_VERSION = 'v29 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -2017,6 +2017,32 @@ async function loadPushLog() {
   } catch { /* Sem registro: o painel diz que nenhum chegou. */ }
 }
 
+/* ---------- Conferência da bateria (v29) ---------- */
+// No Android, a economia de bateria é o que mais segura os avisos com o app fechado. O app não
+// consegue abrir essas telas do sistema pelo navegador, então mostra o caminho de cada uma.
+const BATTERY_DONE_KEY = 'afazeres-bateria-conferida';
+const isAndroid = () => /Android/i.test(navigator.userAgent);
+
+function batteryChecked() {
+  try { return localStorage.getItem(BATTERY_DONE_KEY) === '1'; } catch { return false; }
+}
+
+function batteryPanel() {
+  if (!isAndroid()) return '';
+  const done = batteryChecked();
+  return `
+    <details class="panel battery-panel" ${done ? '' : 'open'}>
+      <summary><span class="grow"><span class="lbl">Bateria${done ? ' · conferida neste aparelho' : ''}</span><small>Para os avisos chegarem com o app fechado e o celular parado</small></span>${ico('right')}</summary>
+      <ol class="notify-steps battery-steps">
+        <li><b>Afazeres:</b> segure o ícone na tela inicial › <b>Informações do app</b> (ⓘ) › <b>Bateria</b> › <b>Sem restrições</b>.</li>
+        <li><b>Chrome</b> (o app usa o Chrome por baixo): Configurações do Android › <b>Apps</b> › <b>Chrome</b> › <b>Bateria</b> › <b>Sem restrições</b>.</li>
+        <li><b>Samsung:</b> Configurações › <b>Bateria</b> (ou Cuidados com o dispositivo) › <b>Limites de uso em segundo plano</b> › <b>Apps que nunca entram em suspensão</b> › adicione o <b>Afazeres</b> e o <b>Chrome</b>. Confira também se eles não estão em "Apps em suspensão" ou "em suspensão profunda".</li>
+        <li>Depois, toque em <b>Testar com o app fechado</b>, bloqueie o celular e espere 1 minuto.</li>
+      </ol>
+      <label class="check-line"><input type="checkbox" id="battery-done" ${done ? 'checked' : ''}> Já conferi neste aparelho</label>
+    </details>`;
+}
+
 function pushPanel() {
   const settings = pushSettings();
   const head = '<span class="lbl">Com o app fechado</span>';
@@ -2178,7 +2204,8 @@ function settingsView(page) {
         ${permission === 'granted' ? `<button class="btn small" data-action="test-notification">${ico('bell')}Enviar teste</button>` : ''}
       </div>
     </section>
-    ${pushPanel()}`;
+    ${pushPanel()}
+    ${batteryPanel()}`;
   }
   if (page === 'conta') return `${title('Conta e sincronização')}${syncPanel()}${devicesPanel()}`;
   if (page === 'dados') {
@@ -4561,6 +4588,10 @@ document.addEventListener('change', async (event) => {
   } else if (target.dataset.stepDone !== undefined) {
     draftSteps[Number(target.dataset.stepDone)].done = target.checked;
     renderSteps();
+  } else if (target.id === 'battery-done') {
+    try { localStorage.setItem(BATTERY_DONE_KEY, target.checked ? '1' : ''); } catch { /* Só lembra enquanto a página estiver aberta. */ }
+    render();
+    if (target.checked) showToast('Anotado. Se algum aviso falhar, os passos continuam aqui.');
   } else if (target.id === 'push-enabled') {
     await togglePush(target.checked);
   } else if (target.id === 'push-digest') {

@@ -95,7 +95,7 @@ check('/push/due com inscrição desconhecida: 404', (await call('/push/due', { 
 const t0 = performance.now();
 await cron();
 const cronMs = performance.now() - t0;
-check('cron enviou um push por aparelho, sem conteúdo', pushed.length === 2 && pushed.every((p) => p.auth.startsWith('vapid t=') && p.ttl === '900'));
+check('cron enviou um push por aparelho, sem conteúdo, válido por 1 hora', pushed.length === 2 && pushed.every((p) => p.auth.startsWith('vapid t=') && p.ttl === '3600'));
 const jwt = pushed[0].auth.slice(8).split(',')[0];
 const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
 check('JWT para o serviço certo, válido por 12 h', payload.aud === 'https://fcm.googleapis.com' && payload.exp - now / 1000 > 11 * 3600);
