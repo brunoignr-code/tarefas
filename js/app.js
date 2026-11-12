@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v24 · 12/11/2026';
+const APP_VERSION = 'v25 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -33,7 +33,8 @@ const FREQ_LABELS = {
 };
 // Opções do Repetir. "Quinzenal" é semanal a cada 2 semanas (no banco: weekly, interval 2).
 // "Dias da semana" é semanal toda semana nos dias marcados (no banco: weekly, interval 1, weekdays).
-const FREQ_OPTIONS = [['daily', 'Diária'], ['weekly', 'Semanal'], ['days', 'Dias da semana'], ['biweekly', 'Quinzenal'], ['monthly', 'Mensal'], ['yearly', 'Anual']];
+// Dias da semana vem por último: na grade de botões ele estica até o fim da linha (v25).
+const FREQ_OPTIONS = [['daily', 'Diária'], ['weekly', 'Semanal'], ['biweekly', 'Quinzenal'], ['monthly', 'Mensal'], ['yearly', 'Anual'], ['days', 'Dias da semana']];
 const WEEKLY_CHOICES = ['weekly', 'days', 'biweekly'];
 const isBiweekly = (repeat) => repeat?.freq === 'weekly' && Number(repeat.interval) === 2;
 /** Botão do Repetir que corresponde à repetição salva. */
@@ -882,13 +883,13 @@ function renderQuickPreview() {
   box.innerHTML = `
     ${rows.length ? `<div class="qp-head"><h3>Entendi assim</h3>${v.parsed ? '<button type="button" class="link" data-action="quick-ignore">Usar o texto como está</button>' : ''}</div>
     <div class="qp-ramo">${rows.join('')}</div>` : ''}
-    <div class="qp-chips">
+    <div class="fit-box"><div class="qp-chips">
       <span class="lead">Um toque:</span>
       <button type="button" class="chip ${v.when === today() ? 'on' : ''}" data-action="quick-when" data-days="0" aria-pressed="${v.when === today()}">Hoje</button>
       <button type="button" class="chip ${v.when === tomorrow ? 'on' : ''}" data-action="quick-when" data-days="1" aria-pressed="${v.when === tomorrow}">Amanhã</button>
       <button type="button" class="chip ${v.repeat ? 'on' : ''}" data-action="quick-repeat">${ico('repeat')}Repetir</button>
       <button type="button" class="chip" data-action="quick-list" aria-label="Lista: ${escapeHtml(list ? list.name : 'Entrada')}">${listChip(list)}</button>
-    </div>`;
+    </div></div>`;
   box.hidden = false;
 }
 
@@ -1002,16 +1003,15 @@ function openQuickDays() {
   dialog.querySelector('input[name="weekday"]')?.focus();
 }
 
-/** Bolinhas D S T Q Q S S e os atalhos Dias úteis, Fim de semana e Todos. */
+/** Bolinhas D S T Q Q S S e os atalhos Dias úteis e Fim de semana. */
 const weekdayPicker = (chosen) => `
   <div class="weekdays" role="group" aria-label="Dias da semana">
     ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${WEEKDAYS_FULL[index]}" ${chosen.includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
   </div>
-  <div class="shortcuts days-presets">
+  <div class="fit-box"><div class="shortcuts fit fit-pair days-presets">
     <button type="button" class="chip" data-action="set-days" data-days="1,2,3,4,5">Dias úteis</button>
     <button type="button" class="chip" data-action="set-days" data-days="0,6">Fim de semana</button>
-    <button type="button" class="chip" data-action="set-days" data-days="0,1,2,3,4,5,6">Todos</button>
-  </div>`;
+  </div></div>`;
 
 function openQuickList() {
   const current = quickValues($('#quick-input')?.value || '', $('#quick-input')?.form).listId;
@@ -2630,12 +2630,12 @@ function openTask(id, { isNew = false } = {}) {
 
       <section class="leaf-card form-card" aria-labelledby="when-kicker">
         <h3 class="card-kicker" id="when-kicker">Quando</h3>
-        <div class="shortcuts">
+        <div class="fit-box"><div class="shortcuts fit fit-dates">
           <button type="button" class="chip" data-action="set-when" data-days="0">Hoje</button>
           <button type="button" class="chip" data-action="set-when" data-days="1">Amanhã</button>
           <button type="button" class="chip" data-action="set-when" data-days="7">Próx. semana</button>
           <button type="button" class="chip" data-action="clear-when">Sem data</button>
-        </div>
+        </div></div>
         <input id="f-when" type="hidden" name="when" value="${task.when || ''}">
         <input id="f-time" type="hidden" value="${whenTime}">
         <button type="button" class="when-pick" id="when-pick" data-action="pick-when">
@@ -2656,10 +2656,10 @@ function openTask(id, { isNew = false } = {}) {
       <details class="leaf-card form-card fold-card" id="repeat-card" ${task.repeat ? 'open' : ''}>
         <summary>${ico('repeat')}<span class="grow">Repetir<small id="repeat-summary"></small></span>${ico('right')}</summary>
         <div class="fold-body">
-          <div class="shortcuts" role="group" aria-label="Repetir">
+          <div class="fit-box"><div class="shortcuts fit fit-repeat" role="group" aria-label="Repetir">
             <button type="button" class="chip" data-action="set-freq" data-value="">Não repete</button>
             ${FREQ_OPTIONS.map(([value, name]) => `<button type="button" class="chip" data-action="set-freq" data-value="${value}">${name}</button>`).join('')}
-          </div>
+          </div></div>
           <select id="f-freq" name="freq" data-prev="${repeatChoice(repeat)}" hidden>
             <option value="">Não repete</option>
             ${FREQ_OPTIONS.map(([value, name]) => `<option value="${value}" ${repeatChoice(repeat) === value ? 'selected' : ''}>${name}</option>`).join('')}
@@ -2829,12 +2829,12 @@ function renderPicker() {
             <button type="button" class="ib" data-action="dt-month" data-step="1" aria-label="Próximo mês">${ico('right')}</button>
           </div>
           <div class="dt-grid">${weekNames.map((n) => `<span class="dt-week">${n[0]}</span>`).join('')}${cells.join('')}</div>
-          <div class="dt-quick">
+          <div class="fit-box"><div class="dt-quick fit fit-dates">
             <button type="button" class="chip" data-action="dt-quick" data-days="0">Hoje</button>
             <button type="button" class="chip" data-action="dt-quick" data-days="1">Amanhã</button>
             <button type="button" class="chip" data-action="dt-quick" data-days="7">Próx. semana</button>
             ${p.target === 'when' ? '<button type="button" class="chip" data-action="dt-quick" data-days="none">Sem data</button>' : ''}
-          </div>
+          </div></div>
         </div>
         <div class="dt-pane dt-time-pane" aria-hidden="${isDay}">
           ${timePane}

@@ -71,7 +71,20 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v24)
+## Estado do projeto (12 de novembro de 2026, v25)
+
+### v25, 12 de novembro: grupos de botões que fecham certinho
+
+Só tela (feedback de uso: os botões do Repetir quebravam em 4 + 2). Sem mudança nos dados, no servidor ou no login.
+
+- **Como funciona:** os grupos de botões viraram grades de colunas iguais. Quantas colunas cabem é decidido pela largura real da área (container query), medida em `rem`; por isso acompanha o tamanho da letra de Config. › Aparência. Nunca sobra um botão sozinho nem uma linha pela metade.
+- **Repetir:** Não repete, Diária, Semanal, Quinzenal, Mensal e Anual em 2 ou 3 colunas, e **Dias da semana** numa linha inteira embaixo (com 4 colunas, em tela larga e letra pequena, ele ocupa as duas casas que sobram da segunda linha).
+- **Quando** e o atalho do **seletor de data** (Hoje, Amanhã, Próx. semana, Sem data): 2×2 no celular, 4 numa linha quando cabem. No lembrete, sem "Sem data": 3 numa linha, ou 2 e o terceiro na linha inteira.
+- **Dias úteis · Fim de semana:** lado a lado, um em cima do outro só se não couberem. "Todos" saiu (é o mesmo que Diária).
+- **Bolinhas D S T Q Q S S:** crescem com a letra (até 2,75 rem) e encolhem juntas em tela estreita; a primeira e a última ficam alinhadas às bordas dos botões.
+- **Folha Anotar (celular):** Hoje · Amanhã · Repetir · lista em 2×2, e **Anotar e abrir · Anotar outra** nas mesmas duas colunas (antes 3 + 1 e larguras diferentes). Nome de lista comprido termina em "…".
+- Medido no navegador em 320, 360/369, 412 px e no painel do notebook, com letra 11, 14, 16,25 e 18 px: nenhum texto cortado, nenhuma linha pela metade, nada passando da largura. Service worker da v24 já instalado atualizando para a v25.
+- **Não testado no celular de verdade:** a aparência no seu aparelho, com a letra que você usa.
 
 ### v24, 12 de novembro: repetir em dias específicos da semana
 

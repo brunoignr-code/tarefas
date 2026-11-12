@@ -1366,3 +1366,48 @@ body.anotar-open .qa input { font-size: var(--t-xl); font-weight: var(--w-strong
 .task-hero > .hero-bar .hero-kicker { justify-content: center; }
 .em.solid.inbox, .em.solid.inbox .i { color: var(--on-primary); }
 .sheet-items .sheet-sep { margin: 0; height: 0; }
+
+/* ---------- v25: grupos de botões que fecham certinho ----------
+   Colunas iguais; quantas cabem depende da largura real (container query) medida em rem,
+   então acompanha o tamanho da letra. O último botão estica até o fim da linha: nunca sobra
+   um botão sozinho ou uma linha pela metade. Larguras: texto do botão mais largo + 26px de
+   respiro, mais os vãos de 8px. */
+.fit-box { container-type: inline-size; }
+.fit { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+.fit-box .fit > .chip {
+  justify-content: center; min-width: 0; padding: 0 10px; text-align: center; white-space: nowrap; overflow: hidden;
+}
+/* Repetir: 6 botões de largura parecida + "Dias da semana", o mais largo, por último.
+   Com 2 ou 3 colunas ele fica numa linha inteira embaixo; com 4, ocupa as 2 que sobram. */
+.fit-box .fit-repeat > :last-child { grid-column: 1 / -1; }
+@container (min-width: calc(13.5rem + 94px)) { .fit-repeat { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: calc(18rem + 128px)) {
+  .fit-repeat { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .fit-box .fit-repeat > :last-child { grid-column: 3 / -1; }
+}
+/* Hoje, Amanhã, Próx. semana e Sem data: 2×2 ou uma linha de 4 ("Próx. semana" é o mais largo). */
+@container (min-width: calc(21.8rem + 128px)) { .fit-dates { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* No lembrete o seletor não tem "Sem data": 3 numa linha quando cabem; senão 2 e o terceiro na linha inteira. */
+.fit-box .fit-dates > :nth-child(3):last-child { grid-column: 1 / -1; }
+@container (min-width: calc(16.4rem + 94px)) {
+  .fit-dates:not(:has(> :nth-child(4))) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fit-box .fit-dates > :nth-child(3):last-child { grid-column: auto; }
+}
+/* Dias úteis e Fim de semana: lado a lado; um em cima do outro só se não couber. */
+@container (max-width: calc(12.2rem + 47px)) { .fit-pair { grid-template-columns: minmax(0, 1fr); } }
+.days-presets { margin-top: 10px; }
+.dt-quick.fit { gap: 8px; }
+
+/* Bolinhas dos dias: até 2.75rem, encolhem juntas em tela estreita, sempre alinhadas às bordas. */
+.weekdays label { flex: 0 1 2.75rem; min-width: 0; }
+.weekdays span { width: 100%; height: auto; aspect-ratio: 1; }
+
+/* Folha Anotar no celular: Hoje · Amanhã · Repetir · lista em 2×2 ou numa linha de 4. */
+body.anotar-open .qp-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+body.anotar-open .qp-chips .chip { justify-content: center; min-width: 0; padding: 0 10px; white-space: nowrap; overflow: hidden; }
+body.anotar-open .qp-chips .lc { display: inline-block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+body.anotar-open .qp-chips .lc:not(.plain)::before { display: inline-block; margin-right: 5px; vertical-align: middle; }
+@container (min-width: calc(24rem + 128px)) { body.anotar-open .qp-chips { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Anotar e abrir · Anotar outra nas mesmas duas colunas dos botões de cima. */
+body.anotar-open .dock-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+body.anotar-open .dock-actions button { min-width: 0; padding: 0 10px; text-wrap: balance; }
