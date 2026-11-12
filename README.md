@@ -71,7 +71,23 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (11 de novembro de 2026, v22)
+## Estado do projeto (12 de novembro de 2026, v23)
+
+### v23, 12 de novembro: letras em harmonia e o redesenho "linha livre" em todas as telas (lotes 3 a 7)
+
+Só tela: sem mudança no servidor, no login ou no formato dos dados das tarefas.
+
+- **Letras (feedback de uso):** uma escala só para o app inteiro (seis tamanhos: .78, .88, 1, 1.12, 1.32 e 1.5 rem) e três pesos (500 no texto, 600 em títulos de tarefa, rótulos e botões, 700 só em títulos de tela e de cartão). Antes havia mais de 15 tamanhos e pesos até 900, o que fazia as telas parecerem de fontes diferentes. Tudo menor que na v22.
+- **10 tamanhos de letra** em Config. › Aparência (antes 5), com botões A− e A+, um indicador de dez passos e uma prévia. Do menor (11 px) ao maior (18 px); o padrão é o 5 (14 px). A escolha antiga é convertida sozinha (Muito pequena → 3, Pequena → 4, Normal → 5, Grande → 7, Muito grande → 9). Fica guardada no aparelho (`textSize`), como antes.
+- **Lote 3, Próximos:** cabeçalho com Lista · Calendário · Kanban; a Lista virou um ramo com um ponto por dia e a hora (ou "dia") de cada tarefa; o Calendário ficou num cartão com dias em forma de folha e um ponto nos dias com tarefas; o Kanban tem o quadradinho da lista e cada tarefa num cartão. Seletor de data e horário com a data em letra grande, dias em folha e horas e minutos em folhas.
+- **Lote 4, janela da tarefa:** cabeçalho na cor de destaque com o título (que agora quebra em várias linhas; Enter continua salvando), cartões para Quando, Repetir (botões Não repete, Diária, Semanal, Quinzenal, Mensal, Anual no lugar da lista de escolha), Etapas, Notas e Mais opções, e a barra escura embaixo (Lixeira, Duplicar, Pular, Concluir e Salvar; com letra grande, Concluir fica só com o ícone). Repetir e Mais opções abrem na própria janela, e não numa folha separada como nas pranchetas, para não mexer nas regras da v18 e da v19. "Só desta vez?" mostra o de → para num ramo. Menus, Mover, Adiar e as perguntas viraram folhas de baixo.
+- **Correção:** trocar de Quinzenal para Mensal (ou Anual, ou Diária) deixava "a cada 2". Agora volta para "a cada 1".
+- **Lote 5, Listas:** cabeçalho com atalhos para Importantes, Tags, Concluídas e Lixeira; listas em cartões por grupo; quadradinho com o emoji ou, sem emoji, a inicial na cor da lista; "+ Nova lista" tracejado. A lista aberta tem Ordenar, Selecionar e o menu no cabeçalho. Organizar tem o botão Pronto. Tags mostra as tags como atalhos no cabeçalho. Concluídas virou um ramo por dia. Lixeira tem Restaurar tudo e Esvaziar no cabeçalho. Seleção de várias com cabeçalho e barra escuros (a barra de navegação some enquanto seleciona). As tarefas de cada tela ficam num cartão-folha só.
+- **Lote 6, Busca e Config.:** a Busca tem o campo e "Incluir concluídas" no cabeçalho, e um botão de voltar para a tela anterior. Config. tem o cartão da sincronização e as cinco partes num cartão; as subtelas têm cabeçalho com "Config." para voltar; os painéis viraram cartões-folha (aparelhos conectados inclusos).
+- **Lote 7, notebook:** lateral na cor de destaque; na área central, o cabeçalho fica sobre o fundo e o campo de anotar fica no alto, logo abaixo do título; a partir de 1100 px de largura, a tarefa abre num painel à direita (com a lista ainda à vista atrás de um véu leve; continua sendo uma janela, para manter o "Sair sem salvar?").
+- Testado no navegador, numa origem local sem conta, com dados descartáveis apagados depois: 69 testes das regras e 59 do servidor; celular (375 px) e notebook (1280 px), claro e escuro, letra 1 e 10 sem nada passando da largura da tela; Repetir pelos botões, seletor, "Só esta vez", "Sair sem salvar?", Enter no título, menu, seleção, painel à direita; service worker da v22 já instalado atualizando para a v23, com a letra antiga convertida.
+- **Não testado no celular de verdade:** a janela da tarefa com o teclado aberto (título de várias linhas e barra de baixo), a barra escura da seleção sobre a área de gestos, o Kanban rolando de lado com o dedo e o tamanho de letra 10 num celular pequeno.
+
 
 ### v22, 11 de novembro: redesenho "linha livre", lotes 1 e 2 (fundação, Hoje e anotar)
 

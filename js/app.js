@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v22 · 11/11/2026';
+const APP_VERSION = 'v23 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -35,7 +35,7 @@ const FREQ_LABELS = {
 const FREQ_OPTIONS = [['daily', 'Diária'], ['weekly', 'Semanal'], ['biweekly', 'Quinzenal'], ['monthly', 'Mensal'], ['yearly', 'Anual']];
 const isBiweekly = (repeat) => repeat?.freq === 'weekly' && Number(repeat.interval) === 2;
 
-const state = { quick: {}, lists: [], tasks: [], log: [], settings: { id: 'settings', mode: DEFAULT_MODE, accent: DEFAULT_ACCENT, fontSize: 3 }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
+const state = { quick: {}, lists: [], tasks: [], log: [], settings: { id: 'settings', mode: DEFAULT_MODE, accent: DEFAULT_ACCENT }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
 const $ = (selector, root = document) => root.querySelector(selector);
 const today = () => localDate();
 const newId = () => crypto.randomUUID();
@@ -73,8 +73,16 @@ const UNTIL_MODES = {
 const untilMode = () => (UNTIL_MODES[state.settings.untilMode] ? state.settings.untilMode : 'A');
 
 // Tamanhos da letra em Config.; o 3 é o padrão.
-const FONT_SIZES = [[1, 12.5, 'Muito pequena'], [2, 13.5, 'Pequena'], [3, 14.5, 'Normal'], [4, 16, 'Grande'], [5, 17.5, 'Muito grande']];
-const fontSizePx = () => (FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize)) || FONT_SIZES[2])[1];
+// v23: dez tamanhos (antes eram cinco). `textSize` vai de 1 a 10; o `fontSize` antigo (1 a 5) é convertido.
+const TEXT_SIZES = [11, 11.75, 12.5, 13.25, 14, 14.75, 15.5, 16.25, 17, 18];
+const DEFAULT_TEXT_SIZE = 5;
+const OLD_FONT_SIZES = { 1: 3, 2: 4, 3: 5, 4: 7, 5: 9 };
+function textSize() {
+  const value = Number(state.settings.textSize);
+  if (Number.isInteger(value) && value >= 1 && value <= TEXT_SIZES.length) return value;
+  return OLD_FONT_SIZES[Number(state.settings.fontSize)] || DEFAULT_TEXT_SIZE;
+}
+const fontSizePx = () => TEXT_SIZES[textSize() - 1];
 
 // A Matriz saiu na v20; quem a usava volta para a Lista.
 const UPCOMING_MODES = [['list', 'Lista'], ['calendar', 'Calendário'], ['kanban', 'Kanban']];
@@ -713,7 +721,7 @@ function taskChips(task, { showWhen = true, showList = false, noDate = false, no
   const reminder = shownReminder(task, localDateTime());
   const more = (task.extraReminders || []).length;
   // No ramo de Hoje a hora do lembrete já está na coluna da esquerda.
-  if (reminder && !(noReminder && reminder.slice(0, 10) === today() && !more)) chips.push(`<span class="chip-reminder">${ico('bell')}${escapeHtml(reminderWords(task, reminder))}${more ? ` +${more}` : ''}</span>`);
+  if (reminder && !(noReminder && !more)) chips.push(`<span class="chip-reminder">${ico('bell')}${escapeHtml(reminderWords(task, reminder))}${more ? ` +${more}` : ''}</span>`);
   if (task.repeat) {
     const end = task.seriesEnd ? `, até ${formatDate(task.seriesEnd).toLowerCase()}` : '';
     chips.push(`<span>${ico('repeat')}${escapeHtml(repeatLabel(task.repeat) + end)}</span>`);
@@ -1112,9 +1120,6 @@ function todayView() {
     ${quickAdd('Anotar para hoje…', { when: now })}`;
 }
 
-/** Botão "Selecionar várias" do topo das telas com tarefas. */
-const selectButton = (tasks) => (tasks.length && !state.selecting
-  ? `<button class="ib" data-action="select-start" aria-label="Selecionar várias" title="Selecionar várias">${ico('select')}</button>` : '');
 
 /** "Amanhã · qua, 11/11", "Sexta · 13/11" na semana, "seg, 30/11" depois. */
 function sectionDate(date) {
@@ -1127,15 +1132,65 @@ function sectionDate(date) {
   return formatDate(date);
 }
 
+/* ---------- Cabeçalho das telas (v23): a mesma peça em todas ---------- */
+
+const heroSearch = () => `<a class="hero-btn" href="#search" aria-label="Buscar" title="Buscar (/)">${ico('search')}</a>`;
+const heroSelect = (tasks) => (tasks.length && !state.selecting
+  ? `<button class="hero-btn" data-action="select-start" aria-label="Selecionar várias tarefas" title="Selecionar várias">${ico('select')}</button>` : '');
+
+/**
+ * Cabeçalho na cor de destaque. `back`: [endereço, rótulo] do botão de voltar; `tools`: botões redondos;
+ * `lead`: quadradinho à esquerda do título; `extra`: o que vem embaixo (abas, atalhos). `title` já vem escapado.
+ */
+function pageHero({ back = null, kicker = '', title = '', sub = '', tools = '', extra = '', lead = '' }) {
+  return `
+    <header class="hero hero-page">
+      ${back ? `<div class="hero-bar"><a class="hero-pill" href="${back[0]}">${ico('left')}${escapeHtml(back[1])}</a><div class="hero-tools">${tools}</div></div>` : ''}
+      <div class="hero-top">
+        ${lead}
+        <div class="hero-text">${kicker ? `<div class="hero-kicker">${escapeHtml(kicker)}</div>` : ''}<h1>${title}</h1>${sub ? `<div class="hero-sub">${sub}</div>` : ''}</div>
+        ${!back && tools ? `<div class="hero-tools">${tools}</div>` : ''}
+      </div>
+      ${extra}
+    </header>`;
+}
+
+/** Horário de uma tarefa no dia em que ela aparece (lembrete do mesmo dia), ou vazio. */
+function dayTime(task, date) {
+  if (date === today()) return todayTime(task, localDateTime());
+  return task.remindAt && task.remindAt.slice(0, 10) === date ? task.remindAt.slice(11) : '';
+}
+
+/** Linhas de um dia no ramo: atrasadas primeiro, depois pelo horário; sem horário, "dia", no fim. */
+function dayRows(items, date, opts) {
+  const now = today();
+  return items.map((task) => {
+    const late = date === now && isOverdue(task, now);
+    const time = late ? '' : dayTime(task, date);
+    let label = time || 'dia';
+    if (late) label = shortDay(task.deadline);
+    else if (date === now && !time && task.when < now) label = shortDay(task.when);
+    return { task, key: `${late ? 0 : 1}${time || '99'}`, label, late, time };
+  }).sort((a, b) => a.key.localeCompare(b.key) || byOrder(a.task, b.task))
+    .map(({ task, label, late, time }) => taskRow(task, { ...opts, noReminder: !!time, time: label, timeClass: late ? 'late' : '' }))
+    .join('');
+}
+
+const ramoDay = (date, label, count, current = false) => `
+  <li class="ramo-day${current ? ' current' : ''}"><span></span><i aria-hidden="true"></i><h2 data-day="${date}">${escapeHtml(label)}${count ? ` <span class="visually-hidden">(${count})</span>` : ''}</h2></li>`;
+
 function upcomingList() {
   const now = today();
   // Hoje vem primeiro, com as que ficaram de dias anteriores (como na tela Hoje).
-  const todayItems = todayTasks(state.tasks, now).sort((a, b) => Number(isOverdue(b, now)) - Number(isOverdue(a, now)) || byOrder(a, b));
+  const todayItems = todayTasks(state.tasks, now);
   const groups = new Map(todayItems.length ? [[now, todayItems]] : []);
   upcomingTasks(state.tasks, now).forEach((task) => groups.set(task.when, [...(groups.get(task.when) || []), task]));
-  const body = [...groups].map(([date, items]) =>
-    `<h2 data-day="${date}">${escapeHtml(sectionDate(date))} <span class="n">${items.length}</span></h2>${taskListHtml(items, { showWhen: false, showList: true })}`).join('');
-  return body || '<p class="empty">Nada para hoje nem para os próximos dias.</p>';
+  if (!groups.size) return '<p class="empty">Nada para hoje nem para os próximos dias.</p>';
+  const opts = { showWhen: false, showList: true };
+  if (state.selecting) {
+    return [...groups].map(([date, items]) => `<h2 data-day="${date}">${escapeHtml(sectionDate(date))}</h2>${taskListHtml(items.sort(byOrder), opts)}`).join('');
+  }
+  return `<ul class="task-list ramo ramo-days" aria-label="Próximos dias">${[...groups].map(([date, items]) => `${ramoDay(date, sectionDate(date), items.length, date === now)}${dayRows(items, date, opts)}`).join('')}</ul>`;
 }
 
 function calendarView() {
@@ -1153,21 +1208,24 @@ function calendarView() {
   for (let d = 1; d <= days; d += 1) {
     const date = `${month}-${String(d).padStart(2, '0')}`;
     const count = open.filter((t) => t.when === date || t.deadline === date).length;
-    const classes = ['cal-day', date === now ? 'today' : '', date === selected ? 'selected' : ''].join(' ');
-    cells.push(`<button class="${classes}" data-action="cal-day" data-date="${date}" aria-pressed="${date === selected}" aria-label="${d}${count ? `, ${count} tarefa(s)` : ''}">${d}${count ? `<span class="cal-count">${count}</span>` : ''}</button>`);
+    const classes = ['cal-day', date === now ? 'today' : '', date === selected ? 'selected' : '', count ? 'has' : ''].join(' ');
+    cells.push(`<button class="${classes}" data-action="cal-day" data-date="${date}" aria-pressed="${date === selected}" aria-label="${d}${date === now ? ', hoje' : ''}${count ? `, ${count} ${count === 1 ? 'tarefa' : 'tarefas'}` : ''}">${d}<i aria-hidden="true"></i></button>`);
   }
-  const longTitle = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-  const title = longTitle.charAt(0).toUpperCase() + longTitle.slice(1);
-  const dayTasks = open.filter((t) => t.when === selected || t.deadline === selected).sort(byOrder);
+  const title = capitalize(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+  const dayTasks = open.filter((t) => t.when === selected || t.deadline === selected);
+  const label = `${capitalize(formatDate(selected))}${selected === now ? '' : ''} · ${dayTasks.length ? `${dayTasks.length} ${dayTasks.length === 1 ? 'tarefa' : 'tarefas'}` : 'nada marcado'}`;
   return `
-    <div class="cal-head">
-      <button class="btn small" data-action="cal-move" data-step="-1" aria-label="Mês anterior">‹</button>
-      <strong>${escapeHtml(title)}</strong>
-      <button class="btn small" data-action="cal-move" data-step="1" aria-label="Próximo mês">›</button>
-    </div>
-    <div class="cal-grid">${weekNames.map((name) => `<span class="cal-week" aria-hidden="true">${name}</span>`).join('')}${cells.join('')}</div>
-    <h2>${escapeHtml(formatDate(selected))}</h2>
-    ${dayTasks.length ? taskListHtml(dayTasks, { showWhen: false, showList: true }) : '<p class="empty">Nada com Quando ou prazo neste dia.</p>'}`;
+    <section class="leaf-card cal-card" aria-label="${escapeHtml(title)}">
+      <div class="cal-head">
+        <button class="ib" data-action="cal-move" data-step="-1" aria-label="Mês anterior">${ico('left')}</button>
+        <strong>${escapeHtml(title)}</strong>
+        <button class="ib" data-action="cal-move" data-step="1" aria-label="Próximo mês">${ico('right')}</button>
+      </div>
+      <div class="cal-grid">${weekNames.map((name) => `<span class="cal-week" aria-hidden="true">${name.toLowerCase()}</span>`).join('')}${cells.join('')}</div>
+    </section>
+    ${dayTasks.length && !state.selecting
+    ? `<ul class="task-list ramo ramo-days">${ramoDay(selected, label, 0, true)}${dayRows(dayTasks, selected, { showWhen: false, showList: true })}</ul>`
+    : `<h2 class="section-label" data-day="${selected}">${escapeHtml(label)}</h2>${dayTasks.length ? taskListHtml(dayTasks.sort(byOrder), { showWhen: false, showList: true }) : '<p class="empty">Nada com Quando ou prazo neste dia.</p>'}`}`;
 }
 
 function kanbanView() {
@@ -1176,22 +1234,26 @@ function kanbanView() {
   if (!columns.length) return '<p class="empty">Nenhuma tarefa aberta.</p>';
   return `<div class="kanban">${columns.map(([list, tasks]) => `
     <section class="kanban-col" aria-label="${escapeHtml(list.name)}">
-      <h3><span class="list-label">${listLabel(list)}</span><span class="count">${tasks.length}</span></h3>
+      <h3>${listSquare(list, 32)}<span class="grow">${escapeHtml(list.name)}</span><span class="count">${tasks.length}</span></h3>
       ${taskListHtml(tasks, {})}
     </section>`).join('')}</div>`;
 }
-
-/** Botão da busca no topo das telas principais (a aba Busca saiu da barra na v22). */
-const searchButton = () => `<a class="ib" href="#search" aria-label="Buscar" title="Buscar (/)">${ico('search')}</a>`;
 
 function upcomingView() {
   const saved = UPCOMING_MODES.some(([id]) => id === state.settings.upcomingMode) ? state.settings.upcomingMode : 'list';
   // Vindo de um dia da faixa da semana de Hoje (#upcoming/AAAA-MM-DD), abre na Lista.
   const mode = /^\d{4}-\d{2}-\d{2}$/.test(currentRoute().id || '') ? 'list' : saved;
   const body = { list: upcomingList, calendar: calendarView, kanban: kanbanView }[mode]();
+  const month = state.calMonth || today().slice(0, 7);
+  const titles = {
+    list: 'Agenda',
+    calendar: capitalize(new Date(`${month}-15T12:00`).toLocaleDateString('pt-BR', { month: 'long' })),
+    kanban: 'Por lista',
+  };
+  const tasks = mode === 'list' ? [...todayTasks(state.tasks, today()), ...upcomingTasks(state.tasks, today())] : [];
+  const tabs = `<div class="hero-seg" role="group" aria-label="Visão">${UPCOMING_MODES.map(([id, name]) => `<button class="${id === mode ? 'on' : ''}" data-action="set-upcoming-mode" data-mode="${id}" aria-pressed="${id === mode}">${name}</button>`).join('')}</div>`;
   return `
-    <div class="view-head" style="align-items:center"><div><h1><span>Próximos dias</span></h1></div>${searchButton()}</div>
-    <div class="segments" role="group" aria-label="Visão">${UPCOMING_MODES.map(([id, name]) => `<button class="${id === mode ? 'on' : ''}" data-action="set-upcoming-mode" data-mode="${id}" aria-pressed="${id === mode}">${name}</button>`).join('')}</div>
+    ${pageHero({ kicker: 'Próximos dias', title: escapeHtml(titles[mode]), tools: `${heroSearch()}${heroSelect(tasks)}`, extra: tabs })}
     ${body}
     ${quickAdd('Anotar com data: “sexta 9h”…', { when: mode === 'calendar' && state.calDay > today() ? state.calDay : addDays(today(), 1) })}`;
 }
@@ -1199,28 +1261,30 @@ function upcomingView() {
 function importantView() {
   const tasks = openTasks().filter((t) => t.important).sort(byOrder);
   return `
-    <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head"><div><h1><span>Importantes</span></h1></div>${selectButton(tasks)}</div>
+    ${pageHero({ back: ['#lists', 'Listas'], title: 'Importantes', sub: tasks.length ? `${tasks.length} ${tasks.length === 1 ? 'aberta' : 'abertas'}, de todas as listas` : '', tools: heroSelect(tasks), lead: `<span class="hero-square" aria-hidden="true">${ico('star', 'fill')}</span>` })}
     ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Toque na estrela de uma tarefa para ela aparecer aqui.</p>'}`;
 }
 
+/** Tags: as tags abertas viram atalhos no cabeçalho; a escolhida mostra as tarefas dela. */
 function tagView(encoded) {
-  const tag = decodeURIComponent(encoded || '');
-  const tasks = openTasks().filter((t) => (t.tags || []).some((name) => sameTag(name, tag))).sort(byOrder);
+  const tags = allTags();
+  const tag = encoded ? decodeURIComponent(encoded) : (tags[0]?.[0] || '');
+  const tasks = tag ? openTasks().filter((t) => (t.tags || []).some((name) => sameTag(name, tag))).sort(byOrder) : [];
+  const chips = tags.length ? `<div class="hero-chips">${tags.map(([name, count]) => {
+    const on = sameTag(name, tag);
+    return `<a class="hero-chip ${on ? 'on' : ''}" href="#tag/${encodeURIComponent(name)}" ${on ? 'aria-current="page"' : ''}>#${escapeHtml(name)} <span>${count}</span></a>`;
+  }).join('')}</div>` : '';
+  let body = '<p class="empty">Nenhuma tarefa aberta com tag. As tags ficam em "Mais opções", nos detalhes da tarefa.</p>';
+  if (tag) {
+    body = `<h2 class="section-label">#${escapeHtml(tag)} · ${tasks.length} ${tasks.length === 1 ? 'aberta' : 'abertas'}</h2>
+      ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta com esta tag.</p>'}`;
+  }
   return `
-    <a class="back" href="#tags">${ico('left')}Tags</a>
-    <div class="view-head"><div><h1><span>#${escapeHtml(tag)}</span></h1><div class="subtitle">Tag</div></div>${selectButton(tasks)}</div>
-    ${tasks.length ? taskListHtml(tasks, { showList: true }) : '<p class="empty">Nenhuma tarefa aberta com esta tag.</p>'}`;
+    ${pageHero({ back: ['#lists', 'Listas'], title: 'Tags', tools: heroSelect(tasks), extra: chips })}
+    ${body}`;
 }
 
-function tagsView() {
-  const tags = allTags();
-  return `
-    <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head"><div><h1><span>Tags</span></h1></div></div>
-    ${tags.length ? `<div class="rows">${tags.map(([tag, count]) => `<a class="row-link" href="#tag/${encodeURIComponent(tag)}"><span>#${escapeHtml(tag)}</span><span class="count">${count}</span></a>`).join('')}</div>`
-    : '<p class="empty">Nenhuma tarefa aberta com tag. As tags ficam em "Mais opções", nos detalhes da tarefa.</p>'}`;
-}
+const tagsView = () => tagView('');
 
 function listView(id) {
   const list = findList(id);
@@ -1232,22 +1296,23 @@ function listView(id) {
   const sortName = LIST_SORTS.find(([key]) => key === mode)[1];
   const sortNote = mode === 'manual' ? '' : `<div class="sort-note"><button class="chip" data-action="list-sort-sheet" data-id="${id}">${ico('sort')}Por ${escapeHtml(sortName.toLowerCase())}${ico('down')}</button><button class="link" data-action="set-list-sort" data-id="${id}" data-sort="manual" style="margin-left:auto">Voltar à minha ordem</button></div>`;
   const doneOpen = state.doneOpen.has(id);
-  const sub = [`${tasks.length} ${tasks.length === 1 ? 'aberta' : 'abertas'}`, list.group || (id === INBOX ? '' : 'sem grupo')].filter(Boolean).join(' · ');
+  const sub = [`${tasks.length} ${tasks.length === 1 ? 'aberta' : 'abertas'}`, list.group ? `grupo ${list.group}` : '', sortName.toLowerCase()].filter(Boolean).join(' · ');
+  const tools = `
+    <button class="hero-btn" data-action="list-sort-sheet" data-id="${id}" aria-label="Ordenar" title="Ordenar">${ico('sort')}</button>
+    ${heroSelect(tasks)}
+    <button class="hero-btn" data-action="list-menu" data-id="${id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>`;
   return `
-    <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head" style="align-items:center">
-      <span class="em" style="--c:${escapeHtml(list.color || '#7E8A99')};width:44px;height:44px;font-size:1.5rem">${list.emoji ? escapeHtml(list.emoji) : ico(id === INBOX ? 'inbox' : 'list')}</span>
-      <div><h1><span>${escapeHtml(list.name)}</span></h1><div class="subtitle" style="margin-top:2px">${escapeHtml(sub)}</div></div>
-      ${selectButton(tasks)}
-      <button class="ib" data-action="list-menu" data-id="${id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
-    </div>
+    ${pageHero({ back: ['#lists', 'Listas'], title: escapeHtml(list.name), sub: escapeHtml(sub), tools, lead: `<span class="hero-square" aria-hidden="true">${list.emoji ? escapeHtml(list.emoji) : (id === INBOX ? ico('inbox') : escapeHtml(initial(list.name)))}</span>` })}
     ${sortNote}
     ${tasks.length ? taskListHtml(tasks, { draggable: mode === 'manual', noDate: true }) : `<p class="empty">${done.length ? 'Tudo feito nesta lista.' : 'Esta lista está vazia.'}</p>`}
     ${done.length ? `
-    <button class="fold" data-action="toggle-done-section" data-id="${id}" aria-expanded="${doneOpen}">${ico('right')}Concluídas (${done.length})</button>
+    <button class="pill-btn done-pill" data-action="toggle-done-section" data-id="${id}" aria-expanded="${doneOpen}">${ico(doneOpen ? 'down' : 'right')}Concluídas (${done.length})</button>
     ${doneOpen ? taskListHtml(done, {}) : ''}` : ''}
     ${quickAdd(`Anotar em ${list.name}…`, { listId: id })}`;
 }
+
+/** Inicial do nome da lista, para o quadradinho sem emoji. */
+const initial = (name) => (String(name || '?').trim().charAt(0) || '?').toLocaleUpperCase('pt-BR');
 
 /** Listas fora da Entrada, separadas em soltas e por grupo, na ordem escolhida. */
 function groupedLists() {
@@ -1264,48 +1329,52 @@ function listsView() {
   const { ungrouped, groups } = groupedLists();
   const row = (list) => `
     <div class="lr">
-      <span class="em" style="--c:${escapeHtml(list.color || '#7E8A99')}">${list.emoji ? escapeHtml(list.emoji) : ico(list.id === INBOX ? 'inbox' : 'list')}</span>
+      ${listSquare(list)}
       <a class="nm" href="#list/${list.id}"><span>${escapeHtml(list.name)}</span></a>
       <span class="cnt">${openCount(list.id) || ''}</span>
       <button class="ib" data-action="list-menu" data-id="${list.id}" aria-label="Opções da lista ${escapeHtml(list.name)}" title="Opções da lista">${MORE_ICON}</button>
     </div>`;
   const inbox = findList(INBOX);
-  const count = (n) => (n ? ` · ${n}` : '');
+  const count = (n) => (n ? `<span>${n}</span>` : '');
   const trashCount = state.tasks.filter((t) => t.deletedAt).length;
-  return `
-    <div class="view-head" style="align-items:center"><div><h1><span>Listas</span></h1></div>
-      ${searchButton()}
-      <button class="btn small" data-action="organize-lists" ${ungrouped.length + groups.length ? '' : 'disabled'}>Organizar</button>
-      <button class="btn small primary" data-action="new-list">${ico('plus')}Nova</button>
-    </div>
-    <div class="rows">${inbox ? row(inbox) : ''}${ungrouped.map(row).join('')}</div>
-    ${groups.map(([name, lists]) => `<div class="grp"><span>${escapeHtml(name)}</span><button class="ib" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}" title="Opções do grupo">${MORE_ICON}</button></div><div class="rows">${lists.map(row).join('')}</div>`).join('')}
-    ${ungrouped.length + groups.length ? '' : '<p class="empty-tip">Crie listas para separar assuntos (Casa, Trabalho, Mercado). Para juntar listas, dê o mesmo nome de grupo a elas.</p>'}
-    <div class="tiles">
-      <a class="tile" href="#important">${ico('star')}Importantes${count(openTasks().filter((t) => t.important).length)}</a>
-      <a class="tile" href="#tags">${ico('tag')}Tags${count(allTags().length)}</a>
-      <a class="tile" href="#done">${ico('done')}Concluídas</a>
-      <a class="tile" href="#trash">${ico('trash')}Lixeira${count(trashCount)}</a>
+  const listCount = ungrouped.length + groups.reduce((n, [, lists]) => n + lists.length, 0) + (inbox ? 1 : 0);
+  const kicker = `${listCount} ${listCount === 1 ? 'lista' : 'listas'}${groups.length ? ` · ${groups.length} ${groups.length === 1 ? 'grupo' : 'grupos'}` : ''}`;
+  const tiles = `
+    <div class="hero-tiles">
+      <a class="hero-tile" href="#important">${ico('star')}Importantes${count(openTasks().filter((t) => t.important).length)}</a>
+      <a class="hero-tile" href="#tags">${ico('tag')}Tags${count(allTags().length)}</a>
+      <a class="hero-tile" href="#done">${ico('done')}Concluídas</a>
+      <a class="hero-tile" href="#trash">${ico('trash')}Lixeira${count(trashCount)}</a>
     </div>`;
+  const tools = `${heroSearch()}<button class="hero-pill" data-action="organize-lists" ${ungrouped.length + groups.length ? '' : 'disabled'}>Organizar</button>`;
+  return `
+    ${pageHero({ kicker, title: 'Listas', tools, extra: tiles })}
+    <div class="leaf-card rows-card">${inbox ? row(inbox) : ''}${ungrouped.map(row).join('')}</div>
+    ${groups.map(([name, lists]) => `<div class="grp"><span>${escapeHtml(name)}</span><button class="ib" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}" title="Opções do grupo">${MORE_ICON}</button></div><div class="leaf-card rows-card">${lists.map(row).join('')}</div>`).join('')}
+    ${ungrouped.length + groups.length ? '' : '<p class="empty-tip">Crie listas para separar assuntos (Casa, Trabalho, Mercado). Para juntar listas, dê o mesmo nome de grupo a elas.</p>'}
+    <button class="dashed-btn" data-action="new-list">${ico('plus')}Nova lista</button>`;
 }
 
 /** Organizar: mudar a ordem das listas e cuidar dos grupos. */
 function organizeView() {
   const { ungrouped, groups } = groupedLists();
+  const inbox = findList(INBOX);
   const section = (lists) => lists.map((list, index) => `
     <div class="lr organize-row">
       ${listSquare(list)}
       <span class="nm"><span>${escapeHtml(list.name)}</span></span>
-      <button class="ib" data-action="move-list" data-id="${list.id}" data-step="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${escapeHtml(list.name)}">${ico('up')}</button>
-      <button class="ib" data-action="move-list" data-id="${list.id}" data-step="1" ${index === lists.length - 1 ? 'disabled' : ''} aria-label="Descer ${escapeHtml(list.name)}">${ico('dn')}</button>
+      <button class="ib round-ib" data-action="move-list" data-id="${list.id}" data-step="-1" ${index === 0 ? 'disabled' : ''} aria-label="Subir ${escapeHtml(list.name)}">${ico('up')}</button>
+      <button class="ib round-ib" data-action="move-list" data-id="${list.id}" data-step="1" ${index === lists.length - 1 ? 'disabled' : ''} aria-label="Descer ${escapeHtml(list.name)}">${ico('dn')}</button>
     </div>`).join('');
+  const tools = `<button class="hero-pill" data-action="new-group">${ico('plus')}Novo grupo</button>`;
   return `
-    <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head" style="align-items:center"><div><h1><span>Organizar</span></h1><div class="subtitle">Ordem das listas e grupos</div></div><a class="btn small primary" href="#lists">Pronto</a></div>
-    <p class="help" style="margin:-4px 2px 6px">Use as setas para mudar a ordem. A Entrada fica sempre em primeiro; os grupos, em ordem alfabética.</p>
-    ${ungrouped.length ? `<div class="grp"><span>Sem grupo</span></div><div class="rows">${section(ungrouped)}</div>` : ''}
-    ${groups.map(([name, lists]) => `<div class="grp"><span>${escapeHtml(name)}</span><button class="btn small text" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}">${ico('edit')}Grupo</button></div><div class="rows">${section(lists)}</div>`).join('')}
-    <div class="actions" style="margin-top:14px"><button class="btn" data-action="new-list" style="flex:1">${ico('plus')}Nova lista</button><button class="btn" data-action="new-group" style="flex:1">${ico('folderPlus')}Novo grupo</button></div>`;
+    ${pageHero({ back: ['#lists', 'Listas'], title: 'Organizar', sub: 'Mude a ordem com as setas ou junte listas em grupos', tools })}
+    ${inbox ? `<div class="leaf-card rows-card"><div class="lr organize-row">${listSquare(inbox)}<span class="nm"><span>${escapeHtml(inbox.name)}</span></span><span class="help">sempre a primeira</span></div></div>` : ''}
+    ${ungrouped.length ? `<div class="grp"><span>Sem grupo</span></div><div class="leaf-card rows-card">${section(ungrouped)}</div>` : ''}
+    ${groups.map(([name, lists]) => `<div class="grp"><span>Grupo ${escapeHtml(name)}</span><button class="link" data-action="group-menu" data-group="${escapeHtml(name)}" aria-label="Opções do grupo ${escapeHtml(name)}">Editar grupo</button></div><div class="leaf-card rows-card">${section(lists)}</div>`).join('')}
+    <p class="help" style="margin:12px 4px">Os grupos ficam em ordem alfabética.</p>
+    <button class="dashed-btn" data-action="new-list">${ico('plus')}Nova lista</button>
+    <a class="dark-btn" href="#lists">Pronto</a>`;
 }
 
 /** Grupo de uma data já passada: Hoje, Ontem, Esta semana, Semana passada ou o mês. */
@@ -1327,30 +1396,29 @@ function pastGroup(date) {
 function doneView() {
   const single = activeTasks().filter((t) => t.status === 'done').sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   const empty = !single.length && !state.log.length;
-  const head = `
-    <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head" style="align-items:center"><div><h1><span>Concluídas</span></h1>${empty ? '' : `<div class="subtitle">${single.length} ${single.length === 1 ? 'tarefa' : 'tarefas'} · ${state.log.length} ${state.log.length === 1 ? 'repetição' : 'repetições'}</div>`}</div>
-      ${single.length ? selectButton(single) : ''}
-      ${empty ? '' : '<button class="btn small danger" data-action="clear-done">Limpar</button>'}
-    </div>`;
+  const sub = empty ? '' : `${single.length} ${single.length === 1 ? 'tarefa' : 'tarefas'} · ${state.log.length} ${state.log.length === 1 ? 'repetição' : 'repetições'}`;
+  const tools = `${single.length ? heroSelect(single) : ''}${empty ? '' : '<button class="hero-pill" data-action="clear-done">Limpar</button>'}`;
+  const head = pageHero({ back: ['#lists', 'Listas'], title: 'Concluídas', sub, tools });
   if (empty) return `${head}<p class="empty">Nada concluído ainda.</p>`;
   if (state.selecting) return `${head}${taskListHtml(single, { showList: true })}`;
   const items = [
     ...single.map((task) => ({ at: task.completedAt || '', task })),
     ...state.log.map((item) => ({ at: item.completedAt || '', item })),
   ].sort((a, b) => b.at.localeCompare(a.at));
+  // Na coluna do ramo: a hora (hoje e ontem) ou o dia da semana / data.
   const when = (iso) => {
     if (!iso) return '';
     const date = localDate(new Date(iso));
-    if (date === today() || date === addDays(today(), -1)) return `às ${new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-    return formatDate(date).toLowerCase();
+    if (date === today() || date === addDays(today(), -1)) return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return shortDay(date);
   };
   const row = ({ task, item }) => {
     if (task) {
       return `
     <li class="task is-done" data-id="${task.id}">
+      <span class="tm">${escapeHtml(when(task.completedAt))}</span>
       <button class="check done" data-action="reopen" data-id="${task.id}" aria-label="Reabrir ${escapeHtml(task.title)}">${MARK}</button>
-      <button class="task-body" data-action="open" data-id="${task.id}"><span class="task-title">${escapeHtml(task.title)}</span><span class="chips"><span>${escapeHtml(when(task.completedAt))}</span>${listChip(findList(task.listId))}</span></button>
+      <button class="task-body" data-action="open" data-id="${task.id}"><span class="task-title">${escapeHtml(task.title)}</span><span class="chips">${listChip(findList(task.listId))}</span></button>
       <button class="btn small text" data-action="reopen" data-id="${task.id}">Reabrir</button>
     </li>`;
     }
@@ -1358,6 +1426,7 @@ function doneView() {
     const occurrence = item.occurrence ? formatDate(item.occurrence).toLowerCase() : '';
     return `
     <li class="task is-done">
+      <span class="tm">${escapeHtml(when(item.completedAt))}</span>
       <span class="check done" aria-hidden="true">${MARK}</span>
       <button class="task-body" data-action="${source && !source.deletedAt ? 'open' : 'noop'}" data-id="${item.taskId}"><span class="task-title">${escapeHtml(item.title)}</span><span class="chips"><span>${ico('repeat')}repetição ${occurrence === 'hoje' ? 'de hoje' : `de ${escapeHtml(occurrence)}`}</span>${source ? listChip(findList(source.listId)) : ''}</span></button>
       <button class="icon" data-action="forget-log" data-id="${item.id}" aria-label="Apagar do histórico: ${escapeHtml(item.title)}" title="Apagar do histórico">${ico('x')}</button>
@@ -1368,29 +1437,28 @@ function doneView() {
     const name = entry.at ? pastGroup(localDate(new Date(entry.at))) : 'Sem data';
     groups.set(name, [...(groups.get(name) || []), entry]);
   });
-  return `${head}${[...groups].map(([name, list]) => `<h2>${escapeHtml(name)}</h2><ul class="task-list">${list.map(row).join('')}</ul>`).join('')}`;
+  return `${head}<ul class="task-list ramo ramo-days" aria-label="Concluídas">${[...groups].map(([name, list], index) => `${ramoDay('', name, 0, index === 0)}${list.map(row).join('')}`).join('')}</ul>`;
 }
 
 function trashView() {
   const tasks = state.tasks.filter((t) => t.deletedAt).sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
   const card = (task) => `
-    <div class="trash-card">
+    <article class="leaf-card trash-card">
       <div class="task-title">${escapeHtml(task.title)}</div>
       <span class="chips"><span>excluída ${escapeHtml(formatDate(localDate(new Date(task.deletedAt))).toLowerCase())}</span>${findList(task.listId) ? listChip(findList(task.listId)) : '<span>lista excluída: volta para a Entrada</span>'}</span>
       <div class="actions">
-        <button class="btn small" data-action="restore" data-id="${task.id}">${ico('undo')}Restaurar</button>
+        <button class="pill-btn small" data-action="restore" data-id="${task.id}">${ico('undo')}Restaurar</button>
         <button class="btn small text danger" data-action="purge" data-id="${task.id}">Excluir de vez</button>
       </div>
-    </div>`;
+    </article>`;
+  const extra = tasks.length ? `
+    <div class="hero-actions">
+      <button class="hero-action on" data-action="restore-all">${ico('undo')}Restaurar tudo</button>
+      <button class="hero-action" data-action="empty-trash">Esvaziar</button>
+    </div>` : '';
   return `
-    <a class="back" href="#lists">${ico('left')}Listas</a>
-    <div class="view-head"><div><h1><span>Lixeira</span></h1>${tasks.length ? `<div class="subtitle">${tasks.length} ${tasks.length === 1 ? 'tarefa' : 'tarefas'}</div>` : ''}</div></div>
-    ${tasks.length ? `
-    <div class="actions" style="margin-bottom:14px">
-      <button class="btn" data-action="restore-all" style="flex:1">${ico('undo')}Restaurar tudo</button>
-      <button class="btn danger" data-action="empty-trash" style="flex:1">Esvaziar</button>
-    </div>
-    ${tasks.map(card).join('')}` : '<p class="empty">A lixeira está vazia.</p>'}`;
+    ${pageHero({ back: ['#lists', 'Listas'], title: 'Lixeira', sub: tasks.length ? `${tasks.length} ${tasks.length === 1 ? 'tarefa' : 'tarefas'}` : '', extra })}
+    ${tasks.length ? tasks.map(card).join('') : '<p class="empty">A lixeira está vazia.</p>'}`;
 }
 
 const foldText = (value) => (value || '').toLocaleLowerCase('pt-BR');
@@ -1435,16 +1503,21 @@ function searchResults() {
   const tasks = state.tasks.filter((t) => !t.deletedAt && (t.status === 'open' || (withDone && t.status === 'done')) && matches(t))
     .sort((a, b) => Number(a.status !== 'open') - Number(b.status !== 'open') || byOrder(a, b));
   const label = `${tasks.length} ${withDone ? '' : (tasks.length === 1 ? 'aberta ' : 'abertas ')}${tasks.length === 1 ? 'encontrada' : 'encontradas'}`;
-  return `<div class="search-meta"><span class="grow">${tasks.length ? label : `Nenhuma tarefa ${withDone ? '' : 'aberta '}encontrada`}</span></div>
+  return `<h2 class="section-label search-meta">${tasks.length ? label : `Nenhuma tarefa ${withDone ? '' : 'aberta '}encontrada`}</h2>
     ${tasks.length ? taskListHtml(tasks, { showList: true, mark: query, snippet: (task) => searchSnippet(task, query) }) : ''}`;
 }
 
 function searchView() {
   return `
-    <div class="view-head"><div><h1><span>Busca</span></h1></div></div>
-    <label class="search-box">${ico('search')}<input id="search-input" type="search" placeholder="Buscar tarefas" aria-label="Buscar tarefas" value="${escapeHtml(state.search)}" autocomplete="off" enterkeyhint="search">
-      ${state.search ? `<button type="button" class="ib" data-action="search-clear" aria-label="Limpar busca" style="width:40px;height:40px">${ico('x')}</button>` : ''}</label>
-    <label class="sr" style="border:0;min-height:44px"><span class="grow">Incluir concluídas</span><input type="checkbox" class="sw" role="switch" id="search-done" ${state.settings.searchDone ? 'checked' : ''}></label>
+    <header class="hero hero-page hero-search">
+      <h1 class="visually-hidden">Busca</h1>
+      <div class="hero-bar">
+        <button class="hero-btn" data-action="go-back" aria-label="Voltar" title="Voltar">${ico('left')}</button>
+        <label class="search-box">${ico('search')}<input id="search-input" type="search" placeholder="Buscar tarefas" aria-label="Buscar tarefas" value="${escapeHtml(state.search)}" autocomplete="off" enterkeyhint="search">
+          ${state.search ? `<button type="button" class="ib" data-action="search-clear" aria-label="Limpar a busca">${ico('x')}</button>` : ''}</label>
+      </div>
+      <label class="hero-switch"><span class="grow">Incluir concluídas</span><input type="checkbox" class="sw" role="switch" id="search-done" ${state.settings.searchDone ? 'checked' : ''}></label>
+    </header>
     <div id="search-results">${searchResults()}</div>`;
 }
 
@@ -1817,7 +1890,7 @@ function appearancePanels() {
   const dark = resolveMode(mode, prefersDark()) === 'dark';
   const prev = (kind) => `<span class="mode-prev ${kind}"><span class="t"></span><span class="r"></span><span class="r"></span></span>`;
   const preview = { light: prev('claro'), dark: prev('escuro'), auto: `<span class="mode-prev auto">${prev('claro')}${prev('escuro')}</span>` };
-  const size = Number(state.settings.fontSize || 3);
+  const size = textSize();
   return `
     <section class="panel">
       <span class="lbl">Modo</span>
@@ -1835,9 +1908,13 @@ function appearancePanels() {
     </section>
     <section class="panel">
       <span class="lbl">Tamanho da letra</span>
-      <div class="segments font-sizes" role="group" aria-label="Tamanho da letra" style="margin-bottom:0">
-        ${FONT_SIZES.map(([id, px, name]) => `<button class="${id === size ? 'on' : ''}" data-action="set-font-size" data-size="${id}" aria-pressed="${id === size}" aria-label="${name}" title="${name}"><span style="font-size:${px}px">Aa</span></button>`).join('')}
+      <div class="text-size">
+        <button type="button" class="size-btn" data-action="set-font-size" data-size="${size - 1}" ${size <= 1 ? 'disabled' : ''} aria-label="Letra menor" title="Letra menor"><span style="font-size:.85rem">A</span>${ico('down')}</button>
+        <div class="size-steps" aria-hidden="true">${TEXT_SIZES.map((_, index) => `<i class="${index < size ? 'on' : ''}"></i>`).join('')}</div>
+        <button type="button" class="size-btn" data-action="set-font-size" data-size="${size + 1}" ${size >= TEXT_SIZES.length ? 'disabled' : ''} aria-label="Letra maior" title="Letra maior"><span style="font-size:1.2rem">A</span>${ico('up')}</button>
       </div>
+      <p class="size-now" role="status">Tamanho ${size} de ${TEXT_SIZES.length}${size === DEFAULT_TEXT_SIZE ? ' (padrão)' : ''}</p>
+      <div class="size-preview" aria-hidden="true"><span class="task-title">Pagar conta de luz</span><span class="chips"><span>hoje às 18:00 · Casa</span></span></div>
     </section>`;
 }
 
@@ -1852,8 +1929,7 @@ function notificationState() {
 }
 
 function settingsView(page) {
-  const back = `<a class="back" href="#settings">${ico('left')}Config.</a>`;
-  const title = (name) => `${back}<div class="view-head"><div><h1><span>${name}</span></h1></div></div>`;
+  const title = (name, sub = '') => pageHero({ back: ['#settings', 'Config.'], title: name, sub });
   const segmented = (label, action, options, current, dataKey = 'value') => `
       <div class="segments" role="group" aria-label="${label}">
         ${options.map(([id, name]) => `<button class="${String(id) === String(current) ? 'on' : ''}" data-action="${action}" data-${dataKey}="${id}" aria-pressed="${String(id) === String(current)}">${name}</button>`).join('')}
@@ -1947,7 +2023,7 @@ function settingsView(page) {
   const startName = START_VIEWS.find(([id]) => id === startView)[1];
   const modeName = MODES.find(([id]) => id === normalizeMode(state.settings.mode))[1];
   const accentName = ACCENTS.find((item) => item.id === normalizeAccent(state.settings.accent)).name;
-  const sizeName = (FONT_SIZES.find(([id]) => id === Number(state.settings.fontSize || 3)) || FONT_SIZES[2])[2].toLowerCase();
+  const sizeName = `${textSize()} de ${TEXT_SIZES.length}`;
   const notify = { granted: 'Notificações ligadas', denied: 'Notificações bloqueadas', default: 'Notificações desligadas', unsupported: 'Sem notificações neste navegador' }[permission];
   const subtitles = {
     geral: `Abre em ${startName} · lembrar às ${defaultRemindTime()}`,
@@ -1957,13 +2033,13 @@ function settingsView(page) {
     dados: driveLate() ? 'Backup do Google Drive atrasado' : 'Backup, limpeza da lixeira e das concluídas',
   };
   const banner = state.sync?.token
-    ? `<div class="sync-banner">${ico('repeat')}<div><b id="sync-status" role="status">${escapeHtml(syncStatusText())}</b><small>As tarefas são iguais no note e nos celulares.</small></div></div>`
+    ? `<section class="leaf-card big sync-card" aria-label="Sincronização"><span class="sync-leaf" aria-hidden="true">${ico('repeat')}</span><div class="grow"><b id="sync-status" role="status">${escapeHtml(syncStatusText())}</b><small>Conectado como ${escapeHtml(state.sync.login)} · iguais no note e nos celulares</small></div><button class="ib round-ib" data-action="sync-now" aria-label="Sincronizar agora" title="Sincronizar agora">${ico('repeat')}</button></section>`
     : '';
   return `
-    <div class="view-head"><div><h1><span>Config.</span></h1></div></div>
+    ${pageHero({ kicker: APP_NAME, title: 'Config.' })}
     ${driveWarning()}
     ${banner}
-    ${SETTINGS_PAGES.map(([id, name, icon]) => `<a class="nr" href="#settings/${id}"><span class="ico">${ico(icon)}</span><span class="grow"><strong>${name}</strong><small>${escapeHtml(subtitles[id])}</small></span><span class="chev">${ico('right')}</span></a>`).join('')}
+    <nav class="leaf-card rows-card" aria-label="Partes da configuração">${SETTINGS_PAGES.map(([id, name, icon]) => `<a class="nr" href="#settings/${id}"><span class="ico">${ico(icon)}</span><span class="grow"><strong>${name}</strong><small>${escapeHtml(subtitles[id])}</small></span><span class="chev">${ico('right')}</span></a>`).join('')}</nav>
     <div style="text-align:center;margin-top:22px">
       <div class="help">${APP_NAME} · versão ${APP_VERSION}</div>
       <button class="link" data-action="check-update">Buscar atualização agora</button>
@@ -2257,7 +2333,13 @@ function openTaskMenu(id) {
 }
 
 /** Quadradinho da lista com o emoji (ou um ícone) na cor dela. */
-const listSquare = (list, size = 36) => `<span class="em" style="--c:${escapeHtml(list?.color || '#7E8A99')};width:${size}px;height:${size}px">${list?.emoji ? escapeHtml(list.emoji) : ico(list?.id === INBOX ? 'inbox' : 'list')}</span>`;
+// v23: com emoji, o emoji fica no quadradinho na cor clara da lista; sem emoji, a inicial em branco na cor cheia.
+const listSquare = (list, size = 36) => {
+  const color = escapeHtml(list?.color || (list?.id === INBOX ? 'var(--primary)' : '#7E8A99'));
+  const style = `--c:${color};width:${size}px;height:${size}px`;
+  if (list?.emoji) return `<span class="em" style="${style}" aria-hidden="true">${escapeHtml(list.emoji)}</span>`;
+  return `<span class="em solid${list?.id === INBOX && !list?.color ? ' inbox' : ''}" style="${style}" aria-hidden="true">${list?.id === INBOX ? ico('inbox') : escapeHtml(initial(list?.name))}</span>`;
+};
 
 function openMoveSheet(ids) {
   const tasks = ids.map(findTask).filter(Boolean);
@@ -2474,20 +2556,23 @@ function openTask(id, { isNew = false } = {}) {
   const dialog = $('#dialog');
   dialog.innerHTML = `
     <form class="form task-form" data-form="task" data-id="${task.id}" novalidate>
-      <div class="form-head sticky-head">
-        <button type="button" class="btn small" data-action="close-dialog">Fechar</button>
-        <h2>${isNew ? 'Nova tarefa' : 'Tarefa'}</h2>
-        <span class="head-spacer" aria-hidden="true"></span>
-      </div>
-      <div class="error" id="form-error" role="alert" hidden></div>
-      <div class="title-row">
-        ${task.status === 'open' && !task.deletedAt
+      <header class="task-hero">
+        <div class="hero-bar sticky-head">
+          <button type="button" class="hero-pill" data-action="close-dialog">Fechar</button>
+          <h2 class="hero-kicker">${isNew ? 'Nova tarefa' : 'Tarefa'}</h2>
+          <span class="head-spacer" aria-hidden="true"></span>
+        </div>
+        <div class="title-row">
+          ${task.status === 'open' && !task.deletedAt
     ? `<button type="button" class="check${isOverdue(task, today()) ? ' late' : ''}" data-action="complete-from-dialog" data-id="${task.id}" aria-label="${escapeHtml(completeLabel(task))}">${MARK}</button>`
     : `<span class="check done" aria-hidden="true">${MARK}</span>`}
-        <div class="field"><label for="f-title" class="visually-hidden">Título</label><input id="f-title" class="title-input" name="title" value="${escapeHtml(task.title)}" placeholder="O que fazer?" required autocomplete="off"></div>
-      </div>
+          <div class="field"><label for="f-title" class="visually-hidden">Título</label><textarea id="f-title" class="title-input" name="title" rows="1" placeholder="O que fazer?" required autocomplete="off" enterkeyhint="done">${escapeHtml(task.title)}</textarea></div>
+        </div>
+      </header>
+      <div class="error" id="form-error" role="alert" hidden></div>
 
-      <section class="form-block" aria-label="Quando e lembrete">
+      <section class="leaf-card form-card" aria-labelledby="when-kicker">
+        <h3 class="card-kicker" id="when-kicker">Quando</h3>
         <div class="shortcuts">
           <button type="button" class="chip" data-action="set-when" data-days="0">Hoje</button>
           <button type="button" class="chip" data-action="set-when" data-days="1">Amanhã</button>
@@ -2497,7 +2582,7 @@ function openTask(id, { isNew = false } = {}) {
         <input id="f-when" type="hidden" name="when" value="${task.when || ''}">
         <input id="f-time" type="hidden" value="${whenTime}">
         <button type="button" class="when-pick" id="when-pick" data-action="pick-when">
-          ${ico('calendar')}<span class="grow"><small>Quando</small><b id="when-text"></b></span>${ico('right')}
+          ${ico('calendar')}<span class="grow"><small>Dia e hora</small><b id="when-text"></b></span>${ico('right')}
         </button>
         <label class="remind-row">
           ${ico('bell')}
@@ -2511,59 +2596,66 @@ function openTask(id, { isNew = false } = {}) {
         <button type="button" class="link" id="remind-other" data-action="show-remind-field" hidden>${ico('clock')}Outro dia ou horário para lembrar</button>
       </section>
 
-      <section class="form-block" aria-label="Repetição">
-        <div class="repeat-head">
-          ${ico('repeat')}<label for="f-freq">Repetir</label>
-          <select id="f-freq" name="freq">
+      <details class="leaf-card form-card fold-card" id="repeat-card" ${task.repeat ? 'open' : ''}>
+        <summary>${ico('repeat')}<span class="grow">Repetir<small id="repeat-summary"></small></span>${ico('right')}</summary>
+        <div class="fold-body">
+          <div class="shortcuts" role="group" aria-label="Repetir">
+            <button type="button" class="chip" data-action="set-freq" data-value="">Não repete</button>
+            ${FREQ_OPTIONS.map(([value, name]) => `<button type="button" class="chip" data-action="set-freq" data-value="${value}">${name}</button>`).join('')}
+          </div>
+          <select id="f-freq" name="freq" data-prev="${isBiweekly(repeat) ? 'biweekly' : repeat.freq || ''}" hidden>
             <option value="">Não repete</option>
             ${FREQ_OPTIONS.map(([value, name]) => `<option value="${value}" ${(isBiweekly(repeat) ? 'biweekly' : repeat.freq) === value ? 'selected' : ''}>${name}</option>`).join('')}
           </select>
-        </div>
-        <div id="repeat-options" class="inline-field" hidden>
-          <label for="f-interval">A cada</label>
-          <input id="f-interval" type="number" min="1" max="99" name="interval" value="${repeat.interval || 1}" inputmode="numeric">
-          <span id="unit-text"></span>
-        </div>
-        <div class="field" id="weekday-field" hidden>
-          <span class="label-text">Dias da semana</span>
-          <div class="weekdays">
-            ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${name}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
+          <div id="repeat-options" class="inline-field" hidden>
+            <label for="f-interval">A cada</label>
+            <input id="f-interval" type="number" min="1" max="99" name="interval" value="${repeat.interval || 1}" inputmode="numeric">
+            <span id="unit-text"></span>
           </div>
-        </div>
-        <div class="help" id="repeat-help"></div>
-        <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada repetição</label>
-        <details id="repeat-extra" class="more" ${repeatMoreOpen ? 'open' : ''} hidden>
-          <summary>Mais opções da repetição</summary>
-          <label class="check-line"><input type="checkbox" name="fromCompletion" ${repeat.fromCompletion ? 'checked' : ''}> Contar a partir da conclusão</label>
-          <div class="field">
-            <label for="f-count">Terminar após (vezes)</label>
-            <input id="f-count" type="number" min="1" max="999" name="count" value="${repeat.count || ''}" placeholder="Sem limite" inputmode="numeric">
-            <div class="help">${repeat.count ? `Feitas ${repeat.done || 0} de ${repeat.count}.` : 'Deixe vazio para repetir sem limite.'}</div>
+          <div class="field" id="weekday-field" hidden>
+            <span class="label-text">Dias da semana</span>
+            <div class="weekdays">
+              ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${WEEKDAYS_FULL[index]}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
+            </div>
           </div>
-          ${seriesField}
-        </details>
-      </section>
+          <div class="help" id="repeat-help"></div>
+          <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada repetição</label>
+          <details id="repeat-extra" class="more" ${repeatMoreOpen ? 'open' : ''} hidden>
+            <summary>Mais opções da repetição</summary>
+            <label class="check-line"><input type="checkbox" name="fromCompletion" ${repeat.fromCompletion ? 'checked' : ''}> Contar a partir da conclusão</label>
+            <div class="field">
+              <label for="f-count">Terminar após (vezes)</label>
+              <input id="f-count" type="number" min="1" max="999" name="count" value="${repeat.count || ''}" placeholder="Sem limite" inputmode="numeric">
+              <div class="help">${repeat.count ? `Feitas ${repeat.done || 0} de ${repeat.count}.` : 'Deixe vazio para repetir sem limite.'}</div>
+            </div>
+            ${seriesField}
+          </details>
+        </div>
+      </details>
 
       <div class="list-row">
-        <div class="field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
+        <div class="field tile-field"><label for="f-list">Lista</label><select id="f-list" name="listId">${options(task.listId)}</select></div>
         <label class="star-toggle"><input type="checkbox" name="important" ${task.important ? 'checked' : ''}><span>${STAR_ICON(true)} Importante</span></label>
       </div>
 
-      <section class="form-block steps-block" aria-label="Etapas">
-        <div class="steps-head"><span>Etapas</span><span class="help" id="steps-count"></span></div>
+      <section class="leaf-card form-card steps-block" aria-labelledby="steps-kicker">
+        <div class="steps-head"><h3 class="card-kicker" id="steps-kicker">Etapas</h3><span class="help" id="steps-count"></span></div>
         <div id="steps"></div>
         <div class="step-add">${ico('plus')}<input id="step-input" aria-label="Adicionar etapa" placeholder="Adicionar etapa" autocomplete="off" enterkeyhint="enter"><button type="button" class="btn small text" data-action="add-step">Adicionar</button></div>
       </section>
-      <div class="field"><label for="f-notes">Notas</label><textarea id="f-notes" name="notes" placeholder="Detalhes, links, endereço...">${escapeHtml(task.notes)}</textarea></div>
+      <section class="leaf-card form-card notes-card">
+        <label for="f-notes" class="card-kicker">Notas</label>
+        <textarea id="f-notes" name="notes" placeholder="Detalhes, links, endereço…">${escapeHtml(task.notes)}</textarea>
+      </section>
 
-      <details class="more-row" id="more-options" ${moreOpen ? 'open' : ''}>
+      <details class="leaf-card form-card fold-card more-row" id="more-options" ${moreOpen ? 'open' : ''}>
         <summary>${ico('sliders')}<span class="grow">Mais opções<small>Prazo, outros lembretes, insistir, tags</small></span>${ico('right')}</summary>
-        <div class="more-body">
+        <div class="more-body fold-body">
         ${untilField}
         <div class="field">
           <span class="label-text">Outros lembretes</span>
           <div id="extra-reminders" class="rows">${(task.extraReminders || []).map(extraReminderRow).join('')}</div>
-          <button type="button" class="btn small" data-action="add-reminder">${ico('plus')}Adicionar outro lembrete</button>
+          <button type="button" class="link" data-action="add-reminder">${ico('plus')}Adicionar outro lembrete</button>
         </div>
         <label class="check-line" id="insist-line"><input type="checkbox" name="insist" ${task.insist ? 'checked' : ''}> Insistir até eu reagir (a cada ${pushSettings().insistMinutes} min, até ${INSIST_MAX} vezes)</label>
         <div class="field">
@@ -2576,24 +2668,33 @@ function openTask(id, { isNew = false } = {}) {
       </details>
       ${info ? `<p class="help task-info">${escapeHtml(info)}</p>` : ''}
 
-      <div class="form-foot sticky-foot">
+      <div class="form-foot sticky-foot task-bar">
         ${task.deletedAt
-    ? `<button type="button" class="btn small" data-action="restore" data-id="${task.id}">${ico('undo')}Restaurar</button>`
-    : `<button type="button" class="ib danger-ib" data-action="trash" data-id="${task.id}" aria-label="Mandar para a Lixeira" title="Mandar para a Lixeira">${ico('trash')}</button>`}
-        <button type="button" class="ib" data-action="duplicate-from-dialog" data-id="${task.id}" aria-label="Duplicar" title="Duplicar">${ico('copy')}</button>
-        ${task.repeat && task.status === 'open' ? `<button type="button" class="ib" data-action="skip" data-id="${task.id}" aria-label="Pular esta ocorrência" title="Pular esta ocorrência">${ico('next')}</button>` : ''}
+    ? `<button type="button" class="bar-btn" data-action="restore" data-id="${task.id}">${ico('undo')}Restaurar</button>`
+    : `<button type="button" class="bar-ib danger-ib" data-action="trash" data-id="${task.id}" aria-label="Mandar para a Lixeira" title="Mandar para a Lixeira">${ico('trash')}</button>`}
+        <button type="button" class="bar-ib" data-action="duplicate-from-dialog" data-id="${task.id}" aria-label="Duplicar" title="Duplicar">${ico('copy')}</button>
+        ${task.repeat && task.status === 'open' ? `<button type="button" class="bar-ib" data-action="skip" data-id="${task.id}" aria-label="Pular esta ocorrência" title="Pular esta ocorrência">${ico('next')}</button>` : ''}
         ${task.status === 'open'
-    ? `<button type="button" class="btn small complete-small" data-action="complete-from-dialog" data-id="${task.id}" title="${next ? `Concluir; a próxima fica para ${escapeHtml(formatDate(next).toLowerCase())}` : 'Concluir a tarefa'}">${ico('check')}Concluir</button>`
-    : `<button type="button" class="btn small" data-action="reopen-from-dialog" data-id="${task.id}">${ico('undo')}Reabrir</button>`}
-        <button class="btn primary save-btn">Salvar</button>
+    ? `<button type="button" class="bar-btn complete-small" data-action="complete-from-dialog" data-id="${task.id}" aria-label="Concluir" title="${next ? `Concluir; a próxima fica para ${escapeHtml(formatDate(next).toLowerCase())}` : 'Concluir a tarefa'}">${ico('check')}<span class="bar-label">Concluir</span></button>`
+    : `<button type="button" class="bar-btn" data-action="reopen-from-dialog" data-id="${task.id}" aria-label="Reabrir">${ico('undo')}<span class="bar-label">Reabrir</span></button>`}
+        <button class="save-btn">Salvar</button>
       </div>
     </form>`;
   renderSteps();
   updateFormHints();
   if (!dialog.open) dialog.showModal();
+  fitTitle();
   // Abre sempre no topo, com o título à vista, mesmo se a anterior tinha sido rolada.
   dialog.scrollTop = 0;
   dialogSnapshot = formSnapshot();
+}
+
+/** O título da tarefa quebra em várias linhas: a caixa cresce com o texto. */
+function fitTitle() {
+  const title = $('#f-title');
+  if (!title) return;
+  title.style.height = 'auto';
+  title.style.height = `${title.scrollHeight}px`;
 }
 
 /* ---------- Seletor de data e horário (abas Data e Horário, calendário e relógio de ponteiro) ---------- */
@@ -3015,6 +3116,7 @@ function showUnsavedGuard() {
   layer.id = 'unsaved-guard';
   layer.innerHTML = `
     <div class="dt-sheet guard-sheet" role="alertdialog" aria-modal="true" aria-labelledby="guard-title" aria-describedby="guard-text">
+      <div class="grab" aria-hidden="true"></div>
       <h3 id="guard-title">Sair sem salvar?</h3>
       <p class="help" id="guard-text">Você mudou esta tarefa. O que fazer com as alterações?</p>
       <button type="button" class="btn primary" data-action="guard-save">${ico('check')}Salvar e fechar</button>
@@ -3172,6 +3274,14 @@ function updateFormHints() {
   $('#remind-each-line').hidden = !freq || !hasReminder;
   $('#insist-line').hidden = !hasReminder;
   if (freq) $('#unit-text').textContent = FREQ_LABELS[freq][1];
+  // Botões de repetição e o resumo na linha "Repetir".
+  form.querySelectorAll('[data-action="set-freq"]').forEach((chip) => {
+    const on = chip.dataset.value === rawFreq;
+    chip.classList.toggle('on', on);
+    chip.setAttribute('aria-pressed', on);
+  });
+  const draftRepeat = readForm(form).repeat;
+  $('#repeat-summary').textContent = draftRepeat ? repeatLabel({ ...draftRepeat, interval: Number(draftRepeat.interval) || 1 }) : 'Não repete';
   const help = $('#repeat-help');
   help.textContent = '';
   if (freq && !form.elements.when.value) {
@@ -3217,8 +3327,13 @@ function askOccurrenceScope(prev, fields) {
     const to = moment(fields.when, fields.remindAt);
     layer.innerHTML = `
       <div class="dt-sheet guard-sheet" role="alertdialog" aria-modal="true" aria-labelledby="scope-title">
+        <div class="grab" aria-hidden="true"></div>
+        <div class="sheet-kicker">${escapeHtml(prev.title)} · ${escapeHtml(repeatLabel(prev.repeat))}</div>
         <h3 id="scope-title">Só desta vez?</h3>
-        <p class="help">Esta tarefa se repete (${escapeHtml(repeatLabel(prev.repeat))}). Você mudou de <b>${escapeHtml(from)}</b> para <b>${escapeHtml(to)}</b>.</p>
+        <div class="qp-ramo scope-ramo">
+          <div class="scope-from"><span>de</span>${escapeHtml(from)}</div>
+          <div class="qp-title"><span>para</span>${escapeHtml(to)}</div>
+        </div>
         <button type="button" class="btn primary" data-scope="once">Só esta vez<small class="btn-sub">as próximas continuam como antes</small></button>
         <button type="button" class="btn" data-scope="all">Esta e as próximas<small class="btn-sub">a repetição passa a seguir a data nova</small></button>
         <button type="button" class="btn text" data-scope="cancel">Cancelar</button>
@@ -3816,6 +3931,11 @@ const clickActions = {
     }
     return undefined;
   },
+  'set-freq': (el) => {
+    const select = $('#f-freq');
+    select.value = el.dataset.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  },
   'set-when': (el) => {
     $('#f-when').value = addDays(today(), Number(el.dataset.days));
     syncReminderFromWhen(true);
@@ -3897,6 +4017,11 @@ const clickActions = {
     render();
   },
   'sync-now': () => syncEngine.run(),
+  // Voltar da Busca: para a tela anterior do app (ou Hoje, se a Busca abriu direto).
+  'go-back': () => {
+    const prev = state.prevHash && !state.prevHash.startsWith('#search') ? state.prevHash : '#today';
+    location.hash = prev;
+  },
   'sync-register': registerAccount,
   'sync-login': loginThisDevice,
   'sync-logout': logoutThisDevice,
@@ -3926,9 +4051,13 @@ const clickActions = {
     render();
   },
   'set-font-size': async (el) => {
-    await saveSettings({ fontSize: Number(el.dataset.size) });
+    const size = Math.min(TEXT_SIZES.length, Math.max(1, Number(el.dataset.size)));
+    await saveSettings({ textSize: size });
     applyTheme();
     render();
+    // O foco continua no botão tocado (ou no outro, se este ficou desligado no fim da escala).
+    const again = document.querySelector(`[data-action="set-font-size"][aria-label="${el.getAttribute('aria-label')}"]`);
+    (again && !again.disabled ? again : document.querySelector('[data-action="set-font-size"]:not(:disabled)'))?.focus();
   },
   'toggle-important': async (el) => {
     const task = findTask(el.dataset.id);
@@ -4134,6 +4263,11 @@ document.addEventListener('input', (event) => {
     reminderEdited();
   } else if (target.id === 'f-remind-on') {
     // Tratado no evento change.
+  } else if (target.id === 'f-title') {
+    // Um título colado com quebras de linha vira uma linha só.
+    if (/\n/.test(target.value)) target.value = target.value.replace(/\s*\n\s*/g, ' ');
+    fitTitle();
+    updateFormHints();
   } else if (target.dataset.stepTitle !== undefined) {
     draftSteps[Number(target.dataset.stepTitle)].title = target.value;
   } else if (target.closest('form[data-form="task"]')) {
@@ -4147,7 +4281,8 @@ document.addEventListener('change', async (event) => {
     // Sair de Quinzenal para Semanal volta a "a cada 1 semana".
     const interval = $('#f-interval');
     if (target.value === 'biweekly') interval.value = 2;
-    else if (target.value === 'weekly' && Number(interval.value) === 2) interval.value = 1;
+    else if ((target.value === 'weekly' || target.dataset.prev === 'biweekly') && Number(interval.value) === 2) interval.value = 1;
+    target.dataset.prev = target.value;
     updateFormHints();
   } else if (target.id === 'f-remind-on') {
     reminderToggled();
@@ -4197,6 +4332,12 @@ function focusQuickAdd() {
 const visualOrder = (list) => [...list.children].map((row) => row.dataset.id).filter(Boolean);
 
 document.addEventListener('keydown', async (event) => {
+  // Enter no título salva a tarefa, como no campo de uma linha de antes (sem quebrar linha).
+  if (event.key === 'Enter' && event.target.id === 'f-title') {
+    event.preventDefault();
+    event.target.form.requestSubmit();
+    return;
+  }
   // Enter na etapa adiciona a etapa, sem salvar a tarefa.
   if (event.key === 'Enter' && event.target.id === 'step-input') {
     event.preventDefault();
@@ -4234,6 +4375,7 @@ document.addEventListener('keydown', async (event) => {
   } else if (event.key === '/') {
     event.preventDefault();
     if (currentRoute().name !== 'search') {
+      state.prevHash = location.hash || '#today';
       history.pushState(null, '', '#search');
       render();
     }
@@ -4404,7 +4546,8 @@ document.addEventListener('pointerdown', (event) => {
   if (event.target.closest('.dock button')) event.preventDefault();
 });
 
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', (event) => {
+  state.prevHash = new URL(event.oldURL).hash || '#today';
   state.quick = {};
   state.dayScrolled = null;
   state.nextIndex = 0;

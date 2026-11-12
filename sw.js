@@ -600,7 +600,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v22';
+const CACHE = 'tarefas-v23';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
