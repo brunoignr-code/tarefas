@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v26 · 12/11/2026';
+const APP_VERSION = 'v27 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -1193,6 +1193,7 @@ function todayView() {
       <div><h2>Nada para hoje</h2><p>Uma folha em branco. Que tal anotar algo?</p></div>
       <button class="pill-btn primary" data-action="anotar" style="flex:none">Anotar uma tarefa</button>
     </section>` : ''}
+    ${notifyWarning()}
     ${driveWarning()}
     ${body}
     ${quickAdd('Anotar para hoje…', { when: now })}`;
@@ -1719,6 +1720,78 @@ function driveWarning() {
   return `<a class="drive-warning" href="#settings/dados">${ico('alert')}<span class="grow"><b>${escapeHtml(when)}</b><small>${late.error ? `Erro: ${escapeHtml(late.error)} · ` : ''}Toque para ver em Config. › Dados.</small></span>${ico('right')}</a>`;
 }
 
+/* ---------- Aviso de notificações desligadas (v27) ---------- */
+// O lembrete que não toca é a falha mais silenciosa: o app parece funcionar. Com tarefas que têm
+// lembrete, Hoje e Config. mostram por que este aparelho não vai avisar e o que fazer.
+const NOTIFY_SNOOZE_KEY = 'afazeres-aviso-notificacao';
+const NOTIFY_SNOOZE_DAYS = 7;
+
+const hasReminders = () => openTasks().some((task) => task.remindAt || (task.extraReminders || []).length);
+
+function notifySnoozed() {
+  if (state.notifyHidden) return true;
+  try {
+    return Number(localStorage.getItem(NOTIFY_SNOOZE_KEY) || 0) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/** O que impede este aparelho de avisar: 'denied', 'default', 'closed' (só com o app aberto) ou nada. */
+function notifyProblem() {
+  if (!('Notification' in window) || !hasReminders()) return null;
+  if (Notification.permission === 'denied') return 'denied';
+  if (Notification.permission === 'default') return 'default';
+  if (state.sync?.token && pushSupported() && !state.push?.enabled) return 'closed';
+  return null;
+}
+
+function notifyWarning() {
+  const problem = notifyProblem();
+  if (!problem || notifySnoozed()) return '';
+  const text = {
+    denied: ['Notificações bloqueadas neste aparelho', 'Os lembretes não vão tocar. Quem libera é o Android ou o navegador.', 'Como liberar', 'notify-help'],
+    default: ['Notificações ainda não liberadas', 'Sem isso, os lembretes não tocam neste aparelho.', 'Liberar', 'notify-enable'],
+    closed: ['Este aparelho só avisa com o app aberto', 'Com o app fechado ou o celular bloqueado, os lembretes não tocam aqui.', 'Ativar', 'notify-enable'],
+  }[problem];
+  const [title, sub, label, action] = text;
+  return `
+    <section class="drive-warning notify-warning" role="status">
+      ${ico('bell')}<span class="grow"><b>${title}</b><small>${sub}</small></span>
+      <div class="fit-box notify-actions"><div class="fit fit-pair">
+        <button type="button" class="pill-btn small primary" data-action="${action}">${label}</button>
+        <button type="button" class="pill-btn small" data-action="notify-later">Agora não</button>
+      </div></div>
+    </section>`;
+}
+
+/** Pede a permissão (se ainda dá) e liga os avisos com o app fechado, com a conta conectada. */
+async function enableNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') await Notification.requestPermission();
+  if (Notification.permission === 'denied') {
+    render();
+    openNotifyHelp();
+    return;
+  }
+  if (Notification.permission === 'granted' && state.sync?.token && pushSupported() && !state.push?.enabled) {
+    await togglePush(true);
+    return;
+  }
+  if (Notification.permission === 'granted') showToast('Pronto. Este aparelho avisa com o app aberto.');
+  render();
+}
+
+function openNotifyHelp() {
+  const installed = matchMedia('(display-mode: standalone)').matches || document.referrer.startsWith('android-app://');
+  const steps = installed
+    ? '<ol class="notify-steps"><li>Segure o ícone do <b>Afazeres</b> na tela inicial e toque em <b>Informações do app</b> (ⓘ).</li><li>Toque em <b>Notificações</b> e ligue <b>Permitir notificações</b>.</li><li>Volte ao app. Se o aviso continuar, abra Config. › Avisos e ligue “Receber neste aparelho”.</li></ol>'
+    : '<ol class="notify-steps"><li>Toque no ícone ao lado do endereço (cadeado ou ajustes).</li><li>Em <b>Permissões</b> ou <b>Configurações do site</b>, ponha <b>Notificações</b> em <b>Permitir</b>.</li><li>Recarregue a página.</li></ol>';
+  openSheet('Liberar as notificações', [
+    ['Já liberei', () => { $('#dialog').close(); render(); if (Notification.permission === 'granted') enableNotifications(); }, { icon: 'check' }],
+  ], steps, { note: 'Em alguns celulares a economia de bateria também segura os avisos: em Informações do app › Bateria, escolha “Sem restrições”.' });
+}
+
 /** Busca o status do Google (e do backup no Drive) ao abrir o app, no máximo uma vez por hora. */
 async function checkDriveHealth() {
   if (!state.sync?.token || !googleReady() || !navigator.onLine) return;
@@ -2153,6 +2226,7 @@ function settingsView(page) {
     : '';
   return `
     ${pageHero({ kicker: APP_NAME, title: 'Config.' })}
+    ${notifyWarning()}
     ${driveWarning()}
     ${banner}
     <nav class="leaf-card rows-card" aria-label="Partes da configuração">${SETTINGS_PAGES.map(([id, name, icon]) => `<a class="nr" href="#settings/${id}"><span class="ico">${ico(icon)}</span><span class="grow"><strong>${name}</strong><small>${escapeHtml(subtitles[id])}</small></span><span class="chev">${ico('right')}</span></a>`).join('')}</nav>
@@ -4199,6 +4273,14 @@ const clickActions = {
     await Notification.requestPermission();
     render();
   },
+  'notify-enable': () => enableNotifications(),
+  'notify-help': () => openNotifyHelp(),
+  'notify-later': () => {
+    try { localStorage.setItem(NOTIFY_SNOOZE_KEY, String(Date.now() + NOTIFY_SNOOZE_DAYS * 86400000)); } catch { /* Sem armazenamento: some só até recarregar. */ }
+    state.notifyHidden = true;
+    render();
+    showToast(`Tudo bem. Volto a lembrar daqui a ${NOTIFY_SNOOZE_DAYS} dias.`);
+  },
   'test-notification': async () => {
     await showNotification({ id: 'teste', title: 'Teste de notificação' });
   },
@@ -4850,6 +4932,10 @@ async function start() {
   syncEngine.run();
   checkDriveHealth();
   setInterval(() => syncEngine.run(), 60000);
+  // Permissão de notificação mudada (no Android, no navegador ou pelo botão): o aviso de Hoje se atualiza (v27).
+  navigator.permissions?.query({ name: 'notifications' }).then((status) => {
+    status.onchange = () => render();
+  }).catch(() => {});
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
   }

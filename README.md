@@ -71,7 +71,20 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v26)
+## Estado do projeto (12 de novembro de 2026, v27)
+
+### v27, 12 de novembro: aviso quando as notificações estão desligadas
+
+Feedback de uso: o A17 instalou o app com as notificações bloqueadas e nada avisava; depois de liberar, funcionou. Só tela: sem mudança no servidor, no login ou nos dados.
+
+- **Cartão em Hoje e no topo de Config.**, só quando há tarefas abertas com lembrete, com o motivo e o botão certo:
+  - **Bloqueadas** ("Notificações bloqueadas neste aparelho · Os lembretes não vão tocar"): **Como liberar** abre os passos. No app instalado: segurar o ícone › Informações do app › Notificações. No navegador: ícone ao lado do endereço › Permissões. Inclui a dica da economia de bateria ("Sem restrições"). Nesse estado o app não pode pedir de novo.
+  - **Ainda não liberadas:** **Liberar** pede a permissão e, com a conta conectada, já liga "Receber neste aparelho".
+  - **Liberadas, mas só com o app aberto** (conta conectada e "Receber neste aparelho" desligado): **Ativar** liga os avisos com o app fechado.
+  - **Agora não** esconde por 7 dias, só neste aparelho.
+- O cartão se atualiza quando a permissão muda (pelo Android, pelo navegador ou ao voltar para o app).
+- Testado no navegador (369 px), numa origem local sem conta, com dados descartáveis apagados depois: bloqueadas (o navegador do teste estava bloqueado de verdade), ainda não liberadas (simulado), em Hoje e em Config., Como liberar e Agora não; 74 testes das regras.
+- **Não testado:** o caso "só com o app aberto" (precisa de conta conectada) e os passos do app instalado num celular de verdade.
 
 ### v26, 12 de novembro: avisos entre celulares que não se perdem
 
