@@ -69,6 +69,16 @@ M['rules'] = (() => {
 
   const nextOccurrence = (repeat, after) => firstOccurrence(repeat, addDays(after, 1));
 
+  /** Primeiro dia em `from` ou depois dele que cai num dos dias da semana (0 = domingo). Sem dias, `from`. */
+  function firstOnWeekdays(weekdays, from) {
+    if (!from || !weekdays || !weekdays.length) return from;
+    for (let i = 0; i < 7; i += 1) {
+      const day = addDays(from, i);
+      if (weekdays.includes(weekday(day))) return day;
+    }
+    return from;
+  }
+
   function normalizeRepeat(input, anchor) {
     const repeat = {
       freq: input.freq,
@@ -359,7 +369,7 @@ M['rules'] = (() => {
 
   /** Marca local de "já avisei": o horário, seguido de #n quando é uma insistência. */
   const notifyMark = (time, step) => (step ? `${time}#${step}` : time);
-  return { addDays, diffDays, weekday, localDate, localDateTime, firstOccurrence, nextOccurrence, applyEdit, cleanTags, nextDate, completeTask, skipOccurrence, todayTasks, upcomingTasks, daysWaiting, isOverdue, isUrgent, reminderTimes, activeReminder, shownReminder, reminderTime, dueReminders, snoozeTo, snooze, dismissReminder, INSIST_MAX, parseLocal, addMinutes, insistStep, notifyMark };
+  return { addDays, diffDays, weekday, localDate, localDateTime, firstOccurrence, nextOccurrence, firstOnWeekdays, applyEdit, cleanTags, nextDate, completeTask, skipOccurrence, todayTasks, upcomingTasks, daysWaiting, isOverdue, isUrgent, reminderTimes, activeReminder, shownReminder, reminderTime, dueReminders, snoozeTo, snooze, dismissReminder, INSIST_MAX, parseLocal, addMinutes, insistStep, notifyMark };
 })();
 M['sync-core'] = (() => {
   // Regras de sincronização: a edição mais recente de cada campo vence. Sem rede nem banco.
@@ -600,7 +610,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v23';
+const CACHE = 'tarefas-v24';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [

@@ -5,19 +5,13 @@ Copie o bloco abaixo no novo chat, aberto nesta mesma pasta. A próxima ação j
 ```text
 Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal, alternativa ao Microsoft To Do).
 
-Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v23 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
+Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v24 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
 
 PRÓXIMA AÇÃO (pedido meu):
-Gap importante: não dá pra fazer recorrência selecionando tais dias da semana. Pode criar e implementar? Que selecione apenas dias específicos.
-
-Contexto já levantado em 12/11, para não refazer o que existe (confira no código antes):
-- As regras já aceitam repetição semanal em vários dias: `repeat.weekdays` (0 = domingo a 6 = sábado) em js/rules.js (normalizeRepeat e firstOccurrence), com testes. Não deve precisar mudar o formato dos dados.
-- Na janela da tarefa, os dias só aparecem depois de abrir o cartão "Repetir" (vem fechado quando a tarefa não repete) e tocar em "Semanal": aí surge "Dias da semana" (D S T Q Q S S). Provavelmente é difícil de achar.
-- No texto digitado, o app entende um dia só ("toda segunda"); "toda segunda e quarta" e "dias úteis" não viram repetição (js/parse.js).
-- Na folha "Anotar" do celular, o botão Repetir só oferece Todo dia, Toda semana, Quinzenal, Todo mês e Todo ano: não dá para escolher os dias (openQuickRepeat em js/app.js).
-- Antes de implementar, me pergunte onde eu tentei fazer e não consegui, se não ficar claro. Depois proponha o jeito (por exemplo: um botão "Dias da semana" no Repetir da tarefa e da folha Anotar, já mostrando os dias; entender "segunda e quarta" e "dias úteis" no texto) e implemente. Mantenha a regra de "Só esta vez" (v19) e o "Sair sem salvar?" (v18) funcionando. Se mudar js/rules.js ou js/parse.js, acrescente testes em tests/rules.test.js e rode `python tools/build_sw.py` se tocar em rules.js.
+[escreva aqui o que quer fazer; sem pedido, siga os feedbacks de uso real no fim]
 
 Onde paramos (12/11/2026):
+- v24 publicada: repetir em dias específicos da semana. Botão "Dias da semana" no Repetir da janela da tarefa (dia do Quando já marcado, atalhos Dias úteis, Fim de semana e Todos; o Quando vai para o primeiro dia marcado), "Dias da semana…" no Repetir da folha Anotar, e o texto entende "toda segunda e quarta", "dias úteis", "de segunda a sexta" e "todo fim de semana". Formato dos dados igual (repeat.weekdays).
 - v23 publicada em https://brunoignr-code.github.io/tarefas/: redesenho "linha livre" em todas as telas (lotes 3 a 7 do ROTEIRO-REDESENHO.md: Próximos, janela da tarefa, Listas, Busca, Config. e notebook), letras numa escala só com menos negrito (pesos 500/600/700) e 10 tamanhos de letra em Config. › Aparência. Corrigido: Quinzenal → Mensal ficava "a cada 2".
 - v22 publicada: lotes 1 e 2 do redesenho (barra flutuante com +, Busca no cabeçalho, Hoje com cabeçalho na cor de destaque, faixa da semana, ramo por horário, cartão "A seguir", folha de anotar no celular, capa nova). Corrigido: anotar só com a hora ("pagar luz 10h") agora põe Quando e lembrete no mesmo dia, e o lembrete volta a seguir o Quando.
 - 12/11: escopo revisado. Widget Android retirado do escopo, a pedido; Google Agenda, listas compartilhadas, hábitos, Pomodoro e Matriz também fora. Só se fizer falta: atalho global no PC, lembrete padrão por lista, aviso antes do prazo, prazo próximo vai para Hoje, tarefa parada, alarmes locais do Android.
@@ -35,7 +29,7 @@ Onde paramos (12/11/2026):
 
 Pendências que são minhas: verificação em duas etapas no Google, GitHub e Cloudflare; rodar uma vez `python tools/conferir.py --instalar` (trava do git push).
 
-Ainda não confirmado no celular real: avisos com o app fechado e economia de bateria, Concluir e Amanhã pela notificação sem abrir o app, backup no Drive com a minha conta, login com Google sob a CSP, a v23 (janela da tarefa com o teclado, seleção sobre a área de gestos, Kanban com o dedo, letra 10 num celular pequeno), a v22 (folha de anotar com o teclado, voltar fechando a folha, Compartilhar abrindo a folha, barra flutuante sobre a área de gestos), a v21 (Sair de um celular de verdade), a v19 ("Só desta vez?") e a v18 ("Sair sem salvar?" no gesto de voltar).
+Ainda não confirmado no celular real: a v24 (tocar nas bolinhas dos dias com o dedo, folha "Repetir nos dias" com o teclado aberto atrás), avisos com o app fechado e economia de bateria, Concluir e Amanhã pela notificação sem abrir o app, backup no Drive com a minha conta, login com Google sob a CSP, a v23 (janela da tarefa com o teclado, seleção sobre a área de gestos, Kanban com o dedo, letra 10 num celular pequeno), a v22 (folha de anotar com o teclado, voltar fechando a folha, Compartilhar abrindo a folha, barra flutuante sobre a área de gestos), a v21 (Sair de um celular de verdade), a v19 ("Só desta vez?") e a v18 ("Sair sem salvar?" no gesto de voltar).
 
 Regras:
 - App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome (endpoint /content, que mantém o banco D1, o cron e o segredo). Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.

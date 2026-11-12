@@ -1,5 +1,5 @@
 import {
-  addDays, applyEdit, completeTask, daysWaiting, dismissReminder, dueReminders, firstOccurrence,
+  addDays, applyEdit, completeTask, daysWaiting, dismissReminder, dueReminders, firstOccurrence, firstOnWeekdays,
   isOverdue, nextOccurrence, skipOccurrence, snooze, snoozeTo, todayTasks, upcomingTasks,
 } from '../js/rules.js';
 import {
@@ -549,6 +549,60 @@ test('Quinzenal: digitar e concluir', () => {
   eq(parse('Faxina quinzenalmente').repeat.freq, 'weekly');
   const task = make({ when: '2026-11-07', repeat: { freq: 'weekly', interval: 2, weekdays: [6] } });
   eq(completeTask(task, '2026-11-07', 'x').task.when, '2026-11-21');
+});
+
+/* ---------- v24: repetir em dias específicos da semana ---------- */
+
+test('Dias da semana: primeiro dia marcado a partir de uma data', () => {
+  // TODAY é segunda, 02/11.
+  eq(firstOnWeekdays([1, 3], TODAY), TODAY);
+  eq(firstOnWeekdays([3, 5], TODAY), '2026-11-04');
+  eq(firstOnWeekdays([0], '2026-11-05'), '2026-11-08');
+  eq(firstOnWeekdays([], TODAY), TODAY);
+  eq(firstOnWeekdays([2], null), null);
+});
+
+test('Dias da semana: a série anda pelos dias marcados', () => {
+  const task = make({ when: '2026-11-02', repeat: { freq: 'weekly', interval: 1, weekdays: [3, 1] } });
+  eq(task.repeat.weekdays, [1, 3]);
+  const first = completeTask(task, '2026-11-02', 'x').task;
+  eq(first.when, '2026-11-04');
+  eq(completeTask(first, '2026-11-04', 'x').task.when, '2026-11-09');
+  const workdays = make({ when: '2026-11-06', repeat: { freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] } });
+  eq(completeTask(workdays, '2026-11-06', 'x').task.when, '2026-11-09');
+});
+
+test('Datas digitadas: vários dias da semana', () => {
+  const r = parse('Academia toda segunda e quarta 7h');
+  eq([r.title, r.repeat, r.when, r.remindAt], ['Academia', { interval: 1, freq: 'weekly', weekdays: [1, 3] }, '2026-11-04', '2026-11-04T07:00']);
+  eq(parse('Inglês todas as terças e quintas').repeat.weekdays, [2, 4]);
+  eq(parse('Inglês terças e quintas-feiras').repeat.weekdays, [2, 4]);
+  eq(parse('Correr segundas, quartas e sextas').repeat.weekdays, [1, 3, 5]);
+  eq(parse('Correr às segundas, quartas e sextas 18h').when, TODAY);
+  eq(parse('Feira todo sábado e domingo').repeat.weekdays, [0, 6]);
+  eq(parse('Ler toda segunda-feira, quarta-feira e sexta-feira').title, 'Ler');
+});
+
+test('Datas digitadas: dias úteis, intervalos e fim de semana', () => {
+  const r = parse('Ponto todo dia útil 8h');
+  eq([r.title, r.repeat.weekdays, r.when], ['Ponto', [1, 2, 3, 4, 5], '2026-11-03']);
+  eq(parse('Conferir e-mail dias úteis').repeat.weekdays, [1, 2, 3, 4, 5]);
+  eq(parse('Reunião de segunda a sexta').repeat.weekdays, [1, 2, 3, 4, 5]);
+  eq(parse('Plantão de sexta a domingo').repeat.weekdays, [0, 5, 6]);
+  eq(parse('Faxina todo fim de semana').repeat.weekdays, [0, 6]);
+  eq(parse('Mercado nos fins de semana').repeat.weekdays, [0, 6]);
+  const biweekly = parse('Terapia quinzenal às terças e quintas');
+  eq([biweekly.title, biweekly.repeat], ['Terapia', { interval: 2, freq: 'weekly', weekdays: [2, 4] }]);
+});
+
+test('Datas digitadas: dias úteis contados e dia único continuam como antes', () => {
+  const r = parse('Entregar em 5 dias úteis');
+  eq([r.matched, r.title], [false, 'Entregar em 5 dias úteis']);
+  eq(parse('Reunião segunda').repeat, undefined);
+  eq(parse('Reunião segunda').when, TODAY);
+  eq(parse('Lixo todo domingo').repeat.weekdays, [0]);
+  eq(parse('Lixo todo domingo').when, '2026-11-08');
+  eq(parse('Treino toda segunda 7h', '08:00').when, '2026-11-09');
 });
 
 const failed = results.filter((r) => !r.ok);

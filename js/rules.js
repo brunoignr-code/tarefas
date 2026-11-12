@@ -62,6 +62,16 @@ export function firstOccurrence(repeat, from) {
 
 export const nextOccurrence = (repeat, after) => firstOccurrence(repeat, addDays(after, 1));
 
+/** Primeiro dia em `from` ou depois dele que cai num dos dias da semana (0 = domingo). Sem dias, `from`. */
+export function firstOnWeekdays(weekdays, from) {
+  if (!from || !weekdays || !weekdays.length) return from;
+  for (let i = 0; i < 7; i += 1) {
+    const day = addDays(from, i);
+    if (weekdays.includes(weekday(day))) return day;
+  }
+  return from;
+}
+
 function normalizeRepeat(input, anchor) {
   const repeat = {
     freq: input.freq,

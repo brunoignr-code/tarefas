@@ -71,7 +71,19 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v23)
+## Estado do projeto (12 de novembro de 2026, v24)
+
+### v24, 12 de novembro: repetir em dias específicos da semana
+
+Sem mudança no servidor, no login ou no formato dos dados: usa o `repeat.weekdays` (0 = domingo a 6 = sábado) que as regras já aceitavam.
+
+- **Por que parecia não funcionar:** na janela da tarefa, os dias só apareciam depois de tocar em Semanal e vinham todos desmarcados. Marcar segunda e quarta numa quinta deixava o Quando na quinta, então a tarefa continuava em Hoje, como se nada tivesse mudado.
+- **Janela da tarefa:** botão novo **Dias da semana** no Repetir (entre Semanal e Quinzenal), sem o "A cada". Ao escolher Semanal, Dias da semana ou Quinzenal, o dia do Quando (ou de hoje) já vem marcado. Atalhos **Dias úteis**, **Fim de semana** e **Todos** embaixo das bolinhas. Ao mudar os dias, o **Quando vai para o primeiro dia marcado** (o lembrete do mesmo dia vai junto) e aparece "Quando foi para seg, 16/11, o primeiro dia marcado". A conta parte do Quando escolhido (ou do que a tarefa tinha ao abrir), e não empurra a data para a frente a cada toque. Mudar só o Quando para um dia não marcado não mexe nos dias: numa tarefa que já repete, continua perguntando "Só desta vez?" (v19).
+- **Folha Anotar:** o Repetir ganhou **Dias da semana…**, que abre "Repetir nos dias" com as bolinhas, os mesmos atalhos e **Pronto**. O Quando também vai para o primeiro dia marcado.
+- **Texto digitado:** entende "toda segunda e quarta", "todas as terças e quintas", "segundas, quartas e sextas", "às terças", "todo dia útil", "dias úteis", "de segunda a sexta" (qualquer intervalo, como "de sexta a domingo"), "todo fim de semana", "nos fins de semana" e "quinzenal às terças e quintas". A primeira vez é o próximo desses dias (hoje, se hoje for um deles e a hora ainda não passou). "Entregar em 5 dias úteis" e "reunião segunda" continuam como antes (sem repetição).
+- **Resumo da repetição:** "dias úteis" e "fins de semana" no lugar de "semanal (seg, ter, qua, qui, sex)".
+- Testado no navegador, numa origem local sem conta, com dados descartáveis apagados depois: 74 testes das regras (5 novos); janela da tarefa no celular (375 px) e no notebook (1280 px, painel à direita); Dias da semana, atalhos, Quando e lembrete indo para segunda, salvar e reabrir com o botão certo, "Sair sem salvar?" ao marcar um dia, "Só desta vez?" ao mudar só a hora; folha Anotar com Dias da semana… e com o texto digitado; service worker da v23 já instalado atualizando para a v24.
+- **Não testado no celular de verdade:** tocar nas bolinhas dos dias com o dedo e a folha "Repetir nos dias" com o teclado aberto atrás.
 
 ### v23, 12 de novembro: letras em harmonia e o redesenho "linha livre" em todas as telas (lotes 3 a 7)
 

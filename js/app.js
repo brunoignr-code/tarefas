@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import {
   applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue,
-  INSIST_MAX, activeReminder, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
+  INSIST_MAX, activeReminder, firstOnWeekdays, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
   todayTasks, upcomingTasks,
 } from './rules.js';
 import { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey } from './push-core.js';
@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v23 · 12/11/2026';
+const APP_VERSION = 'v24 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -32,8 +32,18 @@ const FREQ_LABELS = {
   monthly: ['Mensal', 'meses'], yearly: ['Anual', 'anos'],
 };
 // Opções do Repetir. "Quinzenal" é semanal a cada 2 semanas (no banco: weekly, interval 2).
-const FREQ_OPTIONS = [['daily', 'Diária'], ['weekly', 'Semanal'], ['biweekly', 'Quinzenal'], ['monthly', 'Mensal'], ['yearly', 'Anual']];
+// "Dias da semana" é semanal toda semana nos dias marcados (no banco: weekly, interval 1, weekdays).
+const FREQ_OPTIONS = [['daily', 'Diária'], ['weekly', 'Semanal'], ['days', 'Dias da semana'], ['biweekly', 'Quinzenal'], ['monthly', 'Mensal'], ['yearly', 'Anual']];
+const WEEKLY_CHOICES = ['weekly', 'days', 'biweekly'];
 const isBiweekly = (repeat) => repeat?.freq === 'weekly' && Number(repeat.interval) === 2;
+/** Botão do Repetir que corresponde à repetição salva. */
+function repeatChoice(repeat) {
+  if (!repeat?.freq) return '';
+  if (isBiweekly(repeat)) return 'biweekly';
+  if (repeat.freq === 'weekly' && Number(repeat.interval || 1) === 1 && (repeat.weekdays || []).length > 1) return 'days';
+  return repeat.freq;
+}
+const WEEKDAY_GROUPS = { '1,2,3,4,5': 'dias úteis', '0,6': 'fins de semana', '0,1,2,3,4,5,6': 'todos os dias' };
 
 const state = { quick: {}, lists: [], tasks: [], log: [], settings: { id: 'settings', mode: DEFAULT_MODE, accent: DEFAULT_ACCENT }, search: '', selecting: false, selected: new Set(), doneOpen: new Set() };
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -59,7 +69,11 @@ function repeatLabel(repeat) {
   const [name, unit] = FREQ_LABELS[repeat.freq];
   let label = repeat.interval > 1 ? `a cada ${repeat.interval} ${unit}` : name.toLowerCase();
   if (isBiweekly(repeat)) label = 'quinzenal';
-  if (repeat.freq === 'weekly' && repeat.weekdays?.length) label += ` (${repeat.weekdays.map((d) => WEEKDAYS[d].toLowerCase()).join(', ')})`;
+  if (repeat.freq === 'weekly' && repeat.weekdays?.length) {
+    const group = WEEKDAY_GROUPS[repeat.weekdays.join()];
+    const days = group || repeat.weekdays.map((d) => WEEKDAYS[d].toLowerCase()).join(', ');
+    label = group && Number(repeat.interval) === 1 ? group : `${label} (${days})`;
+  }
   if (repeat.fromCompletion) label += ', após concluir';
   if (repeat.count) label += `, ${repeat.done || 0}/${repeat.count}`;
   return label;
@@ -820,13 +834,23 @@ function quickValues(text, form) {
     if (context.when > today()) remindAt = `${context.when}T${remindAt.slice(11)}`;
     else when = remindAt.slice(0, 10);
   }
+  const repeat = quick.repeat !== undefined ? quick.repeat : (parsed?.repeat || null);
+  // Repetição em dias da semana: o Quando vai para o primeiro dia marcado (o lembrete do mesmo dia vai junto).
+  if (repeat?.freq === 'weekly' && repeat.weekdays?.length) {
+    const base = when || (remindAt ? remindAt.slice(0, 10) : null);
+    const day = base && firstOnWeekdays(repeat.weekdays, base);
+    if (day) {
+      if (remindAt && remindAt.slice(0, 10) === base) remindAt = `${day}T${remindAt.slice(11)}`;
+      when = day;
+    }
+  }
   return {
     parsed,
     title: parsed ? parsed.title : text.trim(),
     when,
     until: parsed?.until || null,
     remindAt,
-    repeat: quick.repeat !== undefined ? quick.repeat : (parsed?.repeat || null),
+    repeat,
     listId: quick.listId || context.listId || defaultListId(),
   };
 }
@@ -951,12 +975,43 @@ function openQuickRepeat() {
   openSheet('Repetir', [
     ['Todo dia', choose({ freq: 'daily', interval: 1 }), { icon: 'repeat' }],
     ['Toda semana', choose({ freq: 'weekly', interval: 1 }), { icon: 'repeat' }],
+    ['Dias da semana…', () => openQuickDays(), { icon: 'calendar', hint: 'seg e qua, dias úteis…' }],
     ['A cada 2 semanas (quinzenal)', choose({ freq: 'weekly', interval: 2 }), { icon: 'repeat' }],
     ['Todo mês', choose({ freq: 'monthly', interval: 1 }), { icon: 'repeat' }],
     ['Todo ano', choose({ freq: 'yearly', interval: 1 }), { icon: 'repeat' }],
     ['Não repetir', choose(null), { icon: 'x' }],
   ]);
 }
+
+/** Folha "Repetir nos dias" da folha Anotar: marca os dias e toca em Pronto. */
+function openQuickDays() {
+  const input = $('#quick-input');
+  const v = quickValues(input?.value || '', input?.form);
+  const chosen = v.repeat?.freq === 'weekly' && v.repeat.weekdays?.length
+    ? v.repeat.weekdays
+    : [new Date(`${v.when || today()}T12:00`).getDay()];
+  const dialog = $('#dialog');
+  dialog.innerHTML = `
+    <form class="sheet days-sheet" data-form="quick-days">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="form-head"><div><h2>Repetir nos dias</h2><div class="subtitle">Toda semana, só nos dias marcados.</div></div><button type="button" class="ib" data-action="close-dialog" aria-label="Fechar" title="Fechar">${ico('x')}</button></div>
+      ${weekdayPicker(chosen)}
+      <div class="form-foot"><div></div><div><button class="btn primary">${ico('check')}Pronto</button></div></div>
+    </form>`;
+  if (!dialog.open) dialog.showModal();
+  dialog.querySelector('input[name="weekday"]')?.focus();
+}
+
+/** Bolinhas D S T Q Q S S e os atalhos Dias úteis, Fim de semana e Todos. */
+const weekdayPicker = (chosen) => `
+  <div class="weekdays" role="group" aria-label="Dias da semana">
+    ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${WEEKDAYS_FULL[index]}" ${chosen.includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
+  </div>
+  <div class="shortcuts days-presets">
+    <button type="button" class="chip" data-action="set-days" data-days="1,2,3,4,5">Dias úteis</button>
+    <button type="button" class="chip" data-action="set-days" data-days="0,6">Fim de semana</button>
+    <button type="button" class="chip" data-action="set-days" data-days="0,1,2,3,4,5,6">Todos</button>
+  </div>`;
 
 function openQuickList() {
   const current = quickValues($('#quick-input')?.value || '', $('#quick-input')?.form).listId;
@@ -2527,6 +2582,8 @@ function openTask(id, { isNew = false } = {}) {
       : 'Avisa com o app aberto. Para avisar com ele fechado, ative em Config. › Avisos.';
   }
   showRemindField = false;
+  daysBase = task.when || null;
+  daysNote = '';
   const next = task.repeat && task.status === 'open' ? nextDate(task, today()) : null;
   const mode = untilMode();
   const untilField = mode === 'A' ? `
@@ -2603,9 +2660,9 @@ function openTask(id, { isNew = false } = {}) {
             <button type="button" class="chip" data-action="set-freq" data-value="">Não repete</button>
             ${FREQ_OPTIONS.map(([value, name]) => `<button type="button" class="chip" data-action="set-freq" data-value="${value}">${name}</button>`).join('')}
           </div>
-          <select id="f-freq" name="freq" data-prev="${isBiweekly(repeat) ? 'biweekly' : repeat.freq || ''}" hidden>
+          <select id="f-freq" name="freq" data-prev="${repeatChoice(repeat)}" hidden>
             <option value="">Não repete</option>
-            ${FREQ_OPTIONS.map(([value, name]) => `<option value="${value}" ${(isBiweekly(repeat) ? 'biweekly' : repeat.freq) === value ? 'selected' : ''}>${name}</option>`).join('')}
+            ${FREQ_OPTIONS.map(([value, name]) => `<option value="${value}" ${repeatChoice(repeat) === value ? 'selected' : ''}>${name}</option>`).join('')}
           </select>
           <div id="repeat-options" class="inline-field" hidden>
             <label for="f-interval">A cada</label>
@@ -2614,9 +2671,7 @@ function openTask(id, { isNew = false } = {}) {
           </div>
           <div class="field" id="weekday-field" hidden>
             <span class="label-text">Dias da semana</span>
-            <div class="weekdays">
-              ${WEEKDAYS.map((name, index) => `<label><input type="checkbox" name="weekday" value="${index}" aria-label="${WEEKDAYS_FULL[index]}" ${(repeat.weekdays || []).includes(index) ? 'checked' : ''}><span>${name[0]}</span></label>`).join('')}
-            </div>
+            ${weekdayPicker(repeat.weekdays || [])}
           </div>
           <div class="help" id="repeat-help"></div>
           <label class="check-line" id="remind-each-line" hidden><input type="checkbox" name="remindEach" ${task.remindEach !== false ? 'checked' : ''}> Lembrar em cada repetição</label>
@@ -2963,6 +3018,7 @@ function confirmPicker() {
   if (target === 'when') {
     $('#f-when').value = date;
     $('#f-time').value = date ? time : '';
+    whenChosen();
     syncReminderFromWhen(false);
   } else {
     $('#f-remind').value = date && time ? `${date}T${time}` : '';
@@ -3028,6 +3084,34 @@ document.addEventListener('pointerup', (event) => {
 let notifyHint = '';
 // O campo de data e hora do lembrete só aparece quando ele não segue Quando e Hora, ou a pedido.
 let showRemindField = false;
+// Repetir em dias da semana: o Quando escolhido (ou o da tarefa ao abrir) é o ponto de partida para
+// achar o primeiro dia marcado. Mudar os dias recalcula a partir dele, sem empurrar o Quando sempre para frente.
+let daysBase = null;
+let daysNote = '';
+
+/** Os dias marcados num formulário. */
+const checkedWeekdays = (root) => [...root.querySelectorAll('input[name="weekday"]:checked')].map((input) => Number(input.value));
+
+/** O Quando escolhido à mão passa a ser o ponto de partida. */
+function whenChosen() {
+  daysBase = $('#f-when')?.value || null;
+  daysNote = '';
+}
+
+/** Com Semanal, Dias da semana ou Quinzenal, o Quando vai para o primeiro dia marcado a partir do ponto de partida. */
+function alignWhenToDays() {
+  const form = $('form[data-form="task"]');
+  if (!form || !WEEKLY_CHOICES.includes(form.elements.freq.value)) return;
+  const when = $('#f-when');
+  const days = checkedWeekdays(form);
+  const base = daysBase || when.value;
+  if (!base || !days.length) return;
+  const target = firstOnWeekdays(days, base);
+  daysNote = target !== base ? `Quando foi para ${formatDate(target).toLowerCase()}, o primeiro dia marcado.` : '';
+  if (target === when.value) return;
+  when.value = target;
+  syncReminderFromWhen();
+}
 
 // Enquanto o lembrete seguir Quando e Hora, mudar a data ou a hora muda o lembrete junto.
 let remindLinked = true;
@@ -3192,7 +3276,7 @@ function renderSteps() {
 function readForm(form) {
   const data = new FormData(form);
   const rawFreq = data.get('freq');
-  const freq = rawFreq === 'biweekly' ? 'weekly' : rawFreq;
+  const freq = WEEKLY_CHOICES.includes(rawFreq) ? 'weekly' : rawFreq;
   const fields = {
     title: data.get('title'),
     when: data.get('when'),
@@ -3207,7 +3291,7 @@ function readForm(form) {
     steps: draftSteps.filter((step) => step.title.trim()),
     repeat: freq ? {
       freq,
-      interval: rawFreq === 'biweekly' ? 2 : data.get('interval'),
+      interval: { biweekly: 2, days: 1 }[rawFreq] || data.get('interval'),
       weekdays: data.getAll('weekday').map(Number),
       fromCompletion: data.get('fromCompletion') === 'on',
       count: data.get('count'),
@@ -3227,7 +3311,7 @@ function updateFormHints() {
   const form = $('form[data-form="task"]');
   if (!form) return;
   const rawFreq = form.elements.freq.value;
-  const freq = rawFreq === 'biweekly' ? 'weekly' : rawFreq;
+  const freq = WEEKLY_CHOICES.includes(rawFreq) ? 'weekly' : rawFreq;
   const mode = untilMode();
   if (mode === 'A') {
     $('#until-label').textContent = freq ? 'Até (fim da repetição)' : 'Até (prazo)';
@@ -3244,8 +3328,8 @@ function updateFormHints() {
     }
   }
   $('#repeat-extra').hidden = !freq;
-  // Quinzenal já diz o intervalo: o "A cada" some.
-  $('#repeat-options').hidden = !freq || rawFreq === 'biweekly';
+  // Quinzenal e Dias da semana já dizem o intervalo: o "A cada" some.
+  $('#repeat-options').hidden = !freq || rawFreq === 'biweekly' || rawFreq === 'days';
   $('#weekday-field').hidden = freq !== 'weekly';
   const remindOn = $('#f-remind-on').checked;
   const remindValue = form.elements.remindAt.value;
@@ -3283,7 +3367,7 @@ function updateFormHints() {
   const draftRepeat = readForm(form).repeat;
   $('#repeat-summary').textContent = draftRepeat ? repeatLabel({ ...draftRepeat, interval: Number(draftRepeat.interval) || 1 }) : 'Não repete';
   const help = $('#repeat-help');
-  help.textContent = '';
+  help.textContent = freq === 'weekly' ? daysNote : '';
   if (freq && !form.elements.when.value) {
     const result = applyEdit(findTask(form.dataset.id), readForm(form), today());
     if (result.task && result.whenFilled) {
@@ -3938,11 +4022,28 @@ const clickActions = {
   },
   'set-when': (el) => {
     $('#f-when').value = addDays(today(), Number(el.dataset.days));
+    whenChosen();
     syncReminderFromWhen(true);
   },
   'clear-when': () => {
     $('#f-when').value = '';
+    whenChosen();
     syncReminderFromWhen();
+  },
+  'set-days': (el) => {
+    const days = el.dataset.days.split(',').map(Number);
+    const root = el.closest('form');
+    root.querySelectorAll('input[name="weekday"]').forEach((input) => { input.checked = days.includes(Number(input.value)); });
+    if (root.dataset.form === 'task') {
+      // Mais de um dia numa semanal simples: o botão "Dias da semana" fica marcado.
+      const select = $('#f-freq');
+      if (days.length > 1 && select.value === 'weekly' && Number($('#f-interval').value) === 1) {
+        select.value = 'days';
+        select.dataset.prev = 'days';
+      }
+      alignWhenToDays();
+      updateFormHints();
+    }
   },
   'show-remind-field': () => {
     showRemindField = true;
@@ -4168,6 +4269,15 @@ document.addEventListener('submit', async (event) => {
     revealTask(newTaskId);
     const message = createdMessage(findTask(newTaskId), context.listId);
     if (message) showToast(message);
+  } else if (form.dataset.form === 'quick-days') {
+    const weekdays = checkedWeekdays(form);
+    if (!weekdays.length) {
+      showToast('Marque pelo menos um dia.');
+      return;
+    }
+    $('#dialog').close();
+    state.quick = { ...state.quick, repeat: { freq: 'weekly', interval: 1, weekdays } };
+    refocusQuick();
   } else if (form.dataset.form === 'pick-date') {
     const date = form.elements.date.value;
     if (!date) return;
@@ -4256,6 +4366,7 @@ document.addEventListener('input', (event) => {
   } else if (target.closest('form[data-form="list"]')) {
     updateListPreview();
   } else if (target.id === 'f-when') {
+    whenChosen();
     syncReminderFromWhen(true);
   } else if (target.id === 'f-time') {
     syncReminderFromWhen();
@@ -4270,6 +4381,9 @@ document.addEventListener('input', (event) => {
     updateFormHints();
   } else if (target.dataset.stepTitle !== undefined) {
     draftSteps[Number(target.dataset.stepTitle)].title = target.value;
+  } else if (target.name === 'weekday' && target.closest('form[data-form="task"]')) {
+    alignWhenToDays();
+    updateFormHints();
   } else if (target.closest('form[data-form="task"]')) {
     updateFormHints();
   }
@@ -4281,8 +4395,16 @@ document.addEventListener('change', async (event) => {
     // Sair de Quinzenal para Semanal volta a "a cada 1 semana".
     const interval = $('#f-interval');
     if (target.value === 'biweekly') interval.value = 2;
+    else if (target.value === 'days') interval.value = 1;
     else if ((target.value === 'weekly' || target.dataset.prev === 'biweekly') && Number(interval.value) === 2) interval.value = 1;
     target.dataset.prev = target.value;
+    // Semanal, Dias da semana ou Quinzenal sem dia marcado: já marca o dia do Quando (ou de hoje).
+    const form = target.form;
+    if (WEEKLY_CHOICES.includes(target.value) && !checkedWeekdays(form).length) {
+      const day = new Date(`${form.elements.when.value || today()}T12:00`).getDay();
+      form.querySelector(`input[name="weekday"][value="${day}"]`).checked = true;
+    }
+    alignWhenToDays();
     updateFormHints();
   } else if (target.id === 'f-remind-on') {
     reminderToggled();

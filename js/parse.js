@@ -1,5 +1,5 @@
 // Entende datas, horários e repetições escritas no campo de adicionar ("pagar luz sexta 9h").
-import { addDays, weekday } from './rules.js';
+import { addDays, weekday, firstOnWeekdays } from './rules.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const WEEKDAY_NAMES = [
@@ -9,17 +9,51 @@ const weekdayPattern = WEEKDAY_NAMES.flat().join('|');
 const B = '(?<![\\p{L}\\d])';
 const E = '(?![\\p{L}\\d])';
 
+// Dias da semana numa repetição: "segunda", "terças-feiras", "sábados".
+const dayWord = `(?:${weekdayPattern})s?(?:-feiras?)?`;
+const dayList = `${dayWord}(?:\\s*,\\s*${dayWord})*(?:\\s*,?\\s+e\\s+${dayWord})?`;
+const pluralDay = '(?:segundas|ter[çc]as|quartas|quintas|sextas|s[áa]bados|domingos)(?:-feiras)?';
+const pluralList = `${pluralDay}(?:\\s*,\\s*${pluralDay})*(?:\\s*,?\\s+e\\s+${pluralDay})?`;
+const WEEKDAY_SETS = [
+  // "de segunda a sexta", "de terça a quinta-feira": todos os dias do intervalo.
+  [`de\\s+(${dayWord})\\s+a\\s+(${dayWord})`, (m) => dayRange(dayIndex(m[1]), dayIndex(m[2]))],
+  // "todo dia útil", "dias úteis" (mas não "5 dias úteis").
+  ['(?:tod[oa]s?\\s+(?:os\\s+)?(?:dia\\s+[úu]til|dias\\s+[úu]teis)|(?<!\\d\\s*)(?:(?:em|nos)\\s+)?dias\\s+[úu]teis)', () => [1, 2, 3, 4, 5]],
+  ['(?:tod[oa]s?\\s+(?:os\\s+)?(?:fim|fins)\\s+de\\s+semana|(?:nos|aos)\\s+fins\\s+de\\s+semana)', () => [0, 6]],
+  // "toda segunda e quarta", "todas as terças e quintas".
+  [`tod[oa]s?\\s+(?:(?:as|os)\\s+)?(${dayList})`, (m) => daysIn(m[1])],
+  // "segundas, quartas e sextas", "às terças".
+  [`(?:(?:[àa]s|aos|nas|nos)\\s+)?(${pluralList})`, (m) => daysIn(m[1])],
+];
+
 const REPEATS = [
   [`(?:quinzenal(?:mente)?|a cada (?:duas|2) semanas|de duas em duas semanas)`, () => ({ freq: 'weekly', interval: 2 })],
+  ...WEEKDAY_SETS.map(([pattern, days]) => [pattern, (m) => ({ freq: 'weekly', weekdays: days(m) })]),
   [`(?:todos os dias|todo dia|diariamente)`, () => ({ freq: 'daily' })],
   [`(?:toda semana|semanalmente)`, () => ({ freq: 'weekly' })],
   [`(?:todo m[eê]s|mensalmente)`, () => ({ freq: 'monthly' })],
   [`(?:todo ano|anualmente)`, () => ({ freq: 'yearly' })],
-  [`(?:toda|todo)s?\\s+(${weekdayPattern})(?:-feira)?`, (m) => ({ freq: 'weekly', weekdays: [dayIndex(m[1])] })],
 ];
 
+/** Os dias citados num trecho, em ordem e sem repetir. */
+function daysIn(text) {
+  const found = text.toLocaleLowerCase('pt-BR').match(new RegExp(dayWord, 'gu')) || [];
+  return [...new Set(found.map(dayIndex))].filter((d) => d >= 0).sort((a, b) => a - b);
+}
+
+function dayRange(from, to) {
+  if (from < 0 || to < 0) return [];
+  const days = [];
+  for (let d = from; ; d = (d + 1) % 7) {
+    days.push(d);
+    if (d === to || days.length === 7) break;
+  }
+  return days.sort((a, b) => a - b);
+}
+
 function dayIndex(word) {
-  const clean = word.toLocaleLowerCase('pt-BR');
+  // "terças-feiras" e "sábados" viram "terça" e "sábado".
+  const clean = word.toLocaleLowerCase('pt-BR').replace(/-feiras?$/, '').replace(/s$/, '');
   return WEEKDAY_NAMES.findIndex((names) => names.includes(clean));
 }
 
@@ -81,9 +115,23 @@ export function parseQuickAdd(text, today, nowTime = '00:00') {
   for (const [pattern, build] of REPEATS) {
     if (found.repeat) break;
     take(new RegExp(`${B}${pattern}${E}`, 'iu'), (m) => {
-      found.repeat = { interval: 1, ...build(m) };
+      const repeat = { interval: 1, ...build(m) };
+      if (repeat.weekdays && !repeat.weekdays.length) return false;
+      found.repeat = repeat;
       return true;
     });
+  }
+  // "quinzenal às segundas e quartas", "toda semana de segunda a sexta": os dias entram na mesma repetição.
+  if (found.repeat?.freq === 'weekly' && !found.repeat.weekdays) {
+    for (const [pattern, days] of WEEKDAY_SETS) {
+      if (found.repeat.weekdays) break;
+      take(new RegExp(`${B}${pattern}${E}`, 'iu'), (m) => {
+        const list = days(m);
+        if (!list.length) return false;
+        found.repeat.weekdays = list;
+        return true;
+      });
+    }
   }
 
   const prefix = '(?:(?:na|no|nesta|neste|em|para|pra|pro)\\s+(?:pr[oó]xim[ao]\\s+)?)?';
@@ -112,11 +160,11 @@ export function parseQuickAdd(text, today, nowTime = '00:00') {
     return true;
   });
 
-  // "todo sábado": a primeira vez é o próximo sábado, não hoje.
+  // "todo sábado", "toda segunda e quarta": a primeira vez é o próximo desses dias
+  // (hoje, se hoje for um deles e a hora ainda não passou).
   if (found.repeat?.weekdays && !found.when) {
-    const target = found.repeat.weekdays[0];
-    let day = addDays(today, (target - weekday(today) + 7) % 7);
-    if (day === today && found.time && found.time <= nowTime) day = addDays(today, 7);
+    let day = firstOnWeekdays(found.repeat.weekdays, today);
+    if (day === today && found.time && found.time <= nowTime) day = firstOnWeekdays(found.repeat.weekdays, addDays(today, 1));
     found.when = day;
   }
 
