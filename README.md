@@ -271,7 +271,7 @@ Segue o `ROTEIRO-REDESENHO.md`. Só tela: sem mudança no servidor, no login ou 
 
 ### APK Android (TWA) 1.0, 9 de novembro
 
-- Item 7 do plano, pelo caminho 1 (TWA), por decisão de 9/11: fica assim até o app amadurecer o bastante para valer instalar atualizações por cabo (aí entra a casca Kotlin com alarmes nativos, caminho 2). Widget fica para depois.
+- Item 7 do plano, pelo caminho 1 (TWA), por decisão de 9/11: fica assim até o app amadurecer o bastante para valer instalar atualizações por cabo (aí entra a casca Kotlin com alarmes nativos, caminho 2). Widget: retirado do escopo em 12/11, a pedido.
 - Pacote `br.afazeres.app`, nome "Afazeres" no ícone, ícone adaptável (barquinho desde a 1.1, com versão monocromática), tela de abertura escura, ícone de notificação próprio, atalhos Nova tarefa e Próximos dias, e "Compartilhar" de outros apps.
 - Criado o repositório `brunoignr-code.github.io` só com `assetlinks.json`, `.nojekyll` e um `index.html` que leva para `/tarefas/`. O verificador do Google (Digital Asset Links) respondeu `linked: true`.
 - O app web e o servidor não mudaram: nada no formato dos dados nem no login.
