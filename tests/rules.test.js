@@ -12,6 +12,7 @@ import {
 } from '../js/rules.js';
 import { alreadyNotified, buildSchedule, parsePushKey, pushKey } from '../js/push-core.js';
 import { dateChanges, editFields, notificationAction } from '../js/actions-core.js';
+import { demoData } from '../js/demo.js';
 
 const results = [];
 const eq = (actual, expected) => {
@@ -603,6 +604,33 @@ test('Datas digitadas: dias úteis contados e dia único continuam como antes', 
   eq(parse('Lixo todo domingo').repeat.weekdays, [0]);
   eq(parse('Lixo todo domingo').when, '2026-11-08');
   eq(parse('Treino toda segunda 7h', '08:00').when, '2026-11-09');
+});
+
+test('Demonstração: dados de exemplo atuais em qualquer hora do dia, sem lembrete vencido', () => {
+  // Quinta 12/11/2026 em várias horas, e uma segunda (academia já feita às 7h) e um sábado.
+  const moments = [[2026, 10, 12, 0, 3], [2026, 10, 12, 7, 30], [2026, 10, 12, 19, 18], [2026, 10, 12, 23, 59], [2026, 10, 16, 9, 0], [2026, 10, 14, 10, 0]];
+  moments.forEach(([y, m, d, h, mi]) => {
+    const now = new Date(y, m, d, h, mi);
+    const today = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const nowText = `${today}T${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
+    const data = demoData(now);
+    eq(data.lists.map((l) => l.name), ['Entrada', 'Casa', 'Saúde', 'Finanças', 'Trabalho']);
+    eq(dueReminders(data.tasks, nowText).length, 0);
+    eq(new Set(data.tasks.map((t) => t.id)).size, data.tasks.length);
+    eq(data.tasks.every((t) => data.lists.some((l) => l.id === t.listId)), true);
+    const academia = data.tasks.find((t) => t.title === 'Academia');
+    eq(academia.repeat.weekdays, [1, 3]);
+    eq([1, 3].includes(new Date(`${academia.when}T12:00`).getDay()), true);
+    eq(academia.remindAt, `${academia.when}T07:00`);
+    eq(todayTasks(data.tasks, today).length >= 5, true);
+    eq(data.tasks.some((t) => isOverdue(t, today)), true);
+    eq(data.tasks.some((t) => t.status === 'done') && data.log.length >= 4, true);
+    eq(data.meta.find((item) => item.id === 'demo').seededOn, today);
+  });
+  // Segunda às 9h: a academia das 7h já aparece feita hoje, no histórico, e a próxima é na quarta.
+  const monday = demoData(new Date(2026, 10, 16, 9, 0));
+  eq(monday.log.some((item) => item.title === 'Academia' && item.occurrence === '2026-11-16'), true);
+  eq(monday.tasks.find((t) => t.title === 'Academia').when, '2026-11-18');
 });
 
 const failed = results.filter((r) => !r.ok);

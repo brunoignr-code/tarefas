@@ -10,8 +10,9 @@ function promisify(request) {
   });
 }
 
-export async function openDb() {
-  const request = indexedDB.open('tarefas', 1);
+// O app de verdade usa o banco "tarefas"; a demonstração (v31), um banco próprio ("tarefas-demo").
+export async function openDb(name = 'tarefas') {
+  const request = indexedDB.open(name, 1);
   request.onupgradeneeded = () => {
     STORES.forEach((name) => request.result.createObjectStore(name, { keyPath: 'id' }));
   };

@@ -1,6 +1,7 @@
 // Inscrição deste aparelho nos avisos com o app fechado e envio da agenda ao servidor.
 import { SYNC_URL } from './sync.js';
 import { buildSchedule, normalizePushSettings } from './push-core.js';
+import { DEMO } from './demo.js';
 
 export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
@@ -9,6 +10,8 @@ const REQUEST_TIMEOUT_MS = 20000;
 const timeoutSignal = () => (AbortSignal.timeout ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : undefined);
 
 async function post(path, payload, token) {
+  // Demonstração (v31): nenhuma chamada ao servidor.
+  if (DEMO) throw new Error('Desligado na demonstração.');
   let response;
   try {
     response = await fetch(`${SYNC_URL}${path}`, {
@@ -56,6 +59,7 @@ export async function refreshSubscription(token) {
 
 /** Pede permissão, inscreve este aparelho e registra a inscrição no servidor. */
 export async function enablePush(token) {
+  if (DEMO) throw new Error('Desligado na demonstração.');
   if (!pushSupported()) throw new Error('Este navegador não recebe avisos com o app fechado.');
   if (await Notification.requestPermission() !== 'granted') throw new Error('Notificações bloqueadas. Libere nas configurações do navegador.');
   const { publicKey } = await fetchPushState(token);
@@ -75,6 +79,8 @@ export async function enablePush(token) {
 }
 
 export async function disablePush(token) {
+  // A inscrição de avisos é do navegador inteiro: a demonstração nunca a desfaz.
+  if (DEMO) return;
   const subscription = await currentSubscription();
   if (!subscription) return;
   const { endpoint } = subscription;

@@ -1,5 +1,6 @@
 // Conversa com o servidor: envia o que mudou aqui e recebe o que mudou nos outros aparelhos.
 import { changedSince, deriveProof, merge, normalizeLogin, toWire } from './sync-core.js';
+import { DEMO } from './demo.js';
 
 export const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const BATCH = 25;
@@ -11,6 +12,8 @@ const REQUEST_TIMEOUT_MS = 20000;
 const timeoutSignal = () => (AbortSignal.timeout ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : undefined);
 
 async function post(path, payload, token) {
+  // Demonstração (v31): nenhuma chamada ao servidor, nem por engano.
+  if (DEMO) throw new Error('Desligado na demonstração.');
   let response;
   try {
     response = await fetch(`${SYNC_URL}${path}`, {

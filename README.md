@@ -72,7 +72,20 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v30)
+## Estado do projeto (12 de novembro de 2026, v31)
+
+### v31, 12 de novembro: modo demonstração (?demo=1)
+
+Para mostrar o app a outras pessoas sem os seus dados: **https://brunoignr-code.github.io/tarefas/?demo=1**. Mesmo GitHub Pages, sem servidor novo, repositório novo ou custo. Só app: o servidor não muda.
+
+- **Banco separado:** a demonstração abre o IndexedDB `tarefas-demo` no navegador de quem abre. O banco `tarefas` (as suas tarefas) nunca é aberto, nem se você abrir a demo no seu próprio Chrome.
+- **O que é dividido na mesma origem foi separado:** as preferências da demo no localStorage ganham o prefixo `demo:` (tema, aviso de notificação escondido, bateria, alarmes); o service worker manda os botões de um lembrete da demo só para a aba da demo (com `?demo=1`) e nunca mexe no banco `tarefas` por causa deles; os avisos e ações do app de verdade não vão para a aba da demo. A inscrição de avisos não é lida nem desfeita.
+- **Dados de exemplo montados na hora** (`js/demo.js`), com datas relativas a hoje: listas Casa, Saúde e Finanças (no grupo Pessoal) e Trabalho; tarefas de hoje e da semana, uma atrasada (prazo ontem) e duas paradas, academia segunda e quarta, e-mails em dias úteis, lembretes, etapas, tags, importantes e concluídas no histórico. Nenhum lembrete começa vencido: o que já passou hoje (academia às 7h, vitamina às 8h) aparece como feito. "Enviar o relatório da semana" avisa 3 minutos depois de abrir, para mostrar o lembrete chegando. Os dados são remontados quando a demo abre num dia diferente.
+- **Faixa no topo:** "Demonstração · os dados são de exemplo e ficam só neste navegador", com **Recomeçar** (volta aos dados de exemplo e às preferências da demo) e **Sair** (abre o app normal).
+- **Desligado na demo:** conta e sincronização, entrar com Google, backup (arquivo e Drive), avisos com o app fechado, alarmes do APK e a conferência da bateria; Config. explica cada um. `sync.js`, `push.js` e `google.js` também recusam qualquer chamada na demo, por garantia. Lembretes com o app aberto funcionam. Anotar ("pagar luz sexta 9h", "toda segunda e quarta") funciona como no app normal.
+- **Atenção num aparelho que já tem o app:** a primeira abertura do link depois da publicação ainda pode mostrar o app normal (com os seus dados, sem mexer neles), porque o service worker antigo responde com a versão guardada. Recarregue. Antes de mostrar a alguém no seu celular, abra o link uma vez.
+- **Testado** numa origem local (127.0.0.1) com dados descartáveis, apagados depois: atualização com a v30 já instalada (primeira abertura mostra o app normal, a seguinte já é a demo); banco `tarefas` e localStorage do app normal idênticos antes e depois de usar a demo (inclusive mudando o modo e escondendo o aviso dentro dela); nenhuma requisição ao `tarefas-sync` nem ao Google; anotar "pagar luz sexta 9h" (sexta 9h, lembrete junto) e "aula de inglês toda segunda e quarta 19h" (seg e qua, 19h); o lembrete de 3 minutos vencendo com o app aberto e Concluir pelo cartão; Recomeçar; dados remontados num dia novo; Sair voltando ao app normal com tudo igual; botão de notificação do app normal indo só para a aba normal com a demo aberta ao lado; celular 375 px e notebook, claro e escuro; 75 testes das regras (1 novo: dados de exemplo em várias horas do dia, sem lembrete vencido).
+- **Não testado:** num celular de verdade; a notificação do sistema na demo e os botões dela (o navegador do teste tem notificação bloqueada), inclusive com o app instalado; a demo aberta pelo APK.
 
 ### v30, 12 de novembro: alarmes nativos no APK 1.4 (fase 1 e fase 2)
 
@@ -452,6 +465,7 @@ Segue o `ROTEIRO-REDESENHO.md`. Só tela: sem mudança no servidor, no login ou 
 - `js/parse.js`: entende datas, horários e repetições digitadas.
 - `js/theme.js`: temas e cálculos de cor do marca-texto.
 - `js/db.js`: armazenamento local em IndexedDB.
+- `js/demo.js`: modo demonstração (`?demo=1`): sinal da demo, chaves do localStorage com prefixo e dados de exemplo.
 - `js/app.js`: telas e interações.
 - `sw.js`: cache offline (sem `import`; as regras são embutidas por `tools/build_sw.py`), avisos recebidos por push e botões das notificações. Ao mudar a lista de arquivos, atualize `FILES` e `CACHE`. A cada publicação, suba `CACHE` e `APP_VERSION` (em `js/app.js`), que aparece no rodapé de Config. Antes de publicar, rode `python tools/conferir.py`.
 - `tests/`: testes das regras, executados no navegador.

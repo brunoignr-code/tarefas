@@ -20,11 +20,14 @@ import {
   authenticate, callServer, changePassword, createSync, endSession,
 } from './sync.js';
 import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from './google.js';
+import {
+  DEMO, DEMO_DB, DEMO_SEED_VERSION, appPath, demoData, localKey,
+} from './demo.js';
 
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v30 · 12/11/2026';
+const APP_VERSION = 'v31 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -528,7 +531,8 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
     renotify: step > 0,
     icon: 'icons/icon-folha-192.png',
     badge: 'icons/badge-folha-96.png',
-    data: { id: task.id },
+    // demo: o service worker manda o botão para a demonstração, nunca para o banco de verdade (v31).
+    data: DEMO ? { id: task.id, demo: true } : { id: task.id },
     // O Chrome mostra no máximo dois botões: Concluir e o escolhido em Config. › Avisos.
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -586,7 +590,8 @@ async function checkReminders() {
 function renderReminders() {
   const now = localDateTime();
   const due = dueReminders(state.tasks, now);
-  document.title = due.length ? `(${due.length}) ${APP_NAME}` : APP_NAME;
+  const name = DEMO ? `Demonstração · ${APP_NAME}` : APP_NAME;
+  document.title = due.length ? `(${due.length}) ${name}` : name;
   // Em Hoje, o lembrete fica logo abaixo do título; nas outras telas, no topo.
   const slot = $('#view-reminders');
   $('#reminders').innerHTML = '';
@@ -1725,7 +1730,7 @@ function driveWarning() {
 /* ---------- Aviso de notificações desligadas (v27) ---------- */
 // O lembrete que não toca é a falha mais silenciosa: o app parece funcionar. Com tarefas que têm
 // lembrete, Hoje e Config. mostram por que este aparelho não vai avisar e o que fazer.
-const NOTIFY_SNOOZE_KEY = 'afazeres-aviso-notificacao';
+const NOTIFY_SNOOZE_KEY = localKey('afazeres-aviso-notificacao');
 const NOTIFY_SNOOZE_DAYS = 7;
 
 const hasReminders = () => openTasks().some((task) => task.remindAt || (task.extraReminders || []).length);
@@ -1881,6 +1886,8 @@ const deviceActions = {
 
 /** Depois de desenhar Config., coloca os botões oficiais do Google e busca o status. */
 function mountGoogle() {
+  // Demonstração: sem aparelhos, Google, Drive nem alarmes (v31).
+  if (DEMO) return;
   const route = currentRoute();
   // Lista de aparelhos: busca ao abrir Conta (de novo se a sessão mudou).
   if (route.name === 'settings' && route.id === 'conta' && state.sync?.token && state.devicesFor !== state.sync.token && !state.devicesLoading) loadDevices();
@@ -2028,8 +2035,8 @@ async function loadPushLog() {
 /* ---------- Alarmes do app Android (v30) ---------- */
 // O APK 1.4 agenda alarmes exatos no próprio celular (tocam na hora, sem depender do push).
 // Ele abre o site com ?apk=14; o app guarda isso para saber que pode oferecer os alarmes.
-const APK_KEY = 'afazeres-apk';
-const ALARMS_KEY = 'afazeres-alarmes';
+const APK_KEY = localKey('afazeres-apk');
+const ALARMS_KEY = localKey('afazeres-alarmes');
 const ALARMS_APK = 14;
 
 function apkVersion() {
@@ -2111,7 +2118,7 @@ function alarmsPanel() {
 /* ---------- Conferência da bateria (v29) ---------- */
 // No Android, a economia de bateria é o que mais segura os avisos com o app fechado. O app não
 // consegue abrir essas telas do sistema pelo navegador, então mostra o caminho de cada uma.
-const BATTERY_DONE_KEY = 'afazeres-bateria-conferida';
+const BATTERY_DONE_KEY = localKey('afazeres-bateria-conferida');
 const isAndroid = () => /Android/i.test(navigator.userAgent);
 
 function batteryChecked() {
@@ -2234,6 +2241,10 @@ function notificationState() {
   return support ? Notification.permission : 'unsupported';
 }
 
+/** Painel de Config. no lugar do que fica desligado na demonstração (v31). */
+const demoOff = (heading, text) => `
+    <section class="panel demo-off"><span class="lbl">${heading}</span><p>${text}</p></section>`;
+
 function settingsView(page) {
   const title = (name, sub = '') => pageHero({ back: ['#settings', 'Config.'], title: name, sub });
   const segmented = (label, action, options, current, dataKey = 'value') => `
@@ -2295,17 +2306,23 @@ function settingsView(page) {
         ${permission === 'granted' ? `<button class="btn small" data-action="test-notification">${ico('bell')}Enviar teste</button>` : ''}
       </div>
     </section>
+    ${DEMO ? demoOff('Com o app fechado · desligado na demonstração', 'No app de verdade, os lembretes chegam também com o app fechado, pelo servidor, e no app Android tocam como alarme do próprio celular. Aqui, com o app aberto, eles aparecem na hora: o exemplo “Enviar o relatório da semana” avisa 3 minutos depois de a demonstração abrir.') : `
     ${alarmsPanel()}
     ${pushPanel()}
-    ${batteryPanel()}`;
+    ${batteryPanel()}`}`;
   }
-  if (page === 'conta') return `${title('Conta e sincronização')}${syncPanel()}${devicesPanel()}`;
+  if (page === 'conta') {
+    if (DEMO) {
+      return `${title('Conta e sincronização')}${demoOff('Desligado na demonstração', 'No app de verdade, a conta deixa o notebook e os celulares iguais, com entrar com Google e backup diário no Google Drive. Aqui não há conta: os dados de exemplo ficam só neste navegador e nada vai para o servidor.')}`;
+    }
+    return `${title('Conta e sincronização')}${syncPanel()}${devicesPanel()}`;
+  }
   if (page === 'dados') {
     const backup = state.settings.lastExport
       ? `Último backup: ${formatDate(localDate(new Date(state.settings.lastExport))).toLowerCase()}.`
       : 'Nenhum backup feito ainda.';
     const doneN = activeTasks().filter((t) => t.status === 'done').length;
-    return `${title('Dados')}
+    const backupPanel = DEMO ? demoOff('Backup · desligado na demonstração', 'No app de verdade: exportar e importar um arquivo de backup e o backup diário no Google Drive.') : `
     <section class="panel">
       <h3>Backup</h3>
       <p>${backup} ${state.sync?.token ? 'As tarefas também ficam guardadas no servidor da sincronização.' : 'Sem conta, os dados ficam só neste aparelho: limpar os dados do navegador apaga tudo.'}</p>
@@ -2315,7 +2332,9 @@ function settingsView(page) {
         <input type="file" id="import-file" accept="application/json,.json" hidden>
       </div>
     </section>
-    ${drivePanel()}
+    ${drivePanel()}`;
+    return `${title('Dados')}
+    ${backupPanel}
     <section class="panel">
       <h3>Limpeza</h3>
       <p>Concluídas: ${doneN} ${doneN === 1 ? 'tarefa' : 'tarefas'} e ${state.log.length} ${state.log.length === 1 ? 'registro' : 'registros'} de repetição. Lixeira: ${state.tasks.filter((t) => t.deletedAt).length}.</p>
@@ -2337,8 +2356,8 @@ function settingsView(page) {
     geral: `Abre em ${startName} · lembrar às ${defaultRemindTime()}`,
     aparencia: `${modeName} · ${accentName} · letra ${sizeName}`,
     avisos: `${notify}${state.push?.enabled ? ' · também com o app fechado' : ''}`,
-    conta: state.sync?.token ? `Conectado como ${state.sync.login}` : 'Não conectado: as tarefas ficam só aqui',
-    dados: driveLate() ? 'Backup do Google Drive atrasado' : 'Backup, limpeza da lixeira e das concluídas',
+    conta: DEMO ? 'Desligado na demonstração' : (state.sync?.token ? `Conectado como ${state.sync.login}` : 'Não conectado: as tarefas ficam só aqui'),
+    dados: DEMO ? 'Limpeza da lixeira e das concluídas' : (driveLate() ? 'Backup do Google Drive atrasado' : 'Backup, limpeza da lixeira e das concluídas'),
   };
   const banner = state.sync?.token
     ? `<section class="leaf-card big sync-card" aria-label="Sincronização"><span class="sync-leaf" aria-hidden="true">${ico('repeat')}</span><div class="grow"><b id="sync-status" role="status">${escapeHtml(syncStatusText())}</b><small>Conectado como ${escapeHtml(state.sync.login)} · iguais no note e nos celulares</small></div><button class="ib round-ib" data-action="sync-now" aria-label="Sincronizar agora" title="Sincronizar agora">${ico('repeat')}</button></section>`
@@ -2430,7 +2449,10 @@ function render() {
 function paintChrome() {
   const hero = $('#view > .hero');
   const meta = $('meta[name="theme-color"]');
-  const color = hero && !state.selecting ? getComputedStyle(hero).backgroundColor : CHROME[document.documentElement.dataset.mode === 'dark' ? 'dark' : 'light'];
+  let color = hero && !state.selecting ? getComputedStyle(hero).backgroundColor : CHROME[document.documentElement.dataset.mode === 'dark' ? 'dark' : 'light'];
+  // Demonstração: a faixa fica no topo, junto da barra do sistema.
+  const demoBar = DEMO && $('.demo-bar');
+  if (demoBar) color = getComputedStyle(demoBar).backgroundColor;
   if (meta && color) meta.content = color;
 }
 
@@ -4110,7 +4132,7 @@ function applyTheme() {
   const fs = fontSizePx();
   root.style.fontSize = `${fs}px`;
   try {
-    localStorage.setItem('tarefas-tema', JSON.stringify({ mode, vars, fs }));
+    localStorage.setItem(localKey('tarefas-tema'), JSON.stringify({ mode, vars, fs }));
   } catch { /* O tema salvo é só uma conveniência. */ }
 }
 
@@ -4257,6 +4279,7 @@ const clickActions = {
   jump: (el) => {
     document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
+  'demo-restart': () => restartDemo(),
   'check-update': async () => {
     const registration = await navigator.serviceWorker?.getRegistration?.();
     if (!registration) return showToast('Sem o modo offline ativo; recarregue a página.');
@@ -5022,7 +5045,8 @@ async function load() {
   const settings = meta.find((item) => item.id === 'settings');
   if (settings) state.settings = settings;
   const sync = meta.find((item) => item.id === 'sync');
-  state.sync = sync?.token ? sync : null;
+  // Na demonstração não existe conta: sem sessão, nada sincroniza nem chama o servidor.
+  state.sync = sync?.token && !DEMO ? sync : null;
   state.push = meta.find((item) => item.id === 'push') || null;
   // v14: um tema só. Diamante vira a Folha escura; Marca-texto e os outros, a Folha clara.
   if (!MODES.some(([id]) => id === state.settings.mode)) {
@@ -5047,16 +5071,61 @@ async function createFromShare(title, text, url) {
   renderQuickPreview();
 }
 
+/**
+ * Demonstração (v31): banco próprio ("tarefas-demo"), com os dados de exemplo montados de novo
+ * quando ela abre num dia diferente, para as datas parecerem sempre atuais.
+ */
+async function seedDemo(force = false) {
+  const info = force ? null : await db.get('meta', 'demo').catch(() => null);
+  if (info && info.seededOn === today() && info.version === DEMO_SEED_VERSION) return;
+  await db.replaceAll(demoData());
+}
+
+async function restartDemo() {
+  await seedDemo(true);
+  // Também as preferências guardadas só da demonstração (aviso escondido, tema...).
+  try {
+    Object.keys(localStorage).filter((key) => key.startsWith('demo:')).forEach((key) => localStorage.removeItem(key));
+  } catch { /* Sem armazenamento: nada guardado. */ }
+  state.selecting = false;
+  state.selected.clear();
+  state.search = '';
+  await load();
+  if (location.hash !== '#today') history.replaceState(null, '', `${appPath()}#today`);
+  render();
+  showToast('Dados de exemplo de volta.');
+}
+
+/** Faixa da demonstração, acima de tudo. */
+function mountDemoBar() {
+  document.body.classList.add('demo');
+  const bar = document.createElement('div');
+  bar.className = 'demo-bar';
+  bar.setAttribute('role', 'region');
+  bar.setAttribute('aria-label', 'Demonstração');
+  bar.innerHTML = `
+    <p><span class="demo-tag">Demonstração</span> · os dados são de exemplo e ficam só neste navegador</p>
+    <div class="demo-acts">
+      <button type="button" data-action="demo-restart">Recomeçar</button>
+      <a href="${location.pathname}#today">Sair</a>
+    </div>`;
+  document.body.prepend(bar);
+}
+
 async function start() {
-  await db.openDb();
+  await db.openDb(DEMO ? DEMO_DB : 'tarefas');
+  if (DEMO) {
+    await seedDemo();
+    mountDemoBar();
+  }
   await load();
   // Pede ao navegador para não apagar os dados quando faltar espaço.
-  navigator.storage?.persist?.();
+  if (!DEMO) navigator.storage?.persist?.();
   const params = new URLSearchParams(location.search);
-  noteApk(params);
+  if (!DEMO) noteApk(params);
   const shared = ['share-title', 'share-text', 'share-url'].map((key) => (params.get(key) || '').trim());
   const wantsNew = params.has('novo');
-  if (wantsNew || shared.some(Boolean) || params.has('apk')) history.replaceState(null, '', `${location.pathname}${location.hash || '#today'}`);
+  if (wantsNew || shared.some(Boolean) || params.has('apk')) history.replaceState(null, '', `${appPath()}${location.hash || '#today'}`);
   else if (!location.hash) {
     // Tela inicial escolhida em Config.
     const start = state.settings.startView;
@@ -5068,17 +5137,21 @@ async function start() {
   else if (wantsNew) openAnotar();
   await checkReminders();
   setInterval(checkReminders, 15000);
-  syncEngine.run();
-  checkDriveHealth();
-  setInterval(() => syncEngine.run(), 60000);
+  if (!DEMO) {
+    syncEngine.run();
+    checkDriveHealth();
+    setInterval(() => syncEngine.run(), 60000);
+  }
   // Permissão de notificação mudada (no Android, no navegador ou pelo botão): o aviso de Hoje se atualiza (v27).
   navigator.permissions?.query({ name: 'notifications' }).then((status) => {
     status.onchange = () => render();
   }).catch(() => {});
-  loadAlarms();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
   }
+  // Na demonstração, a inscrição de avisos e os alarmes do celular (que são do navegador inteiro) ficam de fora.
+  if (DEMO) return;
+  loadAlarms();
   // A inscrição pode sumir se o navegador limpar os dados ou a permissão for retirada.
   if (state.push?.enabled && !(await currentSubscription().catch(() => null))) {
     await savePushLocal({ ...state.push, enabled: false });

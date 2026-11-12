@@ -610,7 +610,7 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v30';
+const CACHE = 'tarefas-v31';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -622,6 +622,7 @@ const FILES = [
   'js/boot.js',
   'js/splash.js',
   'js/db.js',
+  'js/demo.js',
   'js/rules.js',
   'js/parse.js',
   'js/theme.js',
@@ -680,12 +681,38 @@ self.addEventListener('fetch', (event) => {
 
 const BACKGROUND_ACTIONS = ['done', 'snooze', 'tomorrow'];
 
+// Modo demonstração (v31): abas abertas com ?demo=1 usam outro banco ("tarefas-demo").
+// O que é do app de verdade nunca vai para elas, e o que é da demonstração nunca toca o banco "tarefas".
+const isDemoClient = (client) => {
+  try { return new URL(client.url).searchParams.get('demo') === '1'; } catch { return false; }
+};
+async function windowsFor(demo) {
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  return all.filter((client) => isDemoClient(client) === demo);
+}
+
+/** Botão de um lembrete da demonstração: só a página da demonstração resolve, no banco dela. */
+async function demoNotificationClick(id, action) {
+  const windows = await windowsFor(true);
+  const target = windows.find((client) => client.visibilityState === 'visible') || windows[0];
+  if (target) {
+    if (id) target.postMessage({ type: 'notification-action', action, id });
+    return target.focus().catch(() => undefined);
+  }
+  return self.clients.openWindow(id ? `./?demo=1#notif/${action}/${id}` : './?demo=1#today');
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const id = event.notification.data && event.notification.data.id;
+  const data = event.notification.data || {};
+  const id = data.id;
   const action = event.action || 'open';
+  if (data.demo) {
+    event.waitUntil(demoNotificationClick(id, action));
+    return;
+  }
   event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const windows = await windowsFor(false);
     if (id && BACKGROUND_ACTIONS.includes(action)) {
       // Concluir, Adiar e Amanhã não abrem o app.
       const visible = windows.find((client) => client.visibilityState === 'visible');
@@ -716,7 +743,7 @@ self.addEventListener('message', (event) => {
   if (data.type !== 'run-notification-action' || !BACKGROUND_ACTIONS.includes(data.action)) return;
   event.waitUntil(actInBackground(data.action, data.id)
     .then(async () => {
-      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const windows = await windowsFor(false);
       windows.forEach((client) => client.postMessage({ type: 'reload-data' }));
       if (event.source) event.source.postMessage({ type: 'notification-action-done', id: data.id });
     })
@@ -853,7 +880,7 @@ function notify(item, quiet, second = 'tomorrow') {
 }
 
 async function onPush() {
-  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const windows = await windowsFor(false);
   const visible = windows.some((client) => client.visibilityState === 'visible');
   windows.forEach((client) => client.postMessage({ type: 'push-arrived' }));
 

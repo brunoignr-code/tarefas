@@ -1,5 +1,6 @@
 // Conta Google: botão "Entrar com Google" (login) e autorização do Google Drive (backup).
 // Usa a biblioteca oficial do Google (Google Identity Services), carregada só quando precisa.
+import { DEMO } from './demo.js';
 
 // ID público do cliente OAuth (o mesmo de server/worker.js). Não é segredo.
 export const GOOGLE_CLIENT_ID = '643498059820-hocjtrln1pfprt1naj3jmi6dk4chum6m.apps.googleusercontent.com';
@@ -11,6 +12,7 @@ let credentialHandler = null;
 
 /** Carrega a biblioteca do Google uma vez. */
 export function loadGoogle() {
+  if (DEMO) return Promise.reject(new Error('Desligado na demonstração.'));
   if (window.google?.accounts) return Promise.resolve(window.google);
   if (!loading) {
     loading = new Promise((resolve, reject) => {
