@@ -313,6 +313,105 @@ await call('/google/unlink', {}, token);
 check('Google: desligar impede entrar com Google', (await call('/google/login', { credential: await idToken({}) })).status === 401);
 window.fetch = prevFetch;
 
+// ---------- v30: alarmes do app Android ----------
+{
+  sqlite.run('CREATE TABLE IF NOT EXISTS counter (seq INTEGER); INSERT INTO counter SELECT 10 WHERE NOT EXISTS (SELECT 1 FROM counter);');
+  const pad2 = (n) => String(n).padStart(2, '0');
+  // Celular no horário de Brasília (UTC−3), como o Android informa: −180 minutos.
+  const OFFSET = -180;
+  const devWall = (ms = Date.now()) => new Date(ms + OFFSET * 60000);
+  const devDate = (d) => `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+  const today = devDate(devWall());
+  const tomorrow = devDate(devWall(Date.now() + 86400000));
+  const tokA = (await callUA('/login', { login: 'teste-descartavel', proof }, null, PHONE_UA)).body.token;
+  const tokB = (await call('/login', { login: 'teste-descartavel', proof })).body.token;
+  const epA = 'https://fcm.googleapis.com/fcm/send/celularA';
+  const epB = 'https://fcm.googleapis.com/fcm/send/celularB';
+  await call('/push/subscribe', { endpoint: epA }, tokA);
+  await call('/push/subscribe', { endpoint: epB }, tokB);
+
+  check('alarmes: sem sessão, não gera código', (await call('/alarms/pair', {})).status === 401);
+  const code = (await call('/alarms/pair', { endpoint: epA }, tokA)).body.code;
+  check('alarmes: código de uso único gerado', /^[0-9a-f]{32}$/.test(code || ''));
+  const claim = await call('/alarms/claim', { code, name: 'SM-A556E' });
+  const dev = claim.body.token;
+  check('alarmes: o celular troca o código pela chave', claim.status === 200 && /^[0-9a-f]{64}$/.test(dev || ''));
+  check('alarmes: o código não vale duas vezes', (await call('/alarms/claim', { code, name: 'x' })).status === 400);
+  check('alarmes: chave errada não lê a agenda', (await call('/alarms/list', {}, 'f'.repeat(64))).status === 401);
+  check('alarmes: a chave do celular não serve como sessão', (await call('/push/state', {}, dev)).status === 401);
+
+  const item = (key, at, extra = {}) => ({ key, at, taskId: key.split('|')[0], kind: 'remind', title: key, body: 'b', ...extra });
+  await call('/push/schedule', { since: 100, items: [item('al1|x|0', Date.now() + 120000), item('al2|x|0', Date.now() + 5 * 86400000)] }, tokA);
+  const covered = () => sql1("SELECT COUNT(*) FROM alarm_covered")[0][0];
+  const l0 = await call('/alarms/list', { exact: true, notify: false }, dev);
+  check('alarmes: agenda só dos próximos 3 dias (o teste de aviso também vira alarme)', l0.body.items?.filter((i) => i.kind !== 'test').map((i) => i.key).join() === 'al1|x|0');
+  check('alarmes: sem notificação liberada no Android, não conta como agendado', l0.body.ready === false && covered() === 0);
+  const l1 = await call('/alarms/list', { exact: true, notify: true }, dev);
+  check('alarmes: com tudo liberado, o servidor anota o que o celular agendou', l1.body.ready === true && covered() === l1.body.items.length && l1.body.items.length >= 1);
+  const st = await call('/alarms/status', {}, tokA);
+  check('alarmes: o app web vê os alarmes ativos neste celular', st.body.active === true && st.body.ready === true && st.body.name === 'SM-A556E');
+  check('alarmes: o outro celular continua sem alarmes', (await call('/alarms/status', {}, tokB)).body.active === false);
+  check('alarmes: aviso ainda na fila vale', (await call('/alarms/check', { key: 'al1|x|0' }, dev)).body.valid === true);
+  check('alarmes: aviso que saiu da fila não toca', (await call('/alarms/check', { key: 'sumiu|x|0' }, dev)).body.valid === false);
+
+  sqlite.run("UPDATE push_queue SET at = ? WHERE key = 'al1|x|0'", [Date.now() - 1000]);
+  pushed.length = 0;
+  await cron();
+  check('alarmes: o celular com o alarme agendado não recebe o push; o outro recebe',
+    pushed.some((p) => p.url === epB) && !pushed.some((p) => p.url === epA));
+  check('alarmes: /push/due não repete no celular com alarme', (await call('/push/due', { endpoint: epA })).body.items.every((i) => i.key !== 'al1|x|0'));
+  check('alarmes: /push/due traz o aviso no outro celular', (await call('/push/due', { endpoint: epB })).body.items.some((i) => i.key === 'al1|x|0'));
+  await call('/push/schedule', { since: 100, items: [item('al3|x|0', Date.now() - 1000)] }, tokA);
+  pushed.length = 0;
+  await cron();
+  check('alarmes: aviso novo, que o celular ainda não agendou, vai por push', pushed.some((p) => p.url === epA));
+
+  // Botões da notificação, com o relógio do celular.
+  const putTask = (task) => sqlite.run("INSERT OR REPLACE INTO items VALUES ('tasks', ?, ?, 0, 5)", [task.id, JSON.stringify({ ...task, _t: Object.fromEntries(Object.keys(task).map((k) => [k, 1])) })]);
+  const getTask = (id) => JSON.parse(sql1(`SELECT data FROM items WHERE kind = 'tasks' AND id = '${id}'`)[0][0]);
+  const base = { title: 'Tarefa', status: 'open', listId: 'inbox', order: 0, notes: '', steps: [], tags: [] };
+  putTask({ ...base, id: 'act1', when: today, remindAt: `${today}T08:00` });
+  const seq0 = sql1('SELECT seq FROM counter')[0][0];
+  const a1 = await call('/alarms/act', { taskId: 'act1', action: 'done', offset: OFFSET }, dev);
+  const t1 = getTask('act1');
+  check('ações: Concluir sem abrir o app', a1.body.ok === true && t1.status === 'done');
+  check('ações: a hora da conclusão é a real (não a deslocada)', Math.abs(Date.parse(t1.completedAt) - Date.now()) < 10000);
+  check('ações: a mudança vai para os outros aparelhos', sql1('SELECT seq FROM counter')[0][0] === seq0 + 1 && t1._t.status > 1000);
+  putTask({ ...base, id: 'act2', when: today, remindAt: `${today}T08:00` });
+  await call('/alarms/act', { taskId: 'act2', action: 'tomorrow', offset: OFFSET }, dev);
+  const t2 = getTask('act2');
+  const at2 = sql1("SELECT at FROM push_queue WHERE task_id = 'act2' AND sent_at IS NULL")[0]?.[0];
+  const [ty, tm, td] = tomorrow.split('-').map(Number);
+  check('ações: Amanhã leva o dia e o lembrete para amanhã, no horário do celular', t2.when === tomorrow && t2.remindAt === `${tomorrow}T08:00`);
+  check('ações: o aviso novo entra na fila no instante certo (08:00 de Brasília = 11:00 UTC)', at2 === Date.UTC(ty, tm - 1, td, 11, 0));
+  putTask({ ...base, id: 'act3', when: today, remindAt: `${today}T00:00` });
+  await call('/alarms/act', { taskId: 'act3', action: 'snooze', offset: OFFSET }, dev);
+  const t3 = getTask('act3');
+  const expect3 = devWall(Date.now() + 10 * 60000);
+  const expected3 = `${devDate(expect3)}T${pad2(expect3.getUTCHours())}:${pad2(expect3.getUTCMinutes())}`;
+  check('ações: Adiar 10 min no horário do celular', t3.snoozedUntil === expected3 || t3.snoozedUntil > expected3.slice(0, 15));
+  putTask({ ...base, id: 'act4', when: today, remindAt: `${today}T08:00`, repeat: { freq: 'daily', interval: 1, anchor: today } });
+  await call('/alarms/act', { taskId: 'act4', action: 'done', offset: OFFSET }, dev);
+  const t4 = getTask('act4');
+  const log4 = sql1("SELECT data FROM items WHERE kind = 'log'").map((r) => JSON.parse(r[0])).find((l) => l.taskId === 'act4');
+  check('ações: Concluir numa repetição vai para a próxima e registra no histórico', t4.status === 'open' && t4.when === tomorrow && !!log4 && Math.abs(Date.parse(log4.completedAt) - Date.now()) < 10000);
+  check('ações: tarefa que não existe mais não quebra', (await call('/alarms/act', { taskId: 'nada', action: 'done', offset: OFFSET }, dev)).body.ok === false);
+  check('ações: ação desconhecida recusada', (await call('/alarms/act', { taskId: 'act4', action: 'apagar', offset: OFFSET }, dev)).status === 400);
+
+  await call('/alarms/revoke', {}, tokA);
+  check('alarmes: desligar no app web apaga a chave', (await call('/alarms/list', {}, dev)).status === 401 && covered() === 0);
+  const code2 = (await call('/alarms/pair', { endpoint: epA }, tokA)).body.code;
+  const dev2 = (await call('/alarms/claim', { code: code2, name: 'SM-A556E' })).body.token;
+  check('alarmes: parear de novo funciona', (await call('/alarms/list', { exact: true, notify: true }, dev2)).status === 200);
+  await call('/logout', {}, tokA);
+  check('alarmes: sair do aparelho corta os alarmes dele', (await call('/alarms/list', {}, dev2)).status === 401 && sql1('SELECT COUNT(*) FROM alarm_devices')[0][0] === 0);
+  const old = sql1('SELECT COUNT(*) FROM alarm_codes')[0][0];
+  sqlite.run('UPDATE alarm_codes SET expires = 1');
+  const code3 = (await call('/alarms/pair', {}, tokB)).body.code;
+  sqlite.run('UPDATE alarm_codes SET expires = 1');
+  check('alarmes: código vencido recusado', (await call('/alarms/claim', { code: code3, name: 'x' })).status === 400 && old >= 0);
+}
+
 lines.push(`\nCron (no navegador, só referência): ${cronMs.toFixed(1)} ms no total, incluindo esperas`);
 const failed = lines.filter((l) => l.startsWith('FALHA')).length;
 document.title = failed ? `FALHOU ${failed}` : 'OK servidor';

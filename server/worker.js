@@ -1,4 +1,612 @@
 // Servidor de sincronização: guarda registros e entrega só o que mudou para cada aparelho.
+// As regras do app (Concluir, Amanhã, Adiar e a agenda de avisos) são embutidas abaixo por
+// tools/build_sw.py, para os botões da notificação do Android funcionarem sem abrir o app (v30).
+// ---- INÍCIO DAS REGRAS EMBUTIDAS (gerado por tools/build_sw.py; não edite à mão) ----
+const SHARED_RULES = (() => {
+  const M = {};
+M['rules'] = (() => {
+  // Regras de datas do escopo (R1 a R12). Sem acesso a tela ou banco, para poder testar tudo.
+  // Datas são 'YYYY-MM-DD' e lembretes 'YYYY-MM-DDTHH:mm', sempre em horário local.
+
+  const DAY_MS = 86400000;
+
+  const toUTC = (date) => {
+    const [y, m, d] = date.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const fromUTC = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const addDays = (date, n) => fromUTC(toUTC(date) + n * DAY_MS);
+  const diffDays = (a, b) => Math.round((toUTC(a) - toUTC(b)) / DAY_MS);
+  const weekday = (date) => new Date(toUTC(date)).getUTCDay();
+
+  const localDate = (d = new Date()) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const localDateTime = (d = new Date()) =>
+    `${localDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  const daysInMonth = (year, month) => new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+  function occurrenceByMonths(repeat, from) {
+    const months = repeat.freq === 'yearly' ? repeat.interval * 12 : repeat.interval;
+    const [ay, am, ad] = repeat.anchor.split('-').map(Number);
+    const [fy, fm] = from.split('-').map(Number);
+    const anchorIndex = ay * 12 + am - 1;
+    let k = Math.max(0, Math.ceil((fy * 12 + fm - 1 - anchorIndex) / months));
+    for (;;) {
+      const index = anchorIndex + k * months;
+      const year = Math.floor(index / 12);
+      const month = index % 12;
+      // Dia 31 vira o último dia dos meses curtos, sem perder o dia original.
+      const day = Math.min(ad, daysInMonth(year, month));
+      const candidate = `${year}-${pad(month + 1)}-${pad(day)}`;
+      if (candidate >= from) return candidate;
+      k += 1;
+    }
+  }
+
+  /** Primeira ocorrência da série na data `from` ou depois dela. */
+  function firstOccurrence(repeat, from) {
+    const start = from < repeat.anchor ? repeat.anchor : from;
+    if (repeat.freq === 'daily') {
+      const k = Math.ceil(diffDays(start, repeat.anchor) / repeat.interval);
+      return addDays(repeat.anchor, k * repeat.interval);
+    }
+    if (repeat.freq === 'weekly') {
+      const anchorWeek = addDays(repeat.anchor, -weekday(repeat.anchor));
+      for (let i = 0; i <= 7 * repeat.interval + 7; i += 1) {
+        const candidate = addDays(start, i);
+        const weeks = Math.floor(diffDays(candidate, anchorWeek) / 7);
+        if (weeks % repeat.interval === 0 && repeat.weekdays.includes(weekday(candidate))) {
+          return candidate;
+        }
+      }
+      throw new Error('Repetição semanal sem dias válidos');
+    }
+    return occurrenceByMonths(repeat, start);
+  }
+
+  const nextOccurrence = (repeat, after) => firstOccurrence(repeat, addDays(after, 1));
+
+  /** Primeiro dia em `from` ou depois dele que cai num dos dias da semana (0 = domingo). Sem dias, `from`. */
+  function firstOnWeekdays(weekdays, from) {
+    if (!from || !weekdays || !weekdays.length) return from;
+    for (let i = 0; i < 7; i += 1) {
+      const day = addDays(from, i);
+      if (weekdays.includes(weekday(day))) return day;
+    }
+    return from;
+  }
+
+  function normalizeRepeat(input, anchor) {
+    const repeat = {
+      freq: input.freq,
+      interval: Math.max(1, Math.floor(Number(input.interval) || 1)),
+      anchor,
+    };
+    if (repeat.freq === 'weekly') {
+      const days = [...new Set(input.weekdays || [])].sort((a, b) => a - b);
+      repeat.weekdays = days.length ? days : [weekday(anchor)];
+    }
+    if (input.fromCompletion) repeat.fromCompletion = true;
+    const count = Math.floor(Number(input.count) || 0);
+    if (count >= 1) repeat.count = count;
+    return repeat;
+  }
+
+  const sameRepeatPattern = (a, b) =>
+    a && b && a.freq === b.freq && a.interval === b.interval &&
+    (a.weekdays || []).join() === (b.weekdays || []).join() &&
+    !!a.fromCompletion === !!b.fromCompletion && (a.count || 0) === (b.count || 0);
+
+  /** Próxima data contada a partir de um dia qualquer, como o dia da conclusão. */
+  const intervalAfter = (date, repeat) =>
+    nextOccurrence({ ...repeat, anchor: date, weekdays: [weekday(date)] }, date);
+
+  /**
+   * Valida uma edição e devolve a tarefa pronta para salvar, ou { error }.
+   * R5: preenche Quando ao repetir. R6: bloqueia Até anterior a Quando.
+   * No banco, Prazo e Fim da série são separados, e a tela mostra um único campo Até.
+   */
+  function applyEdit(prev, fields, today) {
+    const title = (fields.title || '').trim();
+    if (!title) return { error: 'Dê um título à tarefa.' };
+
+    let when = fields.when || null;
+    const until = fields.until || null;
+    let repeat = null;
+    let whenFilled = false;
+
+    if (fields.repeat && fields.repeat.freq) {
+      if (!when) {
+        when = firstOccurrence(normalizeRepeat(fields.repeat, today), today);
+        whenFilled = true;
+      }
+      const candidate = normalizeRepeat(fields.repeat, when);
+      const unchanged = prev && prev.when === when && sameRepeatPattern(prev.repeat, candidate);
+      repeat = unchanged ? prev.repeat : candidate;
+      // A contagem de "terminar após N vezes" continua de onde estava.
+      if (repeat.count && prev?.repeat?.done) repeat = { ...repeat, done: Math.min(prev.repeat.done, repeat.count) };
+    }
+
+    // Modo A: um campo Até. Modos B e C: Prazo e Fim da série separados na tela.
+    let deadline;
+    let seriesEnd;
+    if ('deadline' in fields || 'seriesEnd' in fields) {
+      deadline = fields.deadline || null;
+      seriesEnd = repeat ? fields.seriesEnd || null : null;
+    } else {
+      deadline = repeat ? (prev?.repeat ? prev.deadline || null : null) : until;
+      seriesEnd = repeat ? until : null;
+    }
+
+    if (seriesEnd && when && seriesEnd < when) return { error: 'O fim da repetição não pode ser anterior a Quando.' };
+    if (deadline && when && deadline < when) return { error: 'O prazo não pode ser anterior a Quando.' };
+
+    // Vários lembretes: o primeiro fica em remindAt, os outros em extraReminders.
+    const times = cleanTimes([fields.remindAt, ...('extraReminders' in fields ? fields.extraReminders || [] : prev?.extraReminders || [])]);
+    const remindAt = fields.remindAt || times[0] || null;
+    const extraReminders = times.filter((time) => time !== remindAt);
+    const task = {
+      ...prev,
+      title,
+      notes: fields.notes || '',
+      listId: fields.listId || (prev && prev.listId) || 'inbox',
+      steps: fields.steps || (prev && prev.steps) || [],
+      when,
+      repeat,
+      deadline,
+      seriesEnd,
+      important: 'important' in fields ? !!fields.important : !!prev?.important,
+      tags: 'tags' in fields ? cleanTags(fields.tags) : (prev?.tags || []),
+      remindAt,
+      extraReminders,
+      remindEach: fields.remindEach !== false,
+      insist: 'insist' in fields ? !!fields.insist && !!remindAt : !!prev?.insist && !!remindAt,
+    };
+    // Só esta vez: a ocorrência muda de dia ou de hora e a série continua no calendário de antes.
+    // `occurrence` guarda o dia e os lembretes oficiais dessa ocorrência; some ao concluir ou pular.
+    if (prev?.repeat && repeat) {
+      const moved = occurrenceKey(task) !== occurrenceKey(prev);
+      if (fields.occurrenceOnly && moved) {
+        const original = prev.occurrence || { when: prev.when, remindAt: prev.remindAt || null, extraReminders: prev.extraReminders || [] };
+        task.repeat = prev.repeat;
+        task.occurrence = occurrenceKey(task) === occurrenceKey(original) ? null : original;
+      } else if (moved && prev.occurrence) {
+        // Esta e as próximas: a série passa a seguir a data nova.
+        task.occurrence = null;
+      }
+    } else if (prev?.occurrence) {
+      task.occurrence = null;
+    }
+    if (!prev || prev.remindAt !== remindAt || (prev.extraReminders || []).join() !== extraReminders.join()) {
+      task.snoozedUntil = null;
+      task.snoozedFor = null;
+      task.ackedAt = null;
+      task.notifiedFor = null;
+    }
+    return { task, whenFilled };
+  }
+
+  function occurrenceKey(task) {
+    return JSON.stringify([task.when || null, task.remindAt || null, (task.extraReminders || []).join()]);
+  }
+
+  const TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  const cleanTimes = (list) => [...new Set(list.filter((time) => TIME_RE.test(time || '')))].sort();
+
+  /** Tags sem repetição, sem "#" e sem espaços nas pontas. */
+  function cleanTags(tags) {
+    const list = Array.isArray(tags) ? tags : String(tags || '').split(',');
+    const seen = new Set();
+    return list.map((tag) => String(tag).trim().replace(/^#+/, '').trim()).filter((tag) => {
+      const key = tag.toLocaleLowerCase('pt-BR');
+      if (!tag || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /** Próxima data da série. Ao concluir, "a cada N dias" conta a partir de hoje. */
+  function nextDate(task, today, completing = true) {
+    const repeat = task.repeat;
+    if (repeat.fromCompletion) return intervalAfter(today, repeat);
+    // Ocorrência mudada só desta vez: a série conta do dia oficial dela.
+    const when = task.occurrence?.when || task.when;
+    if (completing && repeat.freq === 'daily') {
+      // Feita hoje: a próxima vem N dias depois. Se foi adiantada, não volta para antes da data marcada.
+      const next = addDays(today, repeat.interval);
+      return when > today && next <= when ? addDays(when, repeat.interval) : next;
+    }
+    return nextOccurrence(repeat, when > today ? when : today);
+  }
+
+  function advance(moved, today, completing) {
+    // Ocorrência mudada só desta vez: a próxima volta ao dia e ao horário oficiais.
+    const occ = moved.occurrence;
+    const task = occ
+      ? { ...moved, when: occ.when, remindAt: occ.remindAt || null, extraReminders: occ.extraReminders || [], occurrence: null }
+      : moved;
+    if (occ && !task.remindEach) {
+      task.remindAt = moved.remindAt;
+      task.extraReminders = moved.extraReminders || [];
+    }
+    const done = (task.repeat.done || 0) + 1;
+    if (task.repeat.count && done >= task.repeat.count) {
+      return { ...task, status: 'ended', endedAt: today, repeat: { ...task.repeat, done } };
+    }
+    let repeat = { ...task.repeat, done };
+    const next = nextDate(task, today, completing);
+    // Contando a partir da conclusão, a série passa a seguir a nova data.
+    if (repeat.fromCompletion || (completing && repeat.freq === 'daily')) repeat = { ...repeat, anchor: next };
+    // R4: Até é o último dia possível, inclusive.
+    if (task.seriesEnd && next > task.seriesEnd) {
+      return { ...task, status: 'ended', endedAt: today, repeat };
+    }
+    const updated = {
+      ...task,
+      repeat,
+      when: next,
+      steps: (task.steps || []).map((step) => ({ ...step, done: false })),
+    };
+    // No modo de dois campos, o prazo de cada ocorrência anda junto com ela.
+    if (task.deadline && task.when) updated.deadline = addDays(task.deadline, diffDays(next, task.when));
+    // R9: o lembrete acompanha cada ocorrência, mantendo o horário relativo.
+    if (task.remindAt && task.remindEach) {
+      const days = diffDays(next, task.when);
+      const shift = (time) => `${addDays(time.slice(0, 10), days)}${time.slice(10)}`;
+      updated.remindAt = shift(task.remindAt);
+      updated.extraReminders = (task.extraReminders || []).map(shift);
+      updated.snoozedUntil = null;
+      updated.snoozedFor = null;
+      updated.ackedAt = null;
+      updated.notifiedFor = null;
+    }
+    return updated;
+  }
+
+  /** Conclui a ocorrência aberta. R7 e R8: segue o calendário e não acumula dias perdidos. */
+  function completeTask(task, today, completedAt) {
+    if (!task.repeat) {
+      return { task: { ...task, status: 'done', completedAt }, log: null };
+    }
+    return {
+      task: advance(task, today, true),
+      log: { taskId: task.id, title: task.title, occurrence: task.when, completedAt },
+    };
+  }
+
+  /** Pula a ocorrência aberta sem registrá-la como concluída. */
+  const skipOccurrence = (task, today) => advance(task, today, false);
+
+  // R1: Hoje mostra tarefas abertas com Quando igual ou anterior a hoje.
+  const isOpen = (task) => task.status === 'open' && !task.deletedAt;
+  const todayTasks = (tasks, today) =>
+    tasks.filter((task) => isOpen(task) && task.when && task.when <= today);
+  const upcomingTasks = (tasks, today) =>
+    tasks.filter((task) => isOpen(task) && task.when && task.when > today)
+      .sort((a, b) => a.when.localeCompare(b.when) || a.order - b.order);
+
+  // R2: dias parados em Hoje, para a etiqueta discreta.
+  const daysWaiting = (task, today) =>
+    task.when && task.when < today ? diffDays(today, task.when) : 0;
+
+  // R3: só o prazo atrasa; o fim da série, não.
+  const isOverdue = (task, today) =>
+    isOpen(task) && !!task.deadline && task.deadline < today;
+
+  /** Urgente para a matriz: Quando chegou ou o prazo vence em até 2 dias. */
+  const isUrgent = (task, today) =>
+    (!!task.when && task.when <= today) || (!!task.deadline && task.deadline <= addDays(today, 2));
+
+  /** Todos os horários de lembrete da tarefa, em ordem. */
+  const reminderTimes = (task) => cleanTimes([task.remindAt, ...(task.extraReminders || [])]);
+
+  /**
+   * Lembrete em vigor no momento `now`: o último que já passou, ou o adiamento dele.
+   * Um lembrete posterior ao adiamento passa na frente. Dispensar vale até a hora dispensada.
+   */
+  function activeReminder(task, now) {
+    if (!isOpen(task)) return null;
+    const passed = reminderTimes(task).filter((time) => time <= now);
+    let time = passed.length ? passed[passed.length - 1] : null;
+    const later = task.snoozedFor && time > task.snoozedFor;
+    if (task.snoozedUntil && time && time < task.snoozedUntil && !later) {
+      time = task.snoozedUntil <= now ? task.snoozedUntil : null;
+    }
+    if (!time || (task.ackedAt && task.ackedAt >= time)) return null;
+    return time;
+  }
+
+  /** Lembrete para mostrar na tarefa: o que está em vigor ou o próximo. */
+  function shownReminder(task, now) {
+    const active = activeReminder(task, now);
+    if (active) return active;
+    if (!isOpen(task)) return null;
+    const next = [...reminderTimes(task), task.snoozedUntil].filter((time) => time && time > now).sort();
+    return next[0] || null;
+  }
+
+  const reminderTime = (task, now = localDateTime()) => activeReminder(task, now) || shownReminder(task, now);
+
+  // R10 e R11: o lembrete funciona sem datas e deixa de valer ao concluir.
+  const dueReminders = (tasks, now) => tasks.filter((task) => activeReminder(task, now));
+
+  /** Adia o lembrete para um horário ("AAAA-MM-DDTHH:MM"): 10 min, hoje à noite, amanhã... */
+  const snoozeTo = (task, until, now) => ({
+    ...task,
+    snoozedUntil: until,
+    snoozedFor: activeReminder(task, now) || task.remindAt || null,
+    notifiedFor: null,
+  });
+
+  const snooze = (task, nowDate, minutes) =>
+    snoozeTo(task, localDateTime(new Date(nowDate.getTime() + minutes * 60000)), localDateTime(nowDate));
+
+  const dismissReminder = (task, now) => ({ ...task, ackedAt: now });
+
+  /* ---------- Lembrete insistente ---------- */
+
+  const INSIST_MAX = 12;
+
+  /** 'YYYY-MM-DDTHH:mm' local para Date. */
+  const parseLocal = (time) => {
+    const [date, clock] = time.split('T');
+    const [y, m, d] = date.split('-').map(Number);
+    const [h, mi] = clock.split(':').map(Number);
+    return new Date(y, m - 1, d, h, mi);
+  };
+
+  const addMinutes = (time, minutes) => localDateTime(new Date(parseLocal(time).getTime() + minutes * 60000));
+
+  /** Quantas vezes o lembrete já insistiu até `now` (0 é o aviso original). */
+  function insistStep(task, time, nowDate, minutes) {
+    if (!task.insist || !minutes) return 0;
+    const elapsed = Math.floor((nowDate.getTime() - parseLocal(time).getTime()) / 60000);
+    return Math.max(0, Math.min(INSIST_MAX, Math.floor(elapsed / minutes)));
+  }
+
+  /** Marca local de "já avisei": o horário, seguido de #n quando é uma insistência. */
+  const notifyMark = (time, step) => (step ? `${time}#${step}` : time);
+  return { addDays, diffDays, weekday, localDate, localDateTime, firstOccurrence, nextOccurrence, firstOnWeekdays, applyEdit, cleanTags, nextDate, completeTask, skipOccurrence, todayTasks, upcomingTasks, daysWaiting, isOverdue, isUrgent, reminderTimes, activeReminder, shownReminder, reminderTime, dueReminders, snoozeTo, snooze, dismissReminder, INSIST_MAX, parseLocal, addMinutes, insistStep, notifyMark };
+})();
+M['sync-core'] = (() => {
+  // Regras de sincronização: a edição mais recente de cada campo vence. Sem rede nem banco.
+
+  // Cada aparelho decide sozinho se já avisou; marcas internas não viajam.
+  const LOCAL_FIELDS = new Set(['_t', '_dirty', 'notifiedFor']);
+
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+  const syncedFields = (...records) => [...new Set(records.flatMap((r) => Object.keys(r || {})))]
+    .filter((field) => !LOCAL_FIELDS.has(field));
+
+  /** Marca com a hora atual os campos que mudaram entre duas versões. */
+  function stamp(prev, next, now) {
+    const times = { ...(prev?._t || {}) };
+    let changed = false;
+    syncedFields(prev, next).forEach((field) => {
+      if (!same(prev?.[field], next[field])) {
+        times[field] = now;
+        changed = true;
+      }
+    });
+    return { ...next, _t: times, _dirty: changed || !!prev?._dirty };
+  }
+
+  /** Marca todos os campos, para enviar o registro inteiro. */
+  function stampAll(record, now) {
+    const times = {};
+    syncedFields(record).forEach((field) => { times[field] = now; });
+    return { ...record, _t: times, _dirty: true };
+  }
+
+  function toWire(record) {
+    const wire = { ...record };
+    LOCAL_FIELDS.forEach((field) => { if (field !== '_t') delete wire[field]; });
+    return wire;
+  }
+
+  /** Junta a versão do servidor à local, mantendo o que só existe neste aparelho. */
+  function merge(local, remote) {
+    const result = { ...(local || {}), _t: { ...(local?._t || {}) } };
+    Object.entries(remote._t || {}).forEach(([field, time]) => {
+      if (time > (result._t[field] || 0)) {
+        result._t[field] = time;
+        if (field in remote) result[field] = remote[field];
+        else delete result[field];
+      }
+    });
+    return result;
+  }
+
+  /** O registro mudou depois da versão enviada? */
+  const changedSince = (record, sentTimes) =>
+    Object.entries(record._t || {}).some(([field, time]) => time > (sentTimes[field] || 0));
+
+  const normalizeLogin = (login) => (login || '').trim().toLocaleLowerCase('pt-BR');
+
+  /** Deriva a prova enviada ao servidor. A senha em si nunca sai do aparelho. */
+  async function deriveProof(login, password) {
+    const encoder = new TextEncoder();
+    const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({
+      name: 'PBKDF2',
+      hash: 'SHA-256',
+      salt: encoder.encode(`tarefas-sync:${normalizeLogin(login)}`),
+      iterations: 600000,
+    }, material, 256);
+    return [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return { stamp, stampAll, toWire, merge, changedSince, normalizeLogin, deriveProof };
+})();
+M['push-core'] = (() => {
+  // Agenda dos avisos enviados pelo servidor com o app fechado. Sem rede nem banco, para poder testar.
+  const { INSIST_MAX, activeReminder, addDays, addMinutes, localDate, localDateTime, parseLocal, reminderTimes, todayTasks } = M['rules'];
+
+  const DEFAULT_PUSH_SETTINGS = { digest: false, digestTime: '08:00', insistMinutes: 5 };
+  const HORIZON_DAYS = 14;
+  const DIGEST_DAYS = 7;
+  const MAX_ITEMS = 250;
+  // Avisos de até 2 minutos atrás ainda entram: o servidor pode não ter enviado.
+  const GRACE_MS = 2 * 60000;
+
+  function normalizePushSettings(input) {
+    const settings = { ...DEFAULT_PUSH_SETTINGS, ...(input || {}) };
+    return {
+      digest: !!settings.digest,
+      digestTime: /^\d{2}:\d{2}$/.test(settings.digestTime) ? settings.digestTime : DEFAULT_PUSH_SETTINGS.digestTime,
+      insistMinutes: [5, 10, 15, 30].includes(Number(settings.insistMinutes)) ? Number(settings.insistMinutes) : 5,
+    };
+  }
+
+  /** Chave única do aviso: tarefa, horário do lembrete e número da insistência. */
+  const pushKey = (taskId, time, step) => `${taskId}|${time}|${step}`;
+
+  function parsePushKey(key) {
+    const [taskId, time, step] = String(key).split('|');
+    return { taskId, time, step: Number(step) || 0 };
+  }
+
+  const clock = (time) => time.slice(11, 16);
+
+  function digestText(tasks, date) {
+    const due = todayTasks(tasks, date).sort((a, b) => (b.important ? 1 : 0) - (a.important ? 1 : 0) || a.order - b.order);
+    if (!due.length) return null;
+    const names = due.slice(0, 5).map((task) => task.title).join(' · ');
+    return {
+      title: due.length === 1 ? 'Hoje: 1 tarefa' : `Hoje: ${due.length} tarefas`,
+      body: due.length > 5 ? `${names} · e mais ${due.length - 5}` : names,
+    };
+  }
+
+  /**
+   * Lista de avisos futuros: { key, at (ms), taskId, kind, title, body }.
+   * `nowDate` é um Date; os horários das tarefas são locais deste aparelho.
+   */
+  function buildSchedule(tasks, nowDate, rawSettings) {
+    const settings = normalizePushSettings(rawSettings);
+    const now = localDateTime(nowDate);
+    const from = localDateTime(new Date(nowDate.getTime() - GRACE_MS));
+    const until = `${addDays(localDate(nowDate), HORIZON_DAYS)}T23:59`;
+    const items = [];
+    const add = (key, time, fields) => items.push({ key, at: parseLocal(time).getTime(), ...fields });
+
+    tasks.forEach((task) => {
+      if (task.status !== 'open' || task.deletedAt) return;
+      const moments = [...new Set([...reminderTimes(task), task.snoozedUntil].filter(Boolean))].sort();
+      const bases = moments.filter((time) => time >= from && time <= until && activeReminder(task, time) === time);
+      bases.forEach((time) => add(pushKey(task.id, time, 0), time, {
+        taskId: task.id, kind: 'remind', title: task.title, body: `Lembrete das ${clock(time)}`,
+      }));
+      if (!task.insist) return;
+      // A insistência também continua um lembrete que já passou e ainda não teve resposta.
+      const current = activeReminder(task, now);
+      [...new Set([current, ...bases].filter(Boolean))].forEach((base) => {
+        for (let step = 1; step <= INSIST_MAX; step += 1) {
+          const time = addMinutes(base, step * settings.insistMinutes);
+          if (time > until) break;
+          if (activeReminder(task, time) !== base) break;
+          if (time < from) continue;
+          add(pushKey(task.id, base, step), time, {
+            taskId: task.id, kind: 'insist', title: task.title, body: `Ainda pendente · lembrete das ${clock(base)}`,
+          });
+        }
+      });
+    });
+
+    if (settings.digest) {
+      for (let day = 0; day <= DIGEST_DAYS; day += 1) {
+        const date = addDays(localDate(nowDate), day);
+        const time = `${date}T${settings.digestTime}`;
+        if (time < from) continue;
+        const text = digestText(tasks, date);
+        if (text) add(`digest|${date}`, time, { taskId: null, kind: 'digest', ...text });
+      }
+    }
+
+    return items.sort((a, b) => a.at - b.at || a.key.localeCompare(b.key)).slice(0, MAX_ITEMS);
+  }
+
+  /** O aparelho já avisou deste lembrete, pelo app aberto? */
+  function alreadyNotified(task, key) {
+    if (!task) return false;
+    const { time, step } = parsePushKey(key);
+    if (task.status !== 'open' || task.deletedAt) return true;
+    if (task.ackedAt && task.ackedAt >= time) return true;
+    const mark = task.notifiedFor || '';
+    const [markTime, markStep] = mark.split('#');
+    return markTime === time && (Number(markStep) || 0) >= step;
+  }
+  return { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey, parsePushKey, buildSchedule, alreadyNotified };
+})();
+M['actions-core'] = (() => {
+  // Ações sobre uma tarefa que valem igual no app e no service worker (botões da notificação).
+  // Sem tela nem banco: recebem a tarefa e devolvem a tarefa nova.
+  const { activeReminder, addDays, applyEdit, completeTask, localDate, localDateTime, snooze, snoozeTo } = M['rules'];
+
+  const SNOOZE_MINUTES = 10;
+
+  /** Os campos atuais da tarefa no formato de applyEdit, para mudar só um deles. */
+  const editFields = (task, changes = {}) => ({
+    title: task.title,
+    notes: task.notes,
+    listId: task.listId,
+    steps: task.steps,
+    when: task.when,
+    repeat: task.repeat,
+    deadline: task.deadline,
+    seriesEnd: task.seriesEnd,
+    important: task.important,
+    tags: task.tags || [],
+    remindAt: task.remindAt,
+    extraReminders: task.extraReminders || [],
+    remindEach: task.remindEach !== false,
+    insist: task.insist,
+    ...changes,
+  });
+
+  /** Mudar a data leva junto o lembrete que estava no mesmo dia, no mesmo horário. */
+  function dateChanges(task, date) {
+    // Numa tarefa que se repete, adiar ou mudar o dia pelo menu, pelo deslizar ou pela
+    // notificação vale só para esta ocorrência: a série continua no calendário de antes.
+    const changes = task.repeat ? { when: date, occurrenceOnly: true } : { when: date };
+    if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
+    return changes;
+  }
+
+  /** O prazo (Até) não deixa Quando passar dele. */
+  const blockedByDeadline = (task, date) => !!(date && task.deadline && date > task.deadline);
+
+  /**
+   * Botões da notificação: 'done' (concluir), 'snooze' (adiar alguns minutos) e
+   * 'tomorrow' (vai para amanhã e o lembrete volta amanhã no mesmo horário).
+   * Devolve { task, log } ou { error }.
+   */
+  function notificationAction(task, action, nowDate = new Date()) {
+    if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.' };
+    const day = localDate(nowDate);
+    if (action === 'done') return completeTask(task, day, nowDate.toISOString());
+    if (action === 'snooze') return { task: snooze(task, nowDate, SNOOZE_MINUTES) };
+    if (action === 'tomorrow') {
+      const tomorrow = addDays(day, 1);
+      if (blockedByDeadline(task, tomorrow)) return { error: 'O prazo não deixa ir para amanhã.' };
+      const now = localDateTime(nowDate);
+      const active = activeReminder(task, now);
+      const result = applyEdit(task, editFields(task, dateChanges(task, tomorrow)), day);
+      if (result.error) return { error: result.error };
+      let moved = result.task;
+      if (active && activeReminder(moved, now)) moved = snoozeTo(moved, `${tomorrow}T${active.slice(11)}`, now);
+      return { task: moved };
+    }
+    return { error: 'Ação desconhecida.' };
+  }
+  return { SNOOZE_MINUTES, editFields, dateChanges, blockedByDeadline, notificationAction };
+})();
+  return M;
+})();
+// ---- FIM DAS REGRAS EMBUTIDAS ----
 const ORIGINS = new Set([
   'https://brunoignr-code.github.io',
   'http://localhost:8765',
@@ -95,8 +703,11 @@ async function newSession(env, request) {
 /** Apaga sessões e as inscrições de aviso delas: o aparelho que saiu não recebe mais notificações. */
 async function dropSessions(env, where, ...args) {
   await ensureTables(env);
+  const ofSessions = `SELECT token_hash FROM sessions WHERE ${where}`;
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM push_subs WHERE session_hash IN (SELECT token_hash FROM sessions WHERE ${where})`).bind(...args),
+    env.DB.prepare(`DELETE FROM push_subs WHERE session_hash IN (${ofSessions})`).bind(...args),
+    env.DB.prepare(`DELETE FROM alarm_covered WHERE device_id IN (SELECT id FROM alarm_devices WHERE session_hash IN (${ofSessions}))`).bind(...args),
+    env.DB.prepare(`DELETE FROM alarm_devices WHERE session_hash IN (${ofSessions})`).bind(...args),
     env.DB.prepare(`DELETE FROM sessions WHERE ${where}`).bind(...args),
   ]);
 }
@@ -291,6 +902,11 @@ const ensureTables = (env) => {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_queue (key TEXT PRIMARY KEY, at INTEGER NOT NULL, sent_at INTEGER,
       task_id TEXT, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL)`),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS push_queue_due ON push_queue (sent_at, at)'),
+    // v30: alarmes do app Android (códigos de pareamento, celulares e avisos que cada um já agendou).
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS alarm_codes (code_hash TEXT PRIMARY KEY, session_hash TEXT NOT NULL, sub_id TEXT, expires INTEGER NOT NULL)'),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS alarm_devices (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+      session_hash TEXT NOT NULL, sub_id TEXT, name TEXT, created_at INTEGER NOT NULL, last_seen INTEGER, ready INTEGER NOT NULL DEFAULT 0)`),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS alarm_covered (device_id TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (device_id, key))'),
   ]).then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN session_hash TEXT')).catch((error) => {
     tablesReady = null;
     throw error;
@@ -353,9 +969,17 @@ async function vapidAuth(env, endpoint) {
   return cached.header;
 }
 
-async function sendPushes(env) {
-  const { results: subs } = await env.DB.prepare('SELECT id, endpoint FROM push_subs').all();
-  await Promise.all(subs.map(async (sub) => {
+async function sendPushes(env, keys = []) {
+  const { results: subs } = await env.DB.prepare(`SELECT p.id, p.endpoint, d.id AS device FROM push_subs p
+    LEFT JOIN alarm_devices d ON d.sub_id = p.id AND d.ready = 1`).all();
+  // v30: celular com os alarmes nativos já agendados para todos estes avisos não recebe o push.
+  const covered = new Map();
+  if (keys.length && subs.some((sub) => sub.device)) {
+    const { results } = await env.DB.prepare(`SELECT device_id, key FROM alarm_covered WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).all();
+    results.forEach((row) => covered.set(row.device_id, (covered.get(row.device_id) || new Set()).add(row.key)));
+  }
+  const skip = (sub) => sub.device && keys.length && keys.every((key) => covered.get(sub.device)?.has(key));
+  await Promise.all(subs.filter((sub) => !skip(sub)).map(async (sub) => {
     try {
       const response = await fetch(sub.endpoint, {
         method: 'POST',
@@ -383,9 +1007,11 @@ async function runPushes(env) {
       .bind(now - 86400000, now - STALE_MS).run();
   }
   // Marca antes de enviar: o aparelho que receber já encontra o aviso em /push/due.
+  const { results: due } = await env.DB.prepare('SELECT key FROM push_queue WHERE sent_at IS NULL AND at <= ? AND at >= ? LIMIT 100')
+    .bind(now, now - STALE_MS).all();
   const marked = await env.DB.prepare('UPDATE push_queue SET sent_at = ? WHERE sent_at IS NULL AND at <= ? AND at >= ?')
     .bind(now, now, now - STALE_MS).run();
-  if (marked.meta.changes) await sendPushes(env);
+  if (marked.meta.changes) await sendPushes(env, due.length < 100 ? due.map((row) => row.key) : []);
 }
 
 const subId = (endpoint) => sha256(endpoint);
@@ -484,7 +1110,166 @@ async function pushDue(request, env) {
   }
   const { results } = await env.DB.prepare(`SELECT key, at, task_id AS taskId, kind, title, body FROM push_queue
     WHERE sent_at >= ? ORDER BY at LIMIT 50`).bind(Date.now() - DUE_WINDOW_MS).all();
-  return reply(request, { items: results });
+  // v30: o que os alarmes nativos deste celular já mostram não vem de novo pelo push.
+  const { results: mine } = await env.DB.prepare(`SELECT c.key FROM alarm_covered c JOIN alarm_devices d ON d.id = c.device_id
+    WHERE d.sub_id = ? AND d.ready = 1`).bind(known.id).all();
+  const skip = new Set(mine.map((row) => row.key));
+  return reply(request, { items: results.filter((item) => !skip.has(item.key)) });
+}
+
+/* ---------- Alarmes do app Android (v30) ---------- */
+// O APK agenda alarmes exatos no próprio celular, que tocam na hora mesmo com o celular parado
+// e sem internet. Ele não tem a senha nem a sessão do app web: o app web gera um código de uso
+// único (/alarms/pair) e o Android o troca por uma chave própria (/alarms/claim), presa à sessão
+// daquele celular. Sair do aparelho (ou a sessão vencer) apaga a chave e os alarmes param.
+// Com a chave, o Android busca a agenda (/alarms/list), confere se um aviso ainda vale na hora de
+// tocar (/alarms/check) e resolve os botões Concluir, Amanhã e Adiar sem abrir o app (/alarms/act),
+// com as mesmas regras do app, embutidas acima por tools/build_sw.py.
+// O servidor guarda quais avisos cada celular já agendou e não manda push deles para esse celular.
+const ALARM_CODE_MS = 10 * 60000;
+const ALARM_HORIZON_MS = 3 * 86400000;
+const ALARM_MAX_ITEMS = 150;
+const ALARM_ACTIONS = new Set(['done', 'snooze', 'tomorrow']);
+
+/** Celular dono da chave de alarme, com a sessão ainda viva; senão, apaga a chave e devolve null. */
+async function alarmDevice(request, env) {
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
+  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  await ensureSessionColumns(env);
+  const hash = await sha256(token);
+  const row = await env.DB.prepare(`SELECT d.id, d.session_hash, d.sub_id, d.ready, s.token_hash AS alive, s.last_used, s.created_at
+    FROM alarm_devices d LEFT JOIN sessions s ON s.token_hash = d.session_hash WHERE d.token_hash = ?`).bind(hash).first();
+  if (!row) return null;
+  const now = Date.now();
+  if (!row.alive || now - (row.last_used || row.created_at || 0) > SESSION_IDLE_MS) {
+    await dropAlarmDevices(env, 'id = ?', row.id);
+    return null;
+  }
+  return row;
+}
+
+const dropAlarmDevices = (env, where, ...args) => env.DB.batch([
+  env.DB.prepare(`DELETE FROM alarm_covered WHERE device_id IN (SELECT id FROM alarm_devices WHERE ${where})`).bind(...args),
+  env.DB.prepare(`DELETE FROM alarm_devices WHERE ${where}`).bind(...args),
+]);
+
+/** App web, dentro do APK: código de uso único para o Android pegar a chave de alarme. */
+async function alarmsPair(request, env, current) {
+  const { endpoint } = await request.json().catch(() => ({}));
+  const sub = validEndpoint(endpoint) ? await subId(endpoint) : null;
+  const code = randomHex(16);
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM alarm_codes WHERE expires < ?').bind(now),
+    env.DB.prepare('INSERT INTO alarm_codes (code_hash, session_hash, sub_id, expires) VALUES (?, ?, ?, ?)')
+      .bind(await sha256(code), current, sub, now + ALARM_CODE_MS),
+  ]);
+  return reply(request, { code, expiresAt: now + ALARM_CODE_MS });
+}
+
+/** Android: troca o código pela chave. Um celular com alarme por sessão; parear de novo troca a chave. */
+async function alarmsClaim(request, env) {
+  const { code, name } = await request.json().catch(() => ({}));
+  if (typeof code !== 'string' || !/^[0-9a-f]{32}$/.test(code)) return reply(request, { error: 'Código inválido.' }, 400);
+  const codeHash = await sha256(code);
+  const row = await env.DB.prepare('SELECT session_hash, sub_id, expires FROM alarm_codes WHERE code_hash = ?').bind(codeHash).first();
+  await env.DB.prepare('DELETE FROM alarm_codes WHERE code_hash = ?').bind(codeHash).run();
+  if (!row || row.expires < Date.now()) return reply(request, { error: 'Código vencido. Toque de novo em Ativar alarmes.' }, 400);
+  const alive = await env.DB.prepare('SELECT 1 AS ok FROM sessions WHERE token_hash = ?').bind(row.session_hash).first();
+  if (!alive) return reply(request, { error: 'Sessão encerrada.' }, 401);
+  const token = randomHex(32);
+  const id = randomHex(8);
+  const now = Date.now();
+  await dropAlarmDevices(env, 'session_hash = ?', row.session_hash);
+  await env.DB.prepare(`INSERT INTO alarm_devices (id, token_hash, session_hash, sub_id, name, created_at, last_seen, ready)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0)`).bind(id, await sha256(token), row.session_hash, row.sub_id,
+    clip(typeof name === 'string' ? name : 'Android', 80), now, now).run();
+  return reply(request, { token, id });
+}
+
+/** Próximos avisos ainda não enviados, para o Android agendar. Marca quais ele cobre. */
+async function alarmItems(env, device, ready) {
+  const now = Date.now();
+  const { results } = await env.DB.prepare(`SELECT key, at, task_id AS taskId, kind, title, body FROM push_queue
+    WHERE sent_at IS NULL AND at >= ? AND at <= ? ORDER BY at LIMIT ?`).bind(now - 60000, now + ALARM_HORIZON_MS, ALARM_MAX_ITEMS).all();
+  const insert = env.DB.prepare('INSERT OR IGNORE INTO alarm_covered (device_id, key) VALUES (?, ?)');
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM alarm_covered WHERE device_id = ?').bind(device.id),
+    ...(ready ? results.map((item) => insert.bind(device.id, item.key)) : []),
+    env.DB.prepare('UPDATE alarm_devices SET ready = ?, last_seen = ? WHERE id = ?').bind(ready ? 1 : 0, now, device.id),
+  ]);
+  return { items: results, now, ready };
+}
+
+async function alarmsList(request, env, device) {
+  const { exact, notify } = await request.json().catch(() => ({}));
+  // Só conta como coberto se o Android pode agendar alarme exato e mostrar notificação.
+  return reply(request, await alarmItems(env, device, exact === true && notify === true));
+}
+
+/** Na hora de tocar: o aviso ainda vale? (Tarefa concluída ou mudada em outro aparelho sai da fila.) */
+async function alarmsCheck(request, env) {
+  const { key } = await request.json().catch(() => ({}));
+  if (typeof key !== 'string' || key.length > 200) return reply(request, { error: 'Aviso inválido.' }, 400);
+  const row = await env.DB.prepare('SELECT 1 AS ok FROM push_queue WHERE key = ?').bind(key).first();
+  return reply(request, { valid: !!row });
+}
+
+/**
+ * Botões Concluir, Amanhã e Adiar da notificação do Android, sem abrir o app.
+ * As regras são as do app; o relógio é o do celular (`offset`, em minutos, como no Android).
+ * O Worker roda em UTC, então a data "local" é montada deslocando o relógio do servidor.
+ */
+async function alarmsAct(request, env, device) {
+  const { taskId, action, offset } = await request.json().catch(() => ({}));
+  if (typeof taskId !== 'string' || !taskId || taskId.length > 100 || !ALARM_ACTIONS.has(action)
+    || !Number.isInteger(offset) || Math.abs(offset) > 14 * 60) return reply(request, { error: 'Pedido inválido.' }, 400);
+  const row = await env.DB.prepare("SELECT data, deleted FROM items WHERE kind = 'tasks' AND id = ?").bind(taskId).first();
+  if (!row || row.deleted) return reply(request, { ok: false, error: 'A tarefa não existe mais.' });
+  const current = JSON.parse(row.data);
+  const realNow = Date.now();
+  const shift = (offset + new Date(realNow).getTimezoneOffset()) * 60000;
+  const wallNow = new Date(realNow + shift);
+  const result = SHARED_RULES['actions-core'].notificationAction(current, action, wallNow);
+  if (result.error) return reply(request, { ok: false, error: result.error, ...(await alarmItems(env, device, !!device.ready)) });
+  // Concluir grava a hora da conclusão em ISO: a do relógio deslocado precisa voltar para a real.
+  const fakeIso = wallNow.toISOString();
+  const realIso = new Date(realNow).toISOString();
+  const fixIso = (record) => (record && record.completedAt === fakeIso ? { ...record, completedAt: realIso } : record);
+  const { stamp, toWire } = SHARED_RULES['sync-core'];
+  const saved = toWire(stamp(current, fixIso(result.task), realNow));
+  const merged = merge(current, saved);
+  const writes = [env.DB.prepare(`INSERT INTO items (kind, id, data, deleted, seq) VALUES ('tasks', ?, ?, 0, (SELECT seq FROM counter))
+    ON CONFLICT (kind, id) DO UPDATE SET data = excluded.data, seq = excluded.seq WHERE items.deleted = 0`).bind(taskId, JSON.stringify(merged))];
+  if (result.log) {
+    const entry = toWire(stamp(null, { ...fixIso(result.log), id: crypto.randomUUID() }, realNow));
+    writes.push(env.DB.prepare(`INSERT INTO items (kind, id, data, deleted, seq) VALUES ('log', ?, ?, 0, (SELECT seq FROM counter))`)
+      .bind(entry.id, JSON.stringify(entry)));
+  }
+  // Os avisos desta tarefa, refeitos com a tarefa nova (como o botão da notificação do app faz por /push/task).
+  const settings = normalizePushSettings(await readMeta(env, 'pushSettings'));
+  const items = SHARED_RULES['push-core'].buildSchedule([merged], wallNow, settings).filter((item) => item.taskId === taskId);
+  const insert = env.DB.prepare('INSERT OR IGNORE INTO push_queue (key, at, task_id, kind, title, body) VALUES (?, ?, ?, ?, ?, ?)');
+  await env.DB.batch([
+    env.DB.prepare('UPDATE counter SET seq = seq + 1'),
+    ...writes,
+    env.DB.prepare('DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ?').bind(taskId),
+    ...items.map((item) => insert.bind(item.key, Math.round(item.at - shift), taskId, item.kind, clip(item.title, 300), clip(item.body, 500))),
+  ]);
+  return reply(request, { ok: true, ...(await alarmItems(env, device, !!device.ready)) });
+}
+
+/** App web: este celular tem alarmes nativos ativos? */
+async function alarmsStatus(request, env, current) {
+  const row = await env.DB.prepare('SELECT id, name, ready, last_seen, created_at FROM alarm_devices WHERE session_hash = ?').bind(current).first();
+  return reply(request, row
+    ? { active: true, ready: !!row.ready, name: row.name, lastSeen: row.last_seen, createdAt: row.created_at }
+    : { active: false });
+}
+
+async function alarmsRevoke(request, env, current) {
+  await dropAlarmDevices(env, 'session_hash = ?', current);
+  return reply(request, { active: false });
 }
 
 /* ---------- Conta Google: entrar com Google e backup no Google Drive ---------- */
@@ -758,6 +1543,14 @@ export default {
       if (pathname === '/google/login') return await googleLogin(request, env);
       if (pathname.startsWith('/push/')) await ensureTables(env);
       if (pathname === '/push/due') return await pushDue(request, env);
+      if (pathname.startsWith('/alarms/')) await ensureTables(env);
+      if (pathname === '/alarms/claim') return await alarmsClaim(request, env);
+      const alarmRoutes = { '/alarms/list': alarmsList, '/alarms/check': alarmsCheck, '/alarms/act': alarmsAct };
+      if (alarmRoutes[pathname]) {
+        const device = await alarmDevice(request, env);
+        if (!device) return reply(request, { error: 'Alarmes desligados neste celular. Ative de novo no app.' }, 401);
+        return await alarmRoutes[pathname](request, env, device);
+      }
       const routes = {
         '/sync': (r, e) => sync(r, e),
         '/logout': logout,
@@ -768,6 +1561,9 @@ export default {
         '/push/settings': pushSettings,
         '/push/schedule': pushSchedule,
         '/push/task': pushTaskSchedule,
+        '/alarms/pair': alarmsPair,
+        '/alarms/status': alarmsStatus,
+        '/alarms/revoke': alarmsRevoke,
         '/push/test': pushTest,
         '/google/status': googleStatus,
         '/google/link': googleLink,

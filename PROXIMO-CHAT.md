@@ -5,13 +5,14 @@ Copie o bloco abaixo no novo chat, aberto nesta mesma pasta. A próxima ação j
 ```text
 Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal, alternativa ao Microsoft To Do).
 
-Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v29 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
+Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v30 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
 
 PRÓXIMA AÇÃO (pedido meu):
 [escreva aqui o que quer fazer; sem pedido, siga os feedbacks de uso real no fim]
 
 Onde paramos (12/11/2026):
-- v29 publicada (servidor implantado antes): fase 0 da confiabilidade dos avisos. Conferência da bateria em Config. › Avisos (Android) e push valendo 1 hora (antes 15 min). Próximo passo grande, se eu quiser: fase 1, alarme nativo no APK (alarmes exatos do Android, push como reserva); fase 2, Concluir/Amanhã sem abrir o app pelo nativo.
+- v30 + APK 1.4 (servidor implantado antes): alarmes nativos no Android (fases 1 e 2). Config. › Avisos › Alarmes deste celular › Ativar: código de uso único → chave de alarme presa à sessão do celular. Alarme exato comum, agenda de 3 dias, confere na hora se ainda vale, Concluir/Amanhã/Adiar 10 min sem abrir o app (o servidor aplica as regras com o fuso do celular), sem push repetido. Código nativo em android/app/src/main/java/br/afazeres/app/; o build debug fala com um servidor falso em 10.0.2.2:8790. APK em C:\Python - local\apk-afazeres\afazeres-1.4.apk (mesma chave).
+- v29 publicada (servidor implantado antes): fase 0 da confiabilidade dos avisos. Conferência da bateria em Config. › Avisos (Android) e push valendo 1 hora (antes 15 min).
 - v28 publicada: Salvar da janela da tarefa na cor de destaque também no claro (era branco e sumia contra a página).
 - v27 publicada: cartão em Hoje e Config. quando as notificações estão bloqueadas, ainda não liberadas ou só com o app aberto (Como liberar / Liberar / Ativar; Agora não esconde por 7 dias, por aparelho). O A17 tinha instalado com notificação bloqueada.
 - v26 publicada (servidor implantado antes): avisos entre celulares que não se perdem. Agenda enviada ao sair da tela, sem descarte e com tempo limite; servidor ignora agenda de aparelho atrasado (`since`, meta pushScheduleSince) e o botão da notificação troca só a tarefa dele (`/push/task`); service worker renova a inscrição sozinho; Config. › Avisos mostra os últimos avisos que chegaram ao aparelho.
@@ -28,13 +29,13 @@ Onde paramos (12/11/2026):
 - v16: entrar com Google e backup diário no Google Drive feito pelo servidor (segredo GOOGLE_CLIENT_SECRET já cadastrado no Worker).
 - v15: Concluir/Adiar/Amanhã na notificação sem abrir o app.
 - 11/11: migradas do To Do 33 tarefas abertas (título e data); backup e ids para desfazer em C:\Python - local\backups-afazeres.
-- APK Android (TWA) 1.3 em C:\Python - local\apk-afazeres (chave em C:\Python - local\chaves-android, fora do repositório). Atualiza pela web.
+- APK Android 1.4 (TWA + alarmes nativos) em C:\Python - local\apk-afazeres (chave em C:\Python - local\chaves-android, fora do repositório). A tela atualiza pela web; mudanças no código nativo (android/) exigem APK novo.
 - Comecei do zero em 9/11 e uso no note e em 2 celulares Android (um A55). Fase de uso real até cerca de 23/11; depois decidir se Kanban e os modos B e C do Até saem.
 - Combinado: app simples (lembrete, repetição, listas, grupos, etapas), custo zero.
 
 Pendências que são minhas: verificação em duas etapas no Google, GitHub e Cloudflare; rodar uma vez `python tools/conferir.py --instalar` (trava do git push).
 
-Ainda não confirmado no celular real: a v26 (aviso do A17 para o A55 com o app fechado; ver "Últimos avisos que chegaram" e "Aparelhos inscritos na conta"), a v25 (grades de botões no meu aparelho e letra), a v24 (tocar nas bolinhas dos dias com o dedo, folha "Repetir nos dias" com o teclado aberto atrás), avisos com o app fechado e economia de bateria, Concluir e Amanhã pela notificação sem abrir o app, backup no Drive com a minha conta, login com Google sob a CSP, a v23 (janela da tarefa com o teclado, seleção sobre a área de gestos, Kanban com o dedo, letra 10 num celular pequeno), a v22 (folha de anotar com o teclado, voltar fechando a folha, Compartilhar abrindo a folha, barra flutuante sobre a área de gestos), a v21 (Sair de um celular de verdade), a v19 ("Só desta vez?") e a v18 ("Sair sem salvar?" no gesto de voltar).
+Ainda não confirmado no celular real: o APK 1.4 (ativar alarmes, alarme tocando com o celular parado, Concluir/Amanhã/Adiar sem abrir o app com o fuso de verdade, botões sem internet, sair do aparelho cortando os alarmes), a v29 (passos da bateria em cada modelo), a v26 (aviso do A17 para o A55 com o app fechado; ver "Últimos avisos que chegaram" e "Aparelhos inscritos na conta"), a v25 (grades de botões no meu aparelho e letra), a v24 (tocar nas bolinhas dos dias com o dedo, folha "Repetir nos dias" com o teclado aberto atrás), avisos com o app fechado e economia de bateria, Concluir e Amanhã pela notificação sem abrir o app, backup no Drive com a minha conta, login com Google sob a CSP, a v23 (janela da tarefa com o teclado, seleção sobre a área de gestos, Kanban com o dedo, letra 10 num celular pequeno), a v22 (folha de anotar com o teclado, voltar fechando a folha, Compartilhar abrindo a folha, barra flutuante sobre a área de gestos), a v21 (Sair de um celular de verdade), a v19 ("Só desta vez?") e a v18 ("Sair sem salvar?" no gesto de voltar).
 
 Regras:
 - App no GitHub Pages; o servidor (server/worker.js) roda na Cloudflare e é implantado à parte, pelo painel no meu Chrome (endpoint /content, que mantém o banco D1, o cron e o segredo). Avise antes de mudar o formato dos dados ou o login, porque já há tarefas reais sincronizando.

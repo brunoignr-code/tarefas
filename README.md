@@ -32,12 +32,13 @@ A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o endereço publicado dentro do Chrome, em tela cheia, com ícone, nome e notificações próprios. O conteúdo continua vindo do GitHub Pages, então **cada publicação chega ao celular sozinha, sem reinstalar**. Só é preciso instalar um APK novo quando mudar algo em `android/` (ícone, atalhos, versão).
 
-- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.3-twa.apk` (o mais novo) para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
+- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.4.apk` (o mais novo) para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
 - **Dados:** o TWA usa o armazenamento do Chrome do próprio celular. Se você já usava o app pelo Chrome nesse celular, o login, as tarefas e "Receber neste aparelho" continuam valendo.
 - **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
 - **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
 - **Compilar:** na pasta `android/`, com `JAVA_HOME` apontando para o Java do Android Studio (`C:\Program Files\Android\Android Studio\jbr`), rode `gradlew.bat assembleRelease`. O APK sai em `android/app/build/outputs/apk/release/`. Suba `versionCode` em `android/app/build.gradle.kts` a cada APK novo.
 - **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-folha-512.png`.
+- **Alarmes nativos (APK 1.4, v30):** além da TWA, o APK tem código Java próprio em `android/app/src/main/java/br/afazeres/app/`: `PairActivity` (recebe `afazeres://parear?c=…`), `Alarms` (agenda alarmes exatos e mostra a notificação com Concluir, Amanhã e Adiar 10 min), `AlarmReceiver` (na hora, confere em `/alarms/check` se ainda vale), `ActionReceiver` (botões, por `/alarms/act`), `BootReceiver` (reagenda ao ligar o celular, ao atualizar o app ou ao mudar a hora) e `RefreshJob` (busca a agenda a cada ~15 min). O build **debug** fala com um servidor falso em `http://10.0.2.2:8790` (o PC visto do emulador); o **release** usa o servidor real. O APK abre o site com `?apk=14`, para o app web saber que pode oferecer os alarmes.
 
 ## Temas
 
@@ -71,7 +72,24 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v29)
+## Estado do projeto (12 de novembro de 2026, v30)
+
+### v30, 12 de novembro: alarmes nativos no APK 1.4 (fase 1 e fase 2)
+
+O lembrete passa a tocar como alarme do Android, no próprio celular: na hora, com o celular parado, bloqueado, em repouso profundo ou sem internet. Concluir, Amanhã e Adiar 10 min funcionam direto na notificação, sem abrir o app. **Precisa implantar o servidor**, publicar o app e **instalar o APK 1.4** em cada celular (`C:\Python - local\apk-afazeres\afazeres-1.4.apk`, mesma chave do 1.3: instala por cima, sem perder nada).
+
+- **Como ativar:** no app instalado, Config. › Avisos › **Alarmes deste celular** › **Ativar alarmes deste celular**. O app web gera um código de uso único; o Android troca por uma **chave de alarme** própria (decisão de 12/11), presa à sessão daquele celular: sair do aparelho, "Sair dos outros aparelhos" ou a sessão vencer apagam a chave e os alarmes param. A chave só lê a agenda de avisos, confere avisos e aplica os três botões; não serve como sessão. No APK 1.3 o painel pede para instalar o 1.4.
+- **Alarme exato comum** (decisão de 12/11), sem o ícone de despertador. A agenda dos próximos 3 dias (até 150 avisos) vem do servidor ao abrir o app, ao ligar o celular, a cada ~15 min e depois de cada botão; fica guardada no celular para reagendar sem internet. Aviso que venceu com o celular desligado (até 1 hora) aparece ao ligar.
+- **Na hora de tocar,** com internet, o Android confere em até 3 s se o aviso ainda vale (tarefa concluída ou mudada em outro aparelho não toca); sem internet, toca assim mesmo.
+- **Sem aviso repetido:** o servidor anota quais avisos cada celular agendou (só quando o Android permite alarme exato e notificação) e não manda push deles para aquele celular; o que é novo (criado em outro aparelho entre uma atualização e outra) continua vindo por push. Com o app aberto, ele não mostra a notificação do sistema por cima do alarme.
+- **Botões sem abrir o app:** o servidor aplica as mesmas regras do app (agora embutidas também no `server/worker.js` por `tools/build_sw.py`) com o relógio do celular (fuso informado pelo Android) e devolve a agenda nova. Concluir numa repetição registra no histórico. Sem internet, a notificação vira "Sem conexão agora. Toque para resolver no app" e o app abre já na ação.
+- **Servidor:** tabelas novas `alarm_codes`, `alarm_devices` e `alarm_covered` (criadas sozinhas); rotas `/alarms/pair`, `/alarms/status` e `/alarms/revoke` (com a sessão) e `/alarms/claim`, `/alarms/list`, `/alarms/check` e `/alarms/act` (com a chave do celular). O formato das tarefas não mudou.
+- **Testado:**
+  - 100 testes do servidor (30 novos: código de uso único e vencido, chave errada, chave que não vale como sessão, agenda de 3 dias, "não agendado não conta", push que não repete e o que é novo que vai, botões com o relógio de Brasília inclusive na repetição com histórico, sair do aparelho corta).
+  - APK debug no emulador do Android Studio (Android 17), com um servidor falso no PC (nada encostou na sua conta): pareamento pelo mesmo link do app web, alarmes exatos agendados, **alarme tocando no segundo certo com a tela desligada e o Android forçado ao repouso profundo**, notificação com os 3 botões, Concluir sem abrir o app, aviso que deixou de valer não tocando, alarme antigo cancelado, atualização periódica e reagendamento depois de reiniciar o celular. O primeiro teste achou e corrigiu uma permissão que faltava (`ACCESS_NETWORK_STATE`).
+  - O app web com o servidor em memória: painel no APK 1.3 e no 1.4, Ativar (o link para o Android, com volta para Avisos), Ativos, Desativar; 74 testes das regras; service worker da v29 atualizando para a v30.
+  - APK 1.4 release conferido: mesma chave do 1.3, versão 1.4 (code 5), só o servidor real dentro.
+- **Não testado num celular de verdade:** tudo do APK 1.4 nos seus Samsung (permissões, notificação, alarme com a One UI, botões com o fuso de verdade, economia de bateria), o caminho "sem internet" dos botões e a chave caindo depois de sair do aparelho (testada no servidor, não no Android).
 
 ### v29, 12 de novembro: fase 0 da confiabilidade dos avisos
 

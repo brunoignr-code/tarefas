@@ -20,9 +20,13 @@ android {
         applicationId = "br.afazeres.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.3-twa"
+        versionCode = 5
+        versionName = "1.4"
+        // v30: servidor dos alarmes nativos (pareamento, agenda e botões da notificação).
+        buildConfigField("String", "ALARM_SERVER", "\"https://tarefas-sync.brunoignr-code.workers.dev\"")
     }
+
+    buildFeatures { buildConfig = true }
 
     signingConfigs {
         create("release") {
@@ -43,6 +47,8 @@ android {
         debug {
             // O debug também usa a chave oficial, para a verificação do domínio funcionar.
             if (chavesArquivo.exists()) signingConfig = signingConfigs.getByName("release")
+            // No emulador, os alarmes conversam com um servidor falso no PC (10.0.2.2 = o PC), nunca com a conta real.
+            buildConfigField("String", "ALARM_SERVER", "\"http://10.0.2.2:8790\"")
         }
     }
     compileOptions {

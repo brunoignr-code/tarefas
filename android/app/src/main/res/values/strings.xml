@@ -2,7 +2,10 @@
 <resources>
     <string name="appName">Minha lista de afazeres</string>
     <string name="launcherName">Afazeres</string>
-    <string name="launchUrl">https://brunoignr-code.github.io/tarefas/</string>
+    <!-- ?apk=14: o app web sabe que este APK tem alarmes nativos (v30). -->
+    <string name="launchUrl">https://brunoignr-code.github.io/tarefas/?apk=14</string>
+    <string name="canalLembretes">Lembretes</string>
+    <string name="canalLembretesDescricao">Lembretes das tarefas, na hora marcada</string>
     <string name="assetStatements" translatable="false">[{\"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": {\"namespace\": \"web\", \"site\": \"https://brunoignr-code.github.io\"}}]</string>
     <string name="shareTarget" translatable="false">{\"action\": \"https://brunoignr-code.github.io/tarefas/\", \"method\": \"GET\", \"params\": {\"title\": \"share-title\", \"text\": \"share-text\", \"url\": \"share-url\"}}</string>
     <string name="atalhoNova">Nova tarefa</string>

@@ -24,7 +24,7 @@ import { googleReady, loadGoogle, renderGoogleButton, requestDriveCode } from '.
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v29 · 12/11/2026';
+const APP_VERSION = 'v30 · 12/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -518,6 +518,8 @@ async function moveTask(id, direction) {
 
 async function showNotification(task, { time = null, step = 0 } = {}) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  // v30: com os alarmes nativos valendo neste celular, o Android já toca o lembrete (sem repetir aqui).
+  if (time && alarmsReady()) return;
   let body = 'Toque para ver a tarefa.';
   if (time) body = step ? `Ainda pendente · lembrete das ${time.slice(11)}` : `Lembrete das ${time.slice(11)}`;
   const options = {
@@ -1742,7 +1744,7 @@ function notifyProblem() {
   if (!('Notification' in window) || !hasReminders()) return null;
   if (Notification.permission === 'denied') return 'denied';
   if (Notification.permission === 'default') return 'default';
-  if (state.sync?.token && pushSupported() && !state.push?.enabled) return 'closed';
+  if (state.sync?.token && pushSupported() && !state.push?.enabled && !alarmsReady()) return 'closed';
   return null;
 }
 
@@ -1882,7 +1884,13 @@ function mountGoogle() {
   const route = currentRoute();
   // Lista de aparelhos: busca ao abrir Conta (de novo se a sessão mudou).
   if (route.name === 'settings' && route.id === 'conta' && state.sync?.token && state.devicesFor !== state.sync.token && !state.devicesLoading) loadDevices();
-  if (route.name === 'settings' && route.id === 'avisos') loadPushLog();
+  if (route.name === 'settings' && route.id === 'avisos') {
+    loadPushLog();
+    if (!state.alarmsLoadedAt || Date.now() - state.alarmsLoadedAt > 15000) {
+      state.alarmsLoadedAt = Date.now();
+      loadAlarms();
+    }
+  }
   if (route.name !== 'settings' || !['conta', 'dados'].includes(route.id) || !googleReady()) return;
   loadGoogle().catch(() => {});
   if (state.sync?.token && !state.googleFetching && (!state.google || Date.now() - (state.googleAt || 0) > 60000)) {
@@ -2015,6 +2023,89 @@ async function loadPushLog() {
     const route = currentRoute();
     if (route.name === 'settings' && route.id === 'avisos') render();
   } catch { /* Sem registro: o painel diz que nenhum chegou. */ }
+}
+
+/* ---------- Alarmes do app Android (v30) ---------- */
+// O APK 1.4 agenda alarmes exatos no próprio celular (tocam na hora, sem depender do push).
+// Ele abre o site com ?apk=14; o app guarda isso para saber que pode oferecer os alarmes.
+const APK_KEY = 'afazeres-apk';
+const ALARMS_KEY = 'afazeres-alarmes';
+const ALARMS_APK = 14;
+
+function apkVersion() {
+  try { return Number(localStorage.getItem(APK_KEY) || 0); } catch { return 0; }
+}
+
+/** Aberto pelo APK? O 1.3 não manda a versão; ele se reconhece pela origem android-app://. */
+function noteApk(params) {
+  const version = Number(params.get('apk') || 0);
+  const fromApk = document.referrer.startsWith('android-app://br.afazeres.app');
+  try {
+    if (version) localStorage.setItem(APK_KEY, String(version));
+    else if (fromApk && !apkVersion()) localStorage.setItem(APK_KEY, '13');
+  } catch { /* Sem armazenamento: o painel só aparece quando o APK abre o app. */ }
+}
+
+/** Os alarmes nativos deste celular estão valendo? Lembrado também sem internet. */
+function alarmsReady() {
+  if (state.alarms) return !!(state.alarms.active && state.alarms.ready);
+  try { return localStorage.getItem(ALARMS_KEY) === 'ready'; } catch { return false; }
+}
+
+async function loadAlarms() {
+  if (!state.sync?.token || !apkVersion() || !navigator.onLine) return;
+  try {
+    const status = await callServer('/alarms/status', {}, state.sync.token);
+    const changed = JSON.stringify(status) !== JSON.stringify(state.alarms);
+    state.alarms = status;
+    try { localStorage.setItem(ALARMS_KEY, status.active && status.ready ? 'ready' : ''); } catch { /* ok */ }
+    if (changed && currentRoute().name === 'settings') render();
+  } catch { /* Servidor fora: fica o que estava. */ }
+}
+
+/** Gera o código de uso único e entrega ao Android, que troca pela chave de alarme. */
+async function pairAlarms() {
+  try {
+    const subscription = await currentSubscription().catch(() => null);
+    const { code } = await callServer('/alarms/pair', { endpoint: subscription?.endpoint || null }, state.sync.token);
+    const back = `${location.origin}${location.pathname}#settings/avisos`;
+    state.alarmsPairing = Date.now();
+    // Sem o APK 1.4 instalado, o Chrome volta para a tela de Avisos (browser_fallback_url).
+    location.href = `intent://parear?c=${code}#Intent;scheme=afazeres;package=br.afazeres.app;S.browser_fallback_url=${encodeURIComponent(back)};end`;
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function alarmsPanel() {
+  const version = apkVersion();
+  if (!version || !state.sync?.token) return '';
+  const head = '<span class="lbl">Alarmes deste celular</span>';
+  if (version < ALARMS_APK) {
+    return `<section class="panel">${head}<p>O app instalado ainda é o 1.3. Instale o APK 1.4 para os lembretes tocarem como alarme, na hora, mesmo com o celular parado e sem internet.</p></section>`;
+  }
+  const status = state.alarms;
+  if (!status) return `<section class="panel">${head}<p class="help">Consultando…</p></section>`;
+  if (!status.active) {
+    return `
+    <section class="panel">${head}
+      <p>Os lembretes passam a tocar como alarme do Android: na hora, com o celular parado, bloqueado ou sem internet. Concluir, Amanhã e Adiar funcionam sem abrir o app.</p>
+      <button class="btn primary" data-action="alarms-pair" style="width:100%">${ico('bell')}Ativar alarmes deste celular</button>
+      <p class="help" style="margin:8px 0 0">O Android vai pedir para permitir notificações (e, em alguns celulares, alarmes e lembretes).</p>
+    </section>`;
+  }
+  const seen = status.lastSeen ? `agenda atualizada ${formatDate(localDate(new Date(status.lastSeen))).toLowerCase()} às ${localDateTime(new Date(status.lastSeen)).slice(11)}` : 'agenda ainda não buscada';
+  return `
+    <section class="panel">${head}
+      <p><b>${status.ready ? 'Ativos' : 'Ativados, mas o Android não deixou'}</b> neste celular (${escapeHtml(status.name || 'Android')}) · ${escapeHtml(seen)}.</p>
+      ${status.ready
+    ? '<p class="help">Os avisos já agendados aqui não vêm de novo pelo push; os que chegam de outro aparelho entre uma atualização e outra continuam vindo por push.</p>'
+    : '<p class="help">Libere as notificações do Afazeres (e “Alarmes e lembretes”, se aparecer) nas configurações do Android e toque em Ativar de novo. Enquanto isso, os avisos seguem pelo push.</p>'}
+      <div class="fit-box"><div class="fit fit-pair">
+        <button class="btn small" data-action="alarms-pair">${status.ready ? 'Atualizar agora' : 'Ativar de novo'}</button>
+        <button class="btn small" data-action="alarms-revoke">Desativar</button>
+      </div></div>
+    </section>`;
 }
 
 /* ---------- Conferência da bateria (v29) ---------- */
@@ -2204,6 +2295,7 @@ function settingsView(page) {
         ${permission === 'granted' ? `<button class="btn small" data-action="test-notification">${ico('bell')}Enviar teste</button>` : ''}
       </div>
     </section>
+    ${alarmsPanel()}
     ${pushPanel()}
     ${batteryPanel()}`;
   }
@@ -4301,6 +4393,17 @@ const clickActions = {
     render();
   },
   'notify-enable': () => enableNotifications(),
+  'alarms-pair': () => pairAlarms(),
+  'alarms-revoke': async () => {
+    try {
+      state.alarms = await callServer('/alarms/revoke', {}, state.sync.token);
+      try { localStorage.setItem(ALARMS_KEY, ''); } catch { /* ok */ }
+      showToast('Alarmes deste celular desativados. Os avisos seguem pelo push.');
+    } catch (error) {
+      showToast(error.message);
+    }
+    render();
+  },
   'notify-help': () => openNotifyHelp(),
   'notify-later': () => {
     try { localStorage.setItem(NOTIFY_SNOOZE_KEY, String(Date.now() + NOTIFY_SNOOZE_DAYS * 86400000)); } catch { /* Sem armazenamento: some só até recarregar. */ }
@@ -4867,6 +4970,10 @@ document.addEventListener('visibilitychange', () => {
     checkReminders();
     syncEngine.run();
     checkDriveHealth();
+    if (state.alarmsPairing && Date.now() - state.alarmsPairing < 5 * 60000) {
+      state.alarmsPairing = 0;
+      setTimeout(loadAlarms, 1500);
+    }
   } else {
     // v26: ao sair da tela (bloquear o celular, trocar de app), envia já o que mudou e a agenda de
     // avisos, sem esperar o intervalo da sincronização: em segundo plano o Android congela a página.
@@ -4946,9 +5053,10 @@ async function start() {
   // Pede ao navegador para não apagar os dados quando faltar espaço.
   navigator.storage?.persist?.();
   const params = new URLSearchParams(location.search);
+  noteApk(params);
   const shared = ['share-title', 'share-text', 'share-url'].map((key) => (params.get(key) || '').trim());
   const wantsNew = params.has('novo');
-  if (wantsNew || shared.some(Boolean)) history.replaceState(null, '', `${location.pathname}${location.hash || '#today'}`);
+  if (wantsNew || shared.some(Boolean) || params.has('apk')) history.replaceState(null, '', `${location.pathname}${location.hash || '#today'}`);
   else if (!location.hash) {
     // Tela inicial escolhida em Config.
     const start = state.settings.startView;
@@ -4967,6 +5075,7 @@ async function start() {
   navigator.permissions?.query({ name: 'notifications' }).then((status) => {
     status.onchange = () => render();
   }).catch(() => {});
+  loadAlarms();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker não registrado', error));
   }
