@@ -1241,6 +1241,8 @@ dialog:has(.task-form) { background: var(--bg); }
   flex: 1 1 auto; max-width: none; min-width: 84px; min-height: 48px; margin-left: auto; padding: 0 18px; border: 0;
   border-radius: 8px 24px 8px 24px; background: var(--bar-add); color: var(--on-bar-add); font-size: var(--t-md); font-weight: var(--w-strong);
 }
+/* v28: Salvar na cor de destaque nos dois modos. No claro era branco e se confundia com a página atrás da barra. */
+.task-bar .save-btn { background: var(--primary); color: var(--on-primary); }
 .bar-ib:focus-visible, .bar-btn:focus-visible, .task-bar .save-btn:focus-visible { outline-color: var(--on-bar); }
 
 /* ---------- Folhas de baixo: menus, perguntas e seletor ---------- */

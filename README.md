@@ -71,7 +71,15 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v27)
+## Estado do projeto (12 de novembro de 2026, v28)
+
+### v28, 12 de novembro: Salvar na cor de destaque
+
+Feedback de uso: no modo claro, o Salvar da janela da tarefa era branco e se confundia com a página atrás da barra escura (contraste 1,07 com o fundo). Agora usa a cor de destaque nos dois modos: verde com texto branco no claro, como era no escuro (verde-claro com texto escuro). Só tela.
+
+- Contraste do texto sobre o botão nas 8 cores de destaque: de 5,8 a 7,6 no claro e de 8,5 a 9,4 no escuro (o mínimo recomendado é 4,5).
+- O + da barra de navegação continua branco no claro.
+- Testado no navegador (369 px), claro e escuro, com dados descartáveis apagados depois.
 
 ### v27, 12 de novembro: aviso quando as notificações estão desligadas
 
