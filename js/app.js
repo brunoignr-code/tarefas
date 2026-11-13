@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v32 · 13/11/2026';
+const APP_VERSION = 'v33 · 13/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -124,6 +124,8 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  // v33: sino com a seta de voltar em volta (mostrar os lembretes de novo no painel).
+  bellBack: '<path d="M3 12a9 9 0 1 0 9-9 9.5 9.5 0 0 0-6.7 2.8L3 8.4"/><path d="M3 3.6v4.8h4.8"/><path d="M8.5 14.6v-2.5a3.5 3.5 0 0 1 7 0v2.5l1.1 1.3H7.4z"/><path d="M10.9 18.1a1.1 1.1 0 0 0 2.2 0"/>',
   alert: '<path d="M12 3.8 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17v.2"/>',
   phone: '<rect x="7" y="2.8" width="10" height="18.4" rx="2.2"/><path d="M11 18h2"/>',
   laptop: '<rect x="4.5" y="5" width="15" height="10" rx="1.6"/><path d="M2.5 19h19"/>',
@@ -526,10 +528,13 @@ async function showNotification(task, { time = null, step = 0, again = false } =
   if (time && alarmsReady() && !again) return;
   let body = 'Toque para ver a tarefa.';
   if (time) body = step ? `Ainda pendente · lembrete das ${time.slice(11)}` : `Lembrete das ${time.slice(11)}`;
+  // v33: lembrete de um dia anterior devolvido ao painel diz o dia.
+  if (time && again && time.slice(0, 10) !== today()) body = `Lembrete de ${formatDateTime(time).toLowerCase()}`;
   const options = {
     body,
     tag: task.id,
-    renotify: step > 0 || again,
+    renotify: step > 0 && !again,
+    silent: again,
     icon: 'icons/icon-folha-192.png',
     badge: 'icons/badge-folha-96.png',
     // demo: o service worker manda o botão para a demonstração, nunca para o banco de verdade (v31).
@@ -558,27 +563,86 @@ function restorableReminder(task) {
   const now = localDateTime();
   const active = activeReminder(task, now);
   if (active) return active;
+  // Adiada (Adiar 10 min, hoje à noite...): respeita o adiamento.
+  if (task.snoozedUntil && task.snoozedUntil > now) return null;
   const passed = reminderTimes(task).filter((time) => time <= now && time.slice(0, 10) === today());
   return passed.length ? passed[passed.length - 1] : null;
 }
 
-async function notifyAgain(id) {
-  const task = findTask(id);
-  const time = restorableReminder(task);
-  if (!time) return showToast('Esta tarefa não tem lembrete de hoje para mostrar.');
+/** v33: em Config. › Avisos, os lembretes que dá para pôr de novo no painel de notificações. */
+function restorePanel() {
+  const items = restorableItems().reverse();
+  const when = (time) => (time.slice(0, 10) === today() ? `Lembrete das ${time.slice(11)}` : `Lembrete de ${formatDateTime(time).toLowerCase()}`);
+  const list = items.length
+    ? `<ul class="device-list restore-list">${items.map(({ task, time }) => `
+        <li class="device">
+          <span class="ico">${ico('bell')}</span>
+          <span class="grow"><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(when(time))}</small></span>
+          <button class="btn small" data-action="notify-again" data-id="${task.id}" aria-label="Mostrar de novo: ${escapeHtml(task.title)}">Mostrar de novo</button>
+        </li>`).join('')}</ul>`
+    : '<p class="help" style="margin:0">Nenhum lembrete de hoje para mostrar de novo. Aparecem aqui os que já tocaram e continuam abertos.</p>';
+  return `
+    <section class="panel" id="restore-panel">
+      <span class="lbl">Tirou uma notificação sem querer?</span>
+      ${items.length ? '<p>Os lembretes de hoje que já tocaram e continuam abertos. Toque para pôr de novo no painel de notificações.</p>' : ''}
+      ${list}
+    </section>`;
+}
+
+const RESTORE_MAX = 20;
+
+/** Lembretes que dá para devolver agora: os mais recentes, até 20. */
+function restorableItems() {
+  return openTasks().map((task) => ({ task, time: restorableReminder(task) }))
+    .filter((item) => item.time).sort((a, b) => a.time.localeCompare(b.time)).slice(-RESTORE_MAX);
+}
+
+/** Etiquetas (id da tarefa) das notificações do app que ainda estão no painel. */
+async function notificationsInTray() {
+  try {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    const shown = registration ? await registration.getNotifications() : [];
+    return new Set(shown.map((item) => item.tag).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * v32/v33: põe lembretes de novo no painel de notificações (tirados sem querer com o dedo).
+ * Sem `id`, todos os de hoje e os pendentes de dias anteriores; os que ainda estão no painel
+ * ficam como estão (sem cópia e sem tocar de novo). Entram em silêncio: o app já está aberto.
+ */
+async function notifyAgain(id = null) {
+  const items = id ? [{ task: findTask(id), time: restorableReminder(findTask(id)) }].filter((item) => item.time) : restorableItems();
+  if (!items.length) return showToast(id ? 'Esta tarefa não tem lembrete de hoje para mostrar.' : 'Nenhum lembrete para mostrar de novo.');
   const permission = notificationState();
   if (permission !== 'granted') {
     return showToast(permission === 'denied'
       ? 'Notificações bloqueadas neste aparelho. Veja como liberar em Config. › Avisos.'
       : 'Notificações desligadas. Ative em Config. › Avisos.');
   }
-  try {
-    await showNotification(task, { time, again: true });
-    return showToast('Lembrete de volta no painel de notificações.');
-  } catch (error) {
-    console.warn('Notificação não mostrada', error);
-    return showToast('Não foi possível mostrar a notificação.');
+  const inTray = await notificationsInTray();
+  const missing = items.filter(({ task }) => !inTray.has(task.id));
+  if (!missing.length) return showToast(items.length === 1 ? 'O lembrete já está no painel de notificações.' : 'Os lembretes já estão no painel de notificações.');
+  let count = 0;
+  // Do mais antigo para o mais novo: o mais recente fica no topo do painel.
+  for (const { task, time } of missing) {
+    try {
+      await showNotification(task, { time, again: true });
+      count += 1;
+    } catch (error) {
+      console.warn('Notificação não mostrada', error);
+    }
   }
+  if (!count) return showToast('Não foi possível mostrar a notificação.');
+  return showToast(count === 1 ? 'Lembrete de volta no painel de notificações.' : `${count} lembretes de volta no painel de notificações.`);
+}
+
+/** Botão de Hoje: aparece só com lembrete para devolver e notificações liberadas. */
+function updateRestoreButton() {
+  const button = $('#restore-btn');
+  if (button) button.hidden = notificationState() !== 'granted' || !restorableItems().length;
 }
 
 /** Avisos que o service worker já mostrou a partir de um push. */
@@ -625,6 +689,7 @@ function renderReminders() {
   const due = dueReminders(state.tasks, now);
   const name = DEMO ? `Demonstração · ${APP_NAME}` : APP_NAME;
   document.title = due.length ? `(${due.length}) ${name}` : name;
+  updateRestoreButton();
   // Em Hoje, o lembrete fica logo abaixo do título; nas outras telas, no topo.
   const slot = $('#view-reminders');
   $('#reminders').innerHTML = '';
@@ -653,16 +718,13 @@ function renderReminders() {
     ].filter(Boolean).join('');
     const others = total - 1;
     slot.innerHTML = `
-    <section class="leaf-card big next-card${due ? ' has-tools' : ''}" aria-label="${label}">
+    <section class="leaf-card big next-card" aria-label="${label}">
       <div>
         <div class="leaf-kicker">${ico('bell')}${label} · ${escapeHtml(when)}</div>
         <button class="next-title" data-action="open" data-id="${task.id}">${escapeHtml(task.title)}</button>
         ${meta ? `<div class="chips">${meta}</div>` : ''}
       </div>
-      ${due ? `<div class="next-tools">
-        <button class="ib" data-action="notify-again" data-id="${task.id}" aria-label="Mostrar de novo no painel de notificações: ${escapeHtml(task.title)}" title="Mostrar de novo nas notificações">${ico('bell')}</button>
-        <button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>
-      </div>` : ''}
+      ${due ? `<button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>` : ''}
       <div class="next-actions">
         <button class="pill-btn primary" data-action="complete" data-id="${task.id}">Concluir</button>
         <button class="pill-btn" data-action="snooze-menu" data-id="${task.id}" aria-haspopup="dialog">Adiar</button>
@@ -1224,7 +1286,7 @@ function todayView() {
     <header class="hero">
       <div class="hero-top">
         <div><div class="hero-kicker">${escapeHtml(weekdayName)}</div><h1><span class="visually-hidden">Hoje, </span>${escapeHtml(dayMonth)}</h1></div>
-        <div class="hero-tools"><a class="hero-btn" href="#search" aria-label="Buscar" title="Buscar (/)">${ico('search')}</a>${select}</div>
+        <div class="hero-tools"><button class="hero-btn" id="restore-btn" data-action="notify-again-all" aria-label="Mostrar os lembretes de novo no painel de notificações" title="Mostrar os lembretes de novo nas notificações" hidden>${ico('bellBack', 'i-lg')}</button><a class="hero-btn" href="#search" aria-label="Buscar" title="Buscar (/)">${ico('search')}</a>${select}</div>
       </div>
       ${total ? `<div class="prog">${leaves}<span>${doneCount} de ${total} ${doneCount === 1 ? 'feita' : 'feitas'}</span></div>` : ''}
       ${weekStrip(now, tasks.length > 0)}
@@ -2342,6 +2404,7 @@ function settingsView(page) {
         ${permission === 'granted' ? `<button class="btn small" data-action="test-notification">${ico('bell')}Enviar teste</button>` : ''}
       </div>
     </section>
+    ${restorePanel()}
     ${DEMO ? demoOff('Com o app fechado · desligado na demonstração', 'No app de verdade, os lembretes chegam também com o app fechado, pelo servidor, e no app Android tocam como alarme do próprio celular. Aqui, com o app aberto, eles aparecem na hora: o exemplo “Enviar o relatório da semana” avisa 3 minutos depois de a demonstração abrir.') : `
     ${alarmsPanel()}
     ${pushPanel()}
@@ -4318,6 +4381,7 @@ const clickActions = {
   },
   'demo-restart': () => restartDemo(),
   'notify-again': (el) => notifyAgain(el.dataset.id),
+  'notify-again-all': () => notifyAgain(),
   'check-update': async () => {
     const registration = await navigator.serviceWorker?.getRegistration?.();
     if (!registration) return showToast('Sem o modo offline ativo; recarregue a página.');

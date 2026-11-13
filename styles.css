@@ -831,11 +831,6 @@ button.wk:not(.today):hover { background: var(--head-btn); }
 .next-card { display: grid; gap: .85rem; margin: 0 0 6px; padding: 1.1rem 1.25rem 1.25rem; }
 .hero.lifted + .next-slot > .next-card, .hero.lifted + .next-slot:empty + .empty-card { margin-top: -2.5rem; }
 .next-card .ib { position: absolute; top: 6px; right: 6px; }
-/* v32: sino (mostrar de novo nas notificações) e X (dispensar) lado a lado no canto. */
-.next-tools { position: absolute; top: 6px; right: 6px; display: flex; }
-.next-card .next-tools .ib { position: static; }
-.next-card.has-tools .next-title { padding-right: 52px; }
-.next-card.has-tools .leaf-kicker { padding-right: 84px; }
 .next-title { display: block; width: 100%; margin: 4px 0 0; padding: 0 36px 0 0; border: 0; background: none; text-align: left; font-size: 1.32rem; line-height: 1.2; font-weight: 600; overflow-wrap: anywhere; }
 .next-card .chips { margin-top: 4px; }
 .next-actions { display: flex; gap: 8px; }
@@ -1464,3 +1459,10 @@ body.anotar-open .dock-actions button { min-width: 0; padding: 0 10px; text-wrap
 /* A faixa já ocupa a área da barra do sistema: o cabeçalho não precisa somar esse espaço. */
 body.demo .hero { padding-top: .95rem; }
 .demo-off p { margin: 4px 0 0; }
+
+/* v33: Config. › Avisos › lembretes para mostrar de novo no painel de notificações. */
+.restore-list { margin-bottom: 0; }
+.restore-list .btn { flex: none; }
+.restore-list strong { overflow-wrap: anywhere; }
+/* Ícone de Hoje que devolve os lembretes ao painel: um pouco maior, para o sino dentro da seta aparecer. */
+.hero-btn .i.i-lg { width: 24px; height: 24px; }

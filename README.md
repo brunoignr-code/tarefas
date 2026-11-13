@@ -72,7 +72,20 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (13 de novembro de 2026, v32)
+## Estado do projeto (13 de novembro de 2026, v33)
+
+### v33, 13 de novembro: devolver os lembretes ao painel, de Hoje e de Config.
+
+Feedback de uso: a opção da v32 não foi encontrada (ficava no cartão do lembrete e no menu da tarefa), e seria mais prático um botão só para todos. Só app.
+
+- **Hoje, no cabeçalho:** ícone de sino com a seta de voltar, ao lado da Busca. Aparece só quando há lembrete para devolver e as notificações estão liberadas. Um toque põe de novo no painel **todos** os lembretes de tarefas abertas que já tocaram: os de hoje (mesmo dispensados) e os de dias anteriores ainda pendentes, até 20, os mais recentes.
+- **Sem duplicar:** antes, o app pergunta ao Chrome quais notificações dele ainda estão no painel e pula essas; tocar de novo não cria cópias. As devolvidas entram em silêncio, da mais antiga para a mais nova (a mais recente fica no topo). Lembrete de dia anterior diz o dia ("Lembrete de ontem, 09:00").
+- **Ficam de fora:** tarefa concluída ou na Lixeira, lembrete adiado (Adiar, Amanhã) que ainda não chegou na hora nova, e lembrete de dia anterior dispensado no X.
+- **Config. › Avisos › "Tirou uma notificação sem querer?"**: a mesma lista, do mais novo ao mais antigo, com **Mostrar de novo** em cada um.
+- **Menu da tarefa (⋯):** "Mostrar a notificação de novo" continua, agora também em silêncio e respeitando o adiamento. O sino saiu do cartão do lembrete (ficou só o X), para não haver dois sinos na tela.
+- **Limitação:** no celular com os alarmes do APK ativos, a notificação do alarme é do Android e o app não a enxerga; se ela ainda estiver no painel, a devolvida aparece ao lado. Quando foi tirada sem querer, não há duplicata.
+- Testado numa origem local com dados descartáveis (a demo), apagados depois: a v32 instalada atualizando para a v33; ícone escondido com notificação bloqueada e visível quando liberada; um toque devolvendo o de ontem pendente e o de hoje dispensado, pulando o que já estava no painel, o adiado e o de ontem dispensado; segundo toque sem cópias; com o painel vazio, os três em ordem; menu e lista de Config.; celular 375 px e notebook, claro e escuro; 75 testes das regras. As notificações foram simuladas (o navegador do teste bloqueia notificações).
+- **Não testado:** num celular de verdade (notificações aparecendo em silêncio, o Chrome dizendo quais ainda estão no painel, os botões delas).
 
 ### v32, 13 de novembro: mostrar a notificação de novo
 
