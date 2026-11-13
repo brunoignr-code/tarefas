@@ -72,7 +72,19 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (12 de novembro de 2026, v31)
+## Estado do projeto (13 de novembro de 2026, v32)
+
+### v32, 13 de novembro: mostrar a notificação de novo
+
+Feedback de uso: ao deslizar sem querer, a notificação some do painel e não havia como trazê-la de volta. Só app: o servidor e os dados não mudam.
+
+- **No cartão do lembrete em Hoje** ("Lembrete agora"), um sino ao lado do X: põe o lembrete de novo no painel de notificações, com Concluir e o segundo botão de sempre.
+- **No menu da tarefa** (⋯ ou segurar): "Mostrar a notificação de novo".
+- Vale para tarefa aberta com lembrete pendente ou com um lembrete de hoje que já passou, mesmo depois de Dispensar.
+- Aparece também no celular com os alarmes do APK ativos (o app normalmente não repete o que o Android já tocou; aqui foi pedido).
+- Com as notificações bloqueadas ou desligadas, avisa e indica Config. › Avisos.
+- Testado numa origem local com dados descartáveis (a própria demo), apagados depois: a v31 instalada atualizando para a v32; o sino e o item do menu aparecendo só quando há lembrete (também depois de Dispensar); a notificação montada com o título, "Lembrete das HH:MM", os dois botões e o aviso por cima (simulando a permissão liberada e os alarmes do APK ativos, porque o navegador do teste bloqueia notificações); o aviso de bloqueadas; celular 375 px, claro e escuro; 75 testes das regras.
+- **Não testado:** a notificação aparecendo de verdade num celular (o navegador do teste bloqueia), e os botões dela.
 
 ### v31, 12 de novembro: modo demonstração (?demo=1)
 

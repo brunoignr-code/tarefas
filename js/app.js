@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import {
   applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue,
-  INSIST_MAX, activeReminder, firstOnWeekdays, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
+  INSIST_MAX, activeReminder, firstOnWeekdays, reminderTimes, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
   todayTasks, upcomingTasks,
 } from './rules.js';
 import { DEFAULT_PUSH_SETTINGS, normalizePushSettings, pushKey } from './push-core.js';
@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v31 · 12/11/2026';
+const APP_VERSION = 'v32 · 13/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -519,16 +519,17 @@ async function moveTask(id, direction) {
 
 /* ---------- Lembretes ---------- */
 
-async function showNotification(task, { time = null, step = 0 } = {}) {
+async function showNotification(task, { time = null, step = 0, again = false } = {}) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   // v30: com os alarmes nativos valendo neste celular, o Android já toca o lembrete (sem repetir aqui).
-  if (time && alarmsReady()) return;
+  // v32: pedido pelo botão "mostrar de novo", aparece mesmo assim.
+  if (time && alarmsReady() && !again) return;
   let body = 'Toque para ver a tarefa.';
   if (time) body = step ? `Ainda pendente · lembrete das ${time.slice(11)}` : `Lembrete das ${time.slice(11)}`;
   const options = {
     body,
     tag: task.id,
-    renotify: step > 0,
+    renotify: step > 0 || again,
     icon: 'icons/icon-folha-192.png',
     badge: 'icons/badge-folha-96.png',
     // demo: o service worker manda o botão para a demonstração, nunca para o banco de verdade (v31).
@@ -545,6 +546,38 @@ async function showNotification(task, { time = null, step = 0 } = {}) {
   } else {
     const { actions, ...plain } = options;
     new Notification(task.title, plain);
+  }
+}
+
+/**
+ * v32: lembrete que dá para pôr de novo no painel de notificações (tirado sem querer com o dedo).
+ * Vale para tarefa aberta com lembrete pendente ou com um lembrete de hoje que já passou.
+ */
+function restorableReminder(task) {
+  if (!task || task.status !== 'open' || task.deletedAt) return null;
+  const now = localDateTime();
+  const active = activeReminder(task, now);
+  if (active) return active;
+  const passed = reminderTimes(task).filter((time) => time <= now && time.slice(0, 10) === today());
+  return passed.length ? passed[passed.length - 1] : null;
+}
+
+async function notifyAgain(id) {
+  const task = findTask(id);
+  const time = restorableReminder(task);
+  if (!time) return showToast('Esta tarefa não tem lembrete de hoje para mostrar.');
+  const permission = notificationState();
+  if (permission !== 'granted') {
+    return showToast(permission === 'denied'
+      ? 'Notificações bloqueadas neste aparelho. Veja como liberar em Config. › Avisos.'
+      : 'Notificações desligadas. Ative em Config. › Avisos.');
+  }
+  try {
+    await showNotification(task, { time, again: true });
+    return showToast('Lembrete de volta no painel de notificações.');
+  } catch (error) {
+    console.warn('Notificação não mostrada', error);
+    return showToast('Não foi possível mostrar a notificação.');
   }
 }
 
@@ -620,13 +653,16 @@ function renderReminders() {
     ].filter(Boolean).join('');
     const others = total - 1;
     slot.innerHTML = `
-    <section class="leaf-card big next-card" aria-label="${label}">
+    <section class="leaf-card big next-card${due ? ' has-tools' : ''}" aria-label="${label}">
       <div>
         <div class="leaf-kicker">${ico('bell')}${label} · ${escapeHtml(when)}</div>
         <button class="next-title" data-action="open" data-id="${task.id}">${escapeHtml(task.title)}</button>
         ${meta ? `<div class="chips">${meta}</div>` : ''}
       </div>
-      ${due ? `<button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>` : ''}
+      ${due ? `<div class="next-tools">
+        <button class="ib" data-action="notify-again" data-id="${task.id}" aria-label="Mostrar de novo no painel de notificações: ${escapeHtml(task.title)}" title="Mostrar de novo nas notificações">${ico('bell')}</button>
+        <button class="ib" data-action="dismiss" data-id="${task.id}" aria-label="Dispensar lembrete: ${escapeHtml(task.title)}" title="Dispensar">${ico('x')}</button>
+      </div>` : ''}
       <div class="next-actions">
         <button class="pill-btn primary" data-action="complete" data-id="${task.id}">Concluir</button>
         <button class="pill-btn" data-action="snooze-menu" data-id="${task.id}" aria-haspopup="dialog">Adiar</button>
@@ -2653,6 +2689,7 @@ function openTaskMenu(id) {
     !open && ['Reabrir', async () => { close(); await reopen(id); }, { icon: 'undo' }],
     ['Abrir detalhes', () => openTask(id), { icon: 'edit' }],
     open && ['Escolher outra data…', () => openDatePicker(id), { icon: 'calendar' }],
+    open && restorableReminder(task) && ['Mostrar a notificação de novo', async () => { close(); await notifyAgain(id); }, { icon: 'bell' }],
     open && task.when && task.when !== today() && task.when !== tomorrow && ['Fazer hoje', async () => { close(); await moveToDate(id, today()); }, { icon: 'sun' }],
     open && task.when && !task.repeat && ['Tirar a data', async () => { close(); await moveToDate(id, null); }, { icon: 'x' }],
     !open && ['Mover para outra lista', () => openMoveSheet([id]), { icon: 'folder' }],
@@ -4280,6 +4317,7 @@ const clickActions = {
     document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
   'demo-restart': () => restartDemo(),
+  'notify-again': (el) => notifyAgain(el.dataset.id),
   'check-update': async () => {
     const registration = await navigator.serviceWorker?.getRegistration?.();
     if (!registration) return showToast('Sem o modo offline ativo; recarregue a página.');
