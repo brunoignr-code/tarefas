@@ -412,6 +412,82 @@ window.fetch = prevFetch;
   check('alarmes: código vencido recusado', (await call('/alarms/claim', { code: code3, name: 'x' })).status === 400 && old >= 0);
 }
 
+// ---------- v34: notificação resolvida num aparelho sai dos outros ----------
+{
+  sqlite.run('DELETE FROM push_queue');
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const OFFSET = -180;
+  const devWall = (ms = Date.now()) => new Date(ms + OFFSET * 60000);
+  const today = `${devWall().getUTCFullYear()}-${pad2(devWall().getUTCMonth() + 1)}-${pad2(devWall().getUTCDate())}`;
+  const login = async () => (await call('/login', { login: 'teste-descartavel', proof })).body.token;
+  const tokP = await login();
+  const tokQ = await login();
+  const tokN = await login();
+  const epP = 'https://fcm.googleapis.com/fcm/send/limparP';
+  const epQ = 'https://fcm.googleapis.com/fcm/send/limparQ';
+  const epN = 'https://fcm.googleapis.com/fcm/send/limparN';
+  await call('/push/subscribe', { endpoint: epP, clear: true }, tokP);
+  await call('/push/subscribe', { endpoint: epQ }, tokQ);
+  await call('/push/due', { endpoint: epQ, clear: true }); // o service worker novo também marca
+  await call('/push/subscribe', { endpoint: epN }, tokN); // aparelho com o app antigo
+  const rung = (taskId, ago = 60000) => sqlite.run("INSERT OR REPLACE INTO push_queue (key, at, sent_at, task_id, kind, title, body) VALUES (?, ?, ?, ?, 'remind', 'T', 'b')",
+    [`${taskId}|x|0`, Date.now() - ago, Date.now() - ago + 18000, taskId]);
+  const clears = () => sql1("SELECT task_id FROM push_queue WHERE kind = 'clear' ORDER BY task_id").map((r) => r[0]);
+  rung('c1'); rung('c2'); rung('c3');
+  rung('velha', 13 * 3600000);
+  sqlite.run("INSERT INTO push_queue (key, at, task_id, kind, title, body) VALUES ('futura|x|0', ?, 'futura', 'remind', 'T', 'b')", [Date.now() + 3600000]);
+
+  await call('/push/schedule', { since: 1000, items: [], due: ['c3'], now: Date.now() }, tokP);
+  check('limpar: o que tocou e não está mais pendente é anotado para limpar', clears().join() === 'c1,c2');
+  await call('/push/schedule', { since: 1000, items: [], due: ['c3'], now: Date.now() }, tokP);
+  check('limpar: enviar a agenda de novo não repete', clears().length === 2);
+  await call('/push/schedule', { since: 1000, items: [], now: Date.now() }, tokP);
+  check('limpar: app antigo (sem a lista de pendentes) não limpa nada', clears().length === 2);
+  await call('/push/schedule', { since: 1000, items: [], due: [], now: Date.now() - 10 * 60000 }, tokP);
+  check('limpar: só o que tocou até a hora em que o aparelho olhou', !clears().includes('c3'));
+
+  pushed.length = 0;
+  await cron();
+  const to = (ep) => pushed.some((p) => p.url === ep);
+  check('limpar: o aviso vai para o outro aparelho', to(epQ));
+  check('limpar: não vai para o aparelho que resolveu', !to(epP));
+  check('limpar: não vai para o aparelho com o app antigo', !to(epN));
+  const dueQ = (await call('/push/due', { endpoint: epQ, clear: true })).body.items;
+  check('limpar: o service worker novo recebe quais tarefas limpar, sem texto', dueQ.filter((i) => i.kind === 'clear').map((i) => i.taskId).sort().join() === 'c1,c2'
+    && dueQ.every((i) => i.kind !== 'clear' || (!i.title && !i.body && i.at > 0)));
+  check('limpar: o service worker antigo não recebe aviso de limpar', (await call('/push/due', { endpoint: epN })).body.items.every((i) => i.kind !== 'clear'));
+
+  rung('c4');
+  await call('/push/schedule', { since: 1001, items: [], due: ['c3'], now: Date.now() }, tokP);
+  await call('/push/schedule', { since: 1002, items: [], due: ['c3', 'c4'], now: Date.now() }, tokQ);
+  check('limpar: uma agenda nova não apaga o aviso de limpar ainda não enviado', clears().includes('c4'));
+  check('limpar: a agenda nova continua substituindo os lembretes futuros (como antes)', sql1("SELECT COUNT(*) FROM push_queue WHERE kind = 'remind' AND sent_at IS NULL")[0][0] === 0);
+
+  rung('c5');
+  await call('/push/task', { taskId: 'c5', items: [], due: false, now: Date.now() }, tokQ);
+  check('limpar: botão da notificação do site (/push/task) limpa a tarefa', clears().includes('c5'));
+  rung('c7');
+  await call('/push/task', { taskId: 'c7', items: [], due: true, now: Date.now() }, tokQ);
+  check('limpar: tarefa que continua pendente não é limpa', !clears().includes('c7'));
+
+  // Alarme do Android: o servidor resolve e limpa nos outros, menos no próprio celular.
+  const code = (await call('/alarms/pair', { endpoint: epQ }, tokQ)).body.code;
+  const dev = (await call('/alarms/claim', { code, name: 'SM-A556E' })).body.token;
+  const list = await call('/alarms/list', { exact: true, notify: true }, dev);
+  check('limpar: a agenda dos alarmes nunca traz aviso de limpar', list.status === 200 && list.body.items.every((i) => i.kind !== 'clear'));
+  sqlite.run("INSERT OR REPLACE INTO items VALUES ('tasks', 'c6', ?, 0, 5)", [JSON.stringify({ id: 'c6', title: 'Remédio', status: 'open', listId: 'inbox', order: 0, notes: '', steps: [], tags: [], when: today, remindAt: `${today}T00:00`, _t: { title: 1 } })]);
+  rung('c6');
+  await call('/alarms/act', { taskId: 'c6', action: 'done', offset: OFFSET }, dev);
+  const row6 = sql1("SELECT body FROM push_queue WHERE kind = 'clear' AND task_id = 'c6'")[0];
+  check('limpar: Concluir no alarme do Android anota a limpeza', !!row6);
+  sqlite.run("UPDATE push_queue SET sent_at = 1 WHERE kind = 'clear' AND task_id <> 'c6'");
+  pushed.length = 0;
+  await cron();
+  check('limpar: o celular do alarme não recebe; o outro aparelho recebe', to(epP) && !to(epQ));
+  await call('/alarms/revoke', {}, tokQ);
+  await Promise.all([tokP, tokQ, tokN].map((t) => call('/logout', {}, t)));
+}
+
 lines.push(`\nCron (no navegador, só referência): ${cronMs.toFixed(1)} ms no total, incluindo esperas`);
 const failed = lines.filter((l) => l.startsWith('FALHA')).length;
 document.title = failed ? `FALHOU ${failed}` : 'OK servidor';

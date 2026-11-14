@@ -2,8 +2,8 @@
 <resources>
     <string name="appName">Minha lista de afazeres</string>
     <string name="launcherName">Afazeres</string>
-    <!-- ?apk=14: o app web sabe que este APK tem alarmes nativos (v30). -->
-    <string name="launchUrl">https://brunoignr-code.github.io/tarefas/?apk=14</string>
+    <!-- ?apk=15: o app web sabe que este APK tem alarmes nativos (v30) e a ponte de sinais (v34). -->
+    <string name="launchUrl">https://brunoignr-code.github.io/tarefas/?apk=15</string>
     <string name="canalLembretes">Lembretes</string>
     <string name="canalLembretesDescricao">Lembretes das tarefas, na hora marcada</string>
     <string name="assetStatements" translatable="false">[{\"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": {\"namespace\": \"web\", \"site\": \"https://brunoignr-code.github.io\"}}]</string>

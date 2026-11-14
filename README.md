@@ -32,13 +32,13 @@ A hospedagem guarda só o código. As tarefas ficam no aparelho.
 
 A pasta `android/` gera um APK do tipo TWA (Trusted Web Activity): ele abre o endereço publicado dentro do Chrome, em tela cheia, com ícone, nome e notificações próprios. O conteúdo continua vindo do GitHub Pages, então **cada publicação chega ao celular sozinha, sem reinstalar**. Só é preciso instalar um APK novo quando mudar algo em `android/` (ícone, atalhos, versão).
 
-- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.4.apk` (o mais novo) para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
+- **Instalar:** copie `C:\Python - local\apk-afazeres\afazeres-1.5.apk` (o mais novo) para o celular e abra-o (o Android pede para permitir "instalar apps desconhecidos" para o app de Arquivos), ou, com o cabo e a depuração USB ligada, rode `adb install -r` com esse arquivo.
 - **Dados:** o TWA usa o armazenamento do Chrome do próprio celular. Se você já usava o app pelo Chrome nesse celular, o login, as tarefas e "Receber neste aparelho" continuam valendo.
 - **Tela cheia:** depende de `https://brunoignr-code.github.io/.well-known/assetlinks.json` (repositório `brunoignr-code.github.io`), que traz o SHA-256 da chave. Se a barra de endereço aparecer no topo, a verificação falhou.
 - **Chave de assinatura:** `C:\Python - local\chaves-android\` (fora do repositório). Faça backup dessa pasta. Sem ela não dá para atualizar o app sem desinstalar e refazer o `assetlinks.json`.
 - **Compilar:** na pasta `android/`, com `JAVA_HOME` apontando para o Java do Android Studio (`C:\Program Files\Android\Android Studio\jbr`), rode `gradlew.bat assembleRelease`. O APK sai em `android/app/build/outputs/apk/release/`. Suba `versionCode` em `android/app/build.gradle.kts` a cada APK novo.
 - **Ícones:** `python tools/gerar_icones.py`, na pasta `android/`, a partir de `icons/icon-folha-512.png`.
-- **Alarmes nativos (APK 1.4, v30):** além da TWA, o APK tem código Java próprio em `android/app/src/main/java/br/afazeres/app/`: `PairActivity` (recebe `afazeres://parear?c=…`), `Alarms` (agenda alarmes exatos e mostra a notificação com Concluir, Amanhã e Adiar 10 min), `AlarmReceiver` (na hora, confere em `/alarms/check` se ainda vale), `ActionReceiver` (botões, por `/alarms/act`), `BootReceiver` (reagenda ao ligar o celular, ao atualizar o app ou ao mudar a hora) e `RefreshJob` (busca a agenda a cada ~15 min). O build **debug** fala com um servidor falso em `http://10.0.2.2:8790` (o PC visto do emulador); o **release** usa o servidor real. O APK abre o site com `?apk=14`, para o app web saber que pode oferecer os alarmes.
+- **Alarmes nativos (APK 1.4, v30):** além da TWA, o APK tem código Java próprio em `android/app/src/main/java/br/afazeres/app/`: `PairActivity` (recebe `afazeres://parear?c=…`), `Alarms` (agenda alarmes exatos e mostra a notificação com Concluir, Amanhã e Adiar 10 min), `AlarmReceiver` (na hora, confere em `/alarms/check` se ainda vale), `ActionReceiver` (botões, por `/alarms/act`), `BootReceiver` (reagenda ao ligar o celular, ao atualizar o app ou ao mudar a hora) e `RefreshJob` (busca a agenda a cada ~15 min). O build **debug** fala com um servidor falso em `http://10.0.2.2:8790` (o PC visto do emulador); o **release** usa o servidor real. O APK abre o site com `?apk=15` (o 1.4 usava `?apk=14`), para o app web saber que pode oferecer os alarmes. Desde o 1.5 (v34), a `DelegationService` também recebe a notificação-sinal "Atualizando os lembretes" do site, não a mostra e refaz a agenda e tira as notificações resolvidas.
 
 ## Temas
 
@@ -72,7 +72,28 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (13 de novembro de 2026, v33)
+## Estado do projeto (14 de novembro de 2026, v34 e APK 1.5)
+
+### v34 e APK 1.5, 14 de novembro: notificação resolvida sai dos outros aparelhos; tocar abre a tarefa
+
+Feedback de uso: (1) tocar na notificação abria Hoje, e não a tarefa; (2) concluir ou adiar num aparelho deixava a mesma notificação nos outros ("tenho que ver tudo 2x"); (3) em 14/11 o remédio tocou às 5h depois de concluído no app. Servidor implantado em 14/11 às 12:17 UTC, antes do app (pelo `/content`; banco D1, segredo e cron conferidos iguais antes e depois). Falta **instalar o APK 1.5** nos celulares (`C:\Python - local\apk-afazeres\afazeres-1.5.apk`, mesma chave: instala por cima). O formato das tarefas e o login não mudam.
+
+- **Tocar no alarme do Android abre a tarefa** (`#notif/open/<id>`), como o aviso do site já fazia. Precisa do APK 1.5.
+- **Resolveu num aparelho, some dos outros:** quando um lembrete que já tocou é concluído, adiado, dispensado ou mudado (no app, pelo botão da notificação do site ou pelo alarme do Android), o servidor anota "limpar" e, em até 1 minuto, manda um aviso silencioso aos **outros** aparelhos, que fecham aquela notificação (só a que apareceu antes da limpeza).
+  - Como o servidor sabe: a agenda que o app envia agora traz a lista de tarefas com lembrete pendente (`due`) e a hora em que olhou; o botão do site manda `due: false` por `/push/task`; o `/alarms/act` confere depois de aplicar. Vale para o que tocou nas últimas 12 horas, uma vez por toque.
+  - Só recebe esse aviso o aparelho com o app novo (o service worker pede `clear: true`); os de versão antiga não recebem, para não aparecer aviso em branco.
+  - O Chrome exige que todo push mostre alguma notificação. Se, depois de limpar, não sobrar nenhuma do app no painel, aparece por 4 s um aviso discreto "Lembrete resolvido em outro aparelho", que some sozinho. No celular com o APK 1.5 o sinal ao Android cumpre esse papel e não aparece nada.
+- **No próprio aparelho:** ao abrir o app e depois de cada sincronização, ele fecha as notificações de tarefas que não estão mais pendentes. A devolvida pelo "mostrar de novo" fica enquanto o lembrete de hoje existir.
+- **Ponte do site para o Android (APK 1.5):** quando os lembretes mudam, o app web (e o service worker, num aviso de limpar ou num botão da notificação) mostra uma notificação-sinal "Atualizando os lembretes" com um JSON no texto, só em aparelho com APK 1.5 e alarmes ativos. Ela vai pelo Chrome até a `DelegationService` do APK, que não a mostra, tira as notificações de alarme resolvidas e refaz a agenda dos alarmes na hora (sem internet, assim que voltar). Antes, o Android só sabia da mudança na atualização de ~15 min, adiada por horas com o celular parado.
+- **Conferência na hora de tocar, mais paciente:** 6 s e mais uma tentativa de 3 s (antes 3 s). Sem resposta, ainda toca.
+- **Servidor:** linhas `kind = 'clear'` na `push_queue` (não entram na agenda dos alarmes nem são apagadas por uma agenda nova) e coluna nova `push_subs.clear_ok` (criada sozinha).
+- **Testado:**
+  - 116 testes do servidor (16 novos: limpar o que tocou e saiu da lista de pendentes, sem repetir, versão antiga do app sem limpeza, só até a hora em que o aparelho olhou, aviso só para os outros aparelhos e só para os que entendem, o service worker antigo sem aviso de limpar, agenda nova sem apagar a limpeza pendente, `/push/task`, alarme do Android limpando nos outros e não no próprio celular).
+  - O app com o servidor rodando em memória numa página temporária (já apagada): a agenda levando `due`; concluir no app anotando a limpeza só para os outros; notificação da tarefa concluída fechada no próprio aparelho, a de tarefa desconhecida e a devolvida mantidas, a normal fechada ao dispensar; sinal ao Android em silêncio quando a agenda muda (simulando APK 1.5).
+  - O service worker carregado numa caixa de areia com push e notificações simulados: fecha a notificação resolvida e mantém a mais nova que a limpeza; com outra notificação no painel não mostra nada; sem nenhuma, o aviso discreto; com APK 1.5, o sinal; aviso normal aparecendo como antes; botão Concluir mandando `due: false` e o sinal.
+  - Service worker da v33 atualizando para a v34; 75 testes das regras.
+  - APK 1.5 compilado e conferido (mesma chave, versão 1.5, código 6, só o servidor real). No emulador, antes de ele ser fechado a pedido (o PC não tem memória para ele): o alarme nativo tocando e o toque abrindo `?apk=15#notif/open/<tarefa>`.
+- **Não testado num celular de verdade:** a notificação sumindo do outro celular; o sinal chegando ao APK pela `DelegationService` (não deu para provar no emulador); o aviso discreto do Chrome; a conferência mais paciente às 5h com o celular parado.
 
 ### v33, 13 de novembro: devolver os lembretes ao painel, de Hoje e de Config.
 

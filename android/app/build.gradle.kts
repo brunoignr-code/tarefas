@@ -20,8 +20,8 @@ android {
         applicationId = "br.afazeres.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
         // v30: servidor dos alarmes nativos (pareamento, agenda e botões da notificação).
         buildConfigField("String", "ALARM_SERVER", "\"https://tarefas-sync.brunoignr-code.workers.dev\"")
     }

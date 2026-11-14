@@ -610,7 +610,8 @@ M['actions-core'] = (() => {
 const { notificationAction } = SW_RULES['actions-core'];
 const { stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
-const CACHE = 'tarefas-v33';
+const { activeReminder } = SW_RULES.rules;
+const CACHE = 'tarefas-v34';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -705,6 +706,7 @@ async function demoNotificationClick(id, action) {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
+  if (data.signal) return;
   const id = data.id;
   const action = event.action || 'open';
   if (data.demo) {
@@ -780,6 +782,8 @@ async function registerAction(database, action, id) {
     await idb(database, 'log', 'readwrite', (store) => store.put(entry));
     records.push({ kind: 'log', id: entry.id, data: toWire(entry) });
   }
+  // v34: o Android (APK 1.5) refaz a agenda dos alarmes com a tarefa mudada.
+  await signalNative(database, { clear: [{ t: id, at: now }] });
   const sync = await idb(database, 'meta', 'readonly', (store) => store.get('sync'));
   if (!sync || !sync.token) return;
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${sync.token}` };
@@ -791,8 +795,10 @@ async function registerAction(database, action, id) {
     // app fechado podem estar desatualizadas: apagava avisos que outro aparelho tinha acabado de pôr.
     const push = await idb(database, 'meta', 'readonly', (store) => store.get('push'));
     const items = buildSchedule([saved], new Date(), normalizePushSettings(push && push.settings)).filter((item) => item.taskId === id);
+    // v34: `due` diz se a tarefa ainda tem lembrete pendente; se não, sai do painel dos outros aparelhos.
+    const due = !!activeReminder(saved, localDateTime(new Date()));
     // Endereço próprio: um servidor antigo responde 404 em vez de tratar como agenda inteira.
-    await fetch(`${SYNC_URL}/push/task`, { method: 'POST', headers, body: JSON.stringify({ taskId: id, items }) });
+    await fetch(`${SYNC_URL}/push/task`, { method: 'POST', headers, body: JSON.stringify({ taskId: id, items, due, now: Date.now() }) });
     if (push) await idb(database, 'meta', 'readwrite', (store) => store.put({ ...push, hash: null }));
   } catch (error) {
     // Sem internet: a mudança fica guardada (marcada para enviar) e sobe quando o app abrir.
@@ -879,6 +885,28 @@ function notify(item, quiet, second = 'tomorrow') {
   return self.registration.showNotification(item.title, options);
 }
 
+/* v34: sinal para o APK 1.5 (ele não mostra este aviso; refaz a agenda e tira as notificações resolvidas). */
+const SIGNAL_TITLE = 'Atualizando os lembretes';
+const SIGNAL_TAG = 'afazeres-sinal';
+const BRIDGE_APK = 15;
+
+async function signalNative(database, payload) {
+  if (!database) return false;
+  try {
+    const device = await idb(database, 'meta', 'readonly', (s) => s.get('device'));
+    if (!device || (device.apk || 0) < BRIDGE_APK || !device.alarms) return false;
+    await self.registration.showNotification(SIGNAL_TITLE, {
+      tag: SIGNAL_TAG, silent: true, body: JSON.stringify({ ...payload, at: Date.now() }), data: { signal: true },
+    });
+    setTimeout(async () => {
+      (await self.registration.getNotifications({ tag: SIGNAL_TAG })).forEach((note) => note.close());
+    }, 1500);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function onPush() {
   const windows = await windowsFor(false);
   const visible = windows.some((client) => client.visibilityState === 'visible');
@@ -900,12 +928,27 @@ async function onPush() {
     const response = await fetch(`${SYNC_URL}/push/due`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint: subscription && subscription.endpoint }),
+      body: JSON.stringify({ endpoint: subscription && subscription.endpoint, clear: true }),
     });
     if (response.ok) items = (await response.json()).items;
     else source = `server-${response.status}`;
   } catch { source = 'offline'; }
   if (!items) items = localDue(tasks, new Date());
+
+  // v34: lembrete resolvido em outro aparelho sai do painel daqui (só a notificação de antes da limpeza).
+  const clears = items.filter((item) => item.kind === 'clear' && !shown.has(item.key));
+  items = items.filter((item) => item.kind !== 'clear');
+  let cleared = 0;
+  if (clears.length) {
+    const open = await self.registration.getNotifications();
+    clears.forEach((item) => open.forEach((note) => {
+      if (note.tag === item.taskId && !(note.data && note.data.demo) && (note.timestamp || 0) <= item.at) {
+        note.close();
+        cleared += 1;
+      }
+    }));
+  }
+  const signaled = clears.length ? await signalNative(database, { clear: clears.map((item) => ({ t: item.taskId, at: item.at })) }) : false;
 
   // Com o app na tela, ele mesmo mostra os lembretes; o resumo e o teste aparecem sempre.
   const fresh = items.filter((item) => !shown.has(item.key)
@@ -915,12 +958,24 @@ async function onPush() {
   fresh.forEach((item) => latest.set(item.taskId || item.key, item));
   await Promise.all([...latest.values()].map((item) => notify(item, false, second)));
 
-  if (fresh.length && database) {
-    const keys = [...shown, ...fresh.map((item) => item.key)].slice(-SHOWN_MAX);
+  if ((fresh.length || clears.length) && database) {
+    const keys = [...shown, ...fresh.map((item) => item.key), ...clears.map((item) => item.key)].slice(-SHOWN_MAX);
     await idb(database, 'meta', 'readwrite', (s) => s.put({ id: 'pushShown', keys })).catch(() => {});
   }
-  await logPush(database, { source, items: items.length, shown: latest.size, visible });
-  if (!latest.size && !visible) {
+  await logPush(database, { source, items: items.length, shown: latest.size, visible, cleared });
+  if (!latest.size && !visible && clears.length) {
+    // O navegador exige um aviso a cada push. Com outras notificações do app ainda no painel (ou o
+    // sinal entregue ao Android), basta; senão, um aviso discreto que some sozinho em instantes.
+    const remaining = (await self.registration.getNotifications()).filter((note) => !(note.data && note.data.signal));
+    if (!remaining.length && !signaled) {
+      await self.registration.showNotification(APP_NAME, {
+        tag: 'afazeres-resolvido', silent: true, body: 'Lembrete resolvido em outro aparelho.', data: { signal: true },
+      });
+      setTimeout(async () => {
+        (await self.registration.getNotifications({ tag: 'afazeres-resolvido' })).forEach((note) => note.close());
+      }, 4000);
+    }
+  } else if (!latest.size && !visible) {
     // O navegador exige um aviso a cada push. Repete em silêncio o último, ou um aviso genérico.
     const last = items[items.length - 1];
     await notify(last || { key: 'generic', kind: 'generic', title: APP_NAME, body: 'Você tem um lembrete. Toque para abrir.' }, true, second);

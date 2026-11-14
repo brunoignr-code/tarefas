@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v33 · 13/11/2026';
+const APP_VERSION = 'v34 · 14/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -187,7 +187,7 @@ const syncEngine = createSync({
     render();
     if (focusId) document.getElementById(focusId)?.focus();
   },
-  onSynced: () => refreshPushSchedule(),
+  onSynced: () => { refreshPushSchedule(); closeResolvedNotifications(); },
 });
 
 const savedLocally = () => { if (state.sync?.token) syncEngine.schedule(); };
@@ -222,7 +222,10 @@ async function refreshPushSchedule(force = false) {
   try {
     const result = await uploadSchedule(state.sync.token, {
       tasks: () => state.tasks, since: () => state.sync?.since, local: pushLocal, saveLocal: savePushLocal,
+      due: (nowDate) => dueReminders(state.tasks, localDateTime(nowDate)).map((task) => task.id),
     }, force);
+    // v34: os avisos mudaram; o Android (APK 1.5) refaz a agenda dos alarmes e tira o que foi resolvido.
+    if (result === true) signalNative({ due: dueReminders(state.tasks, localDateTime()).map((task) => task.id) });
     if (result === 'stale' && pushStaleRetries < 3) {
       pushStaleRetries += 1;
       syncEngine.schedule(300);
@@ -538,7 +541,8 @@ async function showNotification(task, { time = null, step = 0, again = false } =
     icon: 'icons/icon-folha-192.png',
     badge: 'icons/badge-folha-96.png',
     // demo: o service worker manda o botão para a demonstração, nunca para o banco de verdade (v31).
-    data: DEMO ? { id: task.id, demo: true } : { id: task.id },
+    // restored: devolvida pelo "mostrar de novo" (v34), fica mesmo com o lembrete dispensado.
+    data: { id: task.id, ...(DEMO ? { demo: true } : {}), ...(again ? { restored: true } : {}) },
     // O Chrome mostra no máximo dois botões: Concluir e o escolhido em Config. › Avisos.
     actions: [
       { action: 'done', title: 'Concluir' },
@@ -645,6 +649,52 @@ function updateRestoreButton() {
   if (button) button.hidden = notificationState() !== 'granted' || !restorableItems().length;
 }
 
+/* ---------- v34: notificações resolvidas e sinal para o Android ---------- */
+
+// O APK 1.5 recebe pelo serviço de notificações um aviso-sinal (que ele não mostra) e refaz a
+// agenda dos alarmes e tira as notificações resolvidas. Título e texto são a "senha" do sinal.
+const SIGNAL_TITLE = 'Atualizando os lembretes';
+const SIGNAL_TAG = 'afazeres-sinal';
+const BRIDGE_APK = 15;
+
+async function signalNative(payload) {
+  if (DEMO || apkVersion() < BRIDGE_APK || !alarmsReady() || notificationState() !== 'granted') return;
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    if (!registration) return;
+    await registration.showNotification(SIGNAL_TITLE, {
+      tag: SIGNAL_TAG, silent: true, body: JSON.stringify({ ...payload, at: Date.now() }), data: { signal: true },
+    });
+    // O Android não mostra; fecha do lado do Chrome também, por garantia.
+    setTimeout(async () => {
+      (await registration.getNotifications({ tag: SIGNAL_TAG })).forEach((item) => item.close());
+    }, 1500);
+  } catch (error) {
+    console.warn('Sinal para os alarmes do Android não enviado', error);
+  }
+}
+
+/**
+ * Fecha, neste aparelho, a notificação de lembrete que não está mais pendente (concluída, adiada,
+ * dispensada, mudada aqui ou em outro aparelho). A devolvida pelo botão "mostrar de novo" fica
+ * enquanto a tarefa estiver aberta com o lembrete de hoje.
+ */
+async function closeResolvedNotifications() {
+  try {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    if (!registration) return;
+    const now = localDateTime();
+    (await registration.getNotifications()).forEach((item) => {
+      const data = item.data || {};
+      if (!data.id || data.signal || !!data.demo !== DEMO) return;
+      const task = findTask(data.id);
+      if (!task) return; // Tarefa de outro aparelho ainda não sincronizada: fica.
+      const pending = data.restored ? restorableReminder(task) : activeReminder(task, now);
+      if (!pending) item.close();
+    });
+  } catch { /* Só arrumação do painel. */ }
+}
+
 /** Avisos que o service worker já mostrou a partir de um push. */
 async function pushShownKeys() {
   try {
@@ -682,6 +732,7 @@ async function checkReminders() {
     checking = false;
   }
   renderReminders();
+  closeResolvedNotifications();
 }
 
 function renderReminders() {
@@ -2149,6 +2200,8 @@ function noteApk(params) {
     if (version) localStorage.setItem(APK_KEY, String(version));
     else if (fromApk && !apkVersion()) localStorage.setItem(APK_KEY, '13');
   } catch { /* Sem armazenamento: o painel só aparece quando o APK abre o app. */ }
+  // v34: o service worker não lê o localStorage; a versão do APK (e se os alarmes valem) vai para o banco.
+  db.put('meta', { id: 'device', apk: apkVersion(), alarms: alarmsReady() }).catch(() => {});
 }
 
 /** Os alarmes nativos deste celular estão valendo? Lembrado também sem internet. */
@@ -2164,6 +2217,7 @@ async function loadAlarms() {
     const changed = JSON.stringify(status) !== JSON.stringify(state.alarms);
     state.alarms = status;
     try { localStorage.setItem(ALARMS_KEY, status.active && status.ready ? 'ready' : ''); } catch { /* ok */ }
+    db.put('meta', { id: 'device', apk: apkVersion(), alarms: !!(status.active && status.ready) }).catch(() => {});
     if (changed && currentRoute().name === 'settings') render();
   } catch { /* Servidor fora: fica o que estava. */ }
 }
@@ -2187,7 +2241,7 @@ function alarmsPanel() {
   if (!version || !state.sync?.token) return '';
   const head = '<span class="lbl">Alarmes deste celular</span>';
   if (version < ALARMS_APK) {
-    return `<section class="panel">${head}<p>O app instalado ainda é o 1.3. Instale o APK 1.4 para os lembretes tocarem como alarme, na hora, mesmo com o celular parado e sem internet.</p></section>`;
+    return `<section class="panel">${head}<p>O app instalado ainda é o 1.3. Instale o APK 1.5 para os lembretes tocarem como alarme, na hora, mesmo com o celular parado e sem internet.</p></section>`;
   }
   const status = state.alarms;
   if (!status) return `<section class="panel">${head}<p class="help">Consultando…</p></section>`;

@@ -894,6 +894,9 @@ const JWT_HOURS = 12;
 const PUSH_SUBJECT = 'https://brunoignr-code.github.io/tarefas/';
 const PUSH_KINDS = new Set(['remind', 'insist', 'digest', 'test']);
 const DEFAULT_PUSH_SETTINGS = { digest: false, digestTime: '08:00', insistMinutes: 5 };
+// v34: lembrete que já tocou e foi resolvido (concluído, adiado, dispensado, mudado) num aparelho
+// sai do painel de notificações dos outros. Vale para o que tocou nas últimas 12 horas.
+const CLEAR_LOOKBACK_MS = 12 * 3600000;
 
 let tablesReady;
 const ensureTables = (env) => {
@@ -907,7 +910,9 @@ const ensureTables = (env) => {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS alarm_devices (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
       session_hash TEXT NOT NULL, sub_id TEXT, name TEXT, created_at INTEGER NOT NULL, last_seen INTEGER, ready INTEGER NOT NULL DEFAULT 0)`),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS alarm_covered (device_id TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (device_id, key))'),
-  ]).then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN session_hash TEXT')).catch((error) => {
+  ]).then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN session_hash TEXT'))
+    // v34: o aparelho entende o aviso de "limpar" (service worker novo). Os antigos não recebem esse push.
+    .then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN clear_ok INTEGER')).catch((error) => {
     tablesReady = null;
     throw error;
   });
@@ -969,17 +974,36 @@ async function vapidAuth(env, endpoint) {
   return cached.header;
 }
 
-async function sendPushes(env, keys = []) {
-  const { results: subs } = await env.DB.prepare(`SELECT p.id, p.endpoint, d.id AS device FROM push_subs p
+/** Para quem é o aviso de limpar: todos os aparelhos que entendem, menos o que resolveu. */
+function clearSkip(row) {
+  try {
+    const skip = JSON.parse(row.body || '{}');
+    return { session: skip.s || null, sub: skip.d || null };
+  } catch {
+    return { session: null, sub: null };
+  }
+}
+const clearFor = (row, sub) => {
+  const skip = clearSkip(row);
+  return !!sub.clear_ok && sub.id !== skip.sub && !(skip.session && sub.session_hash === skip.session);
+};
+
+/** `rows` = avisos que venceram agora ({ key, kind, body }); sem lista, manda para todos. */
+async function sendPushes(env, rows = null) {
+  const { results: subs } = await env.DB.prepare(`SELECT p.id, p.endpoint, p.session_hash, p.clear_ok, d.id AS device FROM push_subs p
     LEFT JOIN alarm_devices d ON d.sub_id = p.id AND d.ready = 1`).all();
   // v30: celular com os alarmes nativos já agendados para todos estes avisos não recebe o push.
+  const keys = (rows || []).filter((row) => row.kind !== 'clear').map((row) => row.key);
   const covered = new Map();
   if (keys.length && subs.some((sub) => sub.device)) {
     const { results } = await env.DB.prepare(`SELECT device_id, key FROM alarm_covered WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).all();
     results.forEach((row) => covered.set(row.device_id, (covered.get(row.device_id) || new Set()).add(row.key)));
   }
-  const skip = (sub) => sub.device && keys.length && keys.every((key) => covered.get(sub.device)?.has(key));
-  await Promise.all(subs.filter((sub) => !skip(sub)).map(async (sub) => {
+  // v34: o aviso de limpar vai só para quem entende e não para o aparelho que resolveu.
+  const wants = (sub) => !rows || rows.some((row) => (row.kind === 'clear'
+    ? clearFor(row, sub)
+    : !(sub.device && covered.get(sub.device)?.has(row.key))));
+  await Promise.all(subs.filter(wants).map(async (sub) => {
     try {
       const response = await fetch(sub.endpoint, {
         method: 'POST',
@@ -1007,11 +1031,11 @@ async function runPushes(env) {
       .bind(now - 86400000, now - STALE_MS).run();
   }
   // Marca antes de enviar: o aparelho que receber já encontra o aviso em /push/due.
-  const { results: due } = await env.DB.prepare('SELECT key FROM push_queue WHERE sent_at IS NULL AND at <= ? AND at >= ? LIMIT 100')
+  const { results: due } = await env.DB.prepare('SELECT key, kind, body FROM push_queue WHERE sent_at IS NULL AND at <= ? AND at >= ? LIMIT 100')
     .bind(now, now - STALE_MS).all();
   const marked = await env.DB.prepare('UPDATE push_queue SET sent_at = ? WHERE sent_at IS NULL AND at <= ? AND at >= ?')
     .bind(now, now, now - STALE_MS).run();
-  if (marked.meta.changes) await sendPushes(env, due.length < 100 ? due.map((row) => row.key) : []);
+  if (marked.meta.changes) await sendPushes(env, due.length < 100 ? due : null);
 }
 
 const subId = (endpoint) => sha256(endpoint);
@@ -1023,12 +1047,16 @@ async function pushState(request, env) {
 }
 
 async function pushSubscribe(request, env, current) {
-  const { endpoint } = await request.json();
+  const body = await request.json();
+  const { endpoint } = body;
   if (!validEndpoint(endpoint)) return reply(request, { error: 'Inscrição inválida.' }, 400);
   // A inscrição fica ligada à sessão: sair (ou a sessão vencer) corta os avisos deste aparelho.
+  const id = await subId(endpoint);
   await env.DB.prepare(`INSERT INTO push_subs (id, endpoint, created_at, session_hash) VALUES (?, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET session_hash = excluded.session_hash`)
-    .bind(await subId(endpoint), endpoint, Date.now(), current).run();
+    .bind(id, endpoint, Date.now(), current).run();
+  // v34: o app novo avisa que o service worker dele entende o aviso de limpar.
+  if (body.clear === true) await env.DB.prepare('UPDATE push_subs SET clear_ok = 1 WHERE id = ?').bind(id).run();
   return reply(request, { ok: true, devices: await deviceCount(env) });
 }
 
@@ -1056,6 +1084,30 @@ const clip = (value, max) => String(value ?? '').slice(0, max);
  * servidor antigo responder 404 em vez de tratar como agenda inteira. Sem `since` (versões antigas
  * do app), vale como antes.
  */
+/**
+ * v34: anota "limpar" para as tarefas cujo lembrete já tocou (nas últimas 12 h, até `upTo`) e que
+ * não estão mais pendentes. O cron manda o aviso aos outros aparelhos, que fecham a notificação.
+ * `only`: só esta tarefa; `keep`: tarefas ainda pendentes (as outras que tocaram são limpas).
+ */
+async function enqueueClears(env, { only = null, keep = null, upTo = Date.now(), skipSession = null, skipSub = null }) {
+  const now = Date.now();
+  const filter = only ? 'AND task_id = ?' : '';
+  const { results } = await env.DB.prepare(`SELECT task_id AS taskId, MAX(at) AS at FROM push_queue
+    WHERE sent_at IS NOT NULL AND kind IN ('remind', 'insist') AND task_id IS NOT NULL AND at >= ? AND at <= ? ${filter}
+    GROUP BY task_id`).bind(now - CLEAR_LOOKBACK_MS, Math.min(upTo, now), ...(only ? [only] : [])).all();
+  const rung = results.filter((row) => !keep || !keep.has(row.taskId));
+  if (!rung.length) return 0;
+  const { results: done } = await env.DB.prepare(`SELECT task_id AS taskId, MAX(at) AS at FROM push_queue
+    WHERE kind = 'clear' AND at >= ? GROUP BY task_id`).bind(now - CLEAR_LOOKBACK_MS).all();
+  const clearedAt = new Map(done.map((row) => [row.taskId, row.at]));
+  const fresh = rung.filter((row) => !(clearedAt.get(row.taskId) >= row.at));
+  if (!fresh.length) return 0;
+  const skip = JSON.stringify({ s: skipSession, d: skipSub });
+  const insert = env.DB.prepare("INSERT OR IGNORE INTO push_queue (key, at, task_id, kind, title, body) VALUES (?, ?, ?, 'clear', '', ?)");
+  await env.DB.batch(fresh.map((row) => insert.bind(`clear|${row.taskId}|${now}`, now, row.taskId, skip)));
+  return fresh.length;
+}
+
 // As rotas recebem (request, env, sessão): a troca por tarefa vem num quarto argumento.
 const pushTaskSchedule = (request, env, current) => pushSchedule(request, env, current, true);
 
@@ -1075,12 +1127,20 @@ async function pushSchedule(request, env, current, byTask = false) {
     const insert = env.DB.prepare('INSERT OR IGNORE INTO push_queue (key, at, task_id, kind, title, body) VALUES (?, ?, ?, ?, ?, ?)');
     await env.DB.batch([
       taskId
-        ? env.DB.prepare('DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ?').bind(taskId)
-        : env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND kind <> 'test'"),
+        ? env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ? AND kind <> 'clear'").bind(taskId)
+        : env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND kind NOT IN ('test', 'clear')"),
       ...items.map((item) => insert.bind(item.key, Math.round(item.at), item.taskId ? clip(item.taskId, 100) : null,
         item.kind, clip(item.title, 300), clip(item.body, 500))),
       ...(since !== null ? [writeMeta(env, 'pushScheduleSince', { since })] : []),
     ]);
+    // v34: o que tocou e não está mais pendente sai do painel dos outros aparelhos.
+    // Versões antigas do app não mandam `due`: nada muda para elas.
+    const upTo = Number.isFinite(body.now) ? body.now : Date.now();
+    if (taskId && body.due === false) {
+      await enqueueClears(env, { only: taskId, upTo, skipSession: current });
+    } else if (!taskId && Array.isArray(body.due) && body.due.length <= MAX_SCHEDULE && body.due.every((id) => typeof id === 'string')) {
+      await enqueueClears(env, { keep: new Set(body.due.map((id) => clip(id, 100))), upTo, skipSession: current });
+    }
   }
   const [settings, devices] = await Promise.all([readMeta(env, 'pushSettings'), deviceCount(env)]);
   return reply(request, { ok: true, stale, settings: normalizePushSettings(settings), devices });
@@ -1096,7 +1156,7 @@ async function pushTest(request, env) {
 
 /** Chamado pelo aparelho ao receber um push. A própria inscrição serve de credencial. */
 async function pushDue(request, env) {
-  const { endpoint } = await request.json();
+  const { endpoint, clear } = await request.json();
   if (typeof endpoint !== 'string') return reply(request, { error: 'Inscrição inválida.' }, 400);
   const known = await env.DB.prepare('SELECT id FROM push_subs WHERE id = ?').bind(await subId(endpoint)).first();
   if (!known) return reply(request, { error: 'Inscrição desconhecida.' }, 404);
@@ -1114,7 +1174,11 @@ async function pushDue(request, env) {
   const { results: mine } = await env.DB.prepare(`SELECT c.key FROM alarm_covered c JOIN alarm_devices d ON d.id = c.device_id
     WHERE d.sub_id = ? AND d.ready = 1`).bind(known.id).all();
   const skip = new Set(mine.map((row) => row.key));
-  return reply(request, { items: results.filter((item) => !skip.has(item.key)) });
+  // v34: só o service worker novo pede (e entende) os avisos de limpar; ele fica marcado para recebê-los.
+  if (clear === true) await env.DB.prepare('UPDATE push_subs SET clear_ok = 1 WHERE id = ? AND clear_ok IS NULL').bind(known.id).run();
+  const items = results.filter((item) => !skip.has(item.key) && (item.kind !== 'clear' || clear === true))
+    .map((item) => (item.kind === 'clear' ? { key: item.key, at: item.at, taskId: item.taskId, kind: 'clear' } : item));
+  return reply(request, { items });
 }
 
 /* ---------- Alarmes do app Android (v30) ---------- */
@@ -1191,7 +1255,7 @@ async function alarmsClaim(request, env) {
 async function alarmItems(env, device, ready) {
   const now = Date.now();
   const { results } = await env.DB.prepare(`SELECT key, at, task_id AS taskId, kind, title, body FROM push_queue
-    WHERE sent_at IS NULL AND at >= ? AND at <= ? ORDER BY at LIMIT ?`).bind(now - 60000, now + ALARM_HORIZON_MS, ALARM_MAX_ITEMS).all();
+    WHERE sent_at IS NULL AND kind <> 'clear' AND at >= ? AND at <= ? ORDER BY at LIMIT ?`).bind(now - 60000, now + ALARM_HORIZON_MS, ALARM_MAX_ITEMS).all();
   const insert = env.DB.prepare('INSERT OR IGNORE INTO alarm_covered (device_id, key) VALUES (?, ?)');
   await env.DB.batch([
     env.DB.prepare('DELETE FROM alarm_covered WHERE device_id = ?').bind(device.id),
@@ -1253,9 +1317,14 @@ async function alarmsAct(request, env, device) {
   await env.DB.batch([
     env.DB.prepare('UPDATE counter SET seq = seq + 1'),
     ...writes,
-    env.DB.prepare('DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ?').bind(taskId),
+    env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ? AND kind <> 'clear'").bind(taskId),
     ...items.map((item) => insert.bind(item.key, Math.round(item.at - shift), taskId, item.kind, clip(item.title, 300), clip(item.body, 500))),
   ]);
+  // v34: resolvido aqui, sai do painel dos outros aparelhos (este celular já tirou a dele).
+  const rules = SHARED_RULES.rules;
+  if (!rules.activeReminder(merged, rules.localDateTime(wallNow))) {
+    await enqueueClears(env, { only: taskId, upTo: realNow, skipSub: device.sub_id || null });
+  }
   return reply(request, { ok: true, ...(await alarmItems(env, device, !!device.ready)) });
 }
 

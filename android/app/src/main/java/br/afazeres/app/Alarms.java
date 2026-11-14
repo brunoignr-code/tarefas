@@ -234,7 +234,8 @@ final class Alarms {
                 .setShowWhen(true)
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_REMINDER)
-                .setContentIntent(openApp(c, "#today", code));
+                // v34: tocar na notificação abre a tarefa (antes abria Hoje).
+                .setContentIntent(openApp(c, task ? "#notif/open/" + Uri.encode(taskId) : "#today", code));
         if (task) {
             builder.addAction(action(c, item, "done", "Concluir", code + 1));
             builder.addAction(action(c, item, "tomorrow", "Amanhã", code + 2));
@@ -265,6 +266,54 @@ final class Alarms {
     static void cancelNotification(Context c, JSONObject item) {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (nm != null) nm.cancel(tagFor(item), 1);
+    }
+
+    /* ---------- v34: sinal do app web (pela DelegationService) ---------- */
+
+    /**
+     * {"clear":[{"t":tarefa,"at":ms}], "due":[tarefas pendentes], "at":ms}
+     * clear: tira a notificação do alarme daquela tarefa mostrada antes de `at` (resolvida em outro
+     * aparelho ou pelo botão do site). due: tira as notificações de lembrete das tarefas que não estão
+     * mais pendentes. Depois refaz a agenda dos alarmes (com internet; sem, assim que voltar).
+     */
+    static void handleSignal(Context c, String json) {
+        Context app = c.getApplicationContext();
+        try {
+            JSONObject signal = new JSONObject(json);
+            long at = signal.optLong("at", System.currentTimeMillis());
+            NotificationManager nm = app.getSystemService(NotificationManager.class);
+            if (nm != null) {
+                java.util.Map<String, Long> clear = new java.util.HashMap<>();
+                JSONArray list = signal.optJSONArray("clear");
+                for (int i = 0; list != null && i < list.length(); i++) {
+                    JSONObject one = list.optJSONObject(i);
+                    if (one != null && !one.optString("t").isEmpty()) clear.put(one.optString("t"), one.optLong("at", at));
+                }
+                Set<String> due = null;
+                JSONArray dueList = signal.optJSONArray("due");
+                if (dueList != null) {
+                    due = new HashSet<>();
+                    for (int i = 0; i < dueList.length(); i++) due.add(dueList.optString(i));
+                }
+                for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
+                    String tag = sbn.getTag();
+                    if (tag == null || sbn.getId() != 1 || !CHANNEL.equals(sbn.getNotification().getChannelId())) continue;
+                    Long until = clear.get(tag);
+                    boolean resolvedHere = due != null && !due.contains(tag) && sbn.getPostTime() <= at;
+                    if ((until != null && sbn.getPostTime() <= until) || resolvedHere) nm.cancel(tag, 1);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Sinal do app não entendido", e);
+        }
+        if (!paired(app)) return;
+        IO.execute(() -> {
+            try {
+                refresh(app);
+            } catch (Exception e) {
+                RefreshJob.runSoon(app);
+            }
+        });
     }
 
     /* ---------- Avisos já mostrados (para não repetir ao ligar o celular) ---------- */

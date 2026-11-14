@@ -53,7 +53,8 @@ export const fetchPushState = (token) => post('/push/state', {}, token);
 export async function refreshSubscription(token) {
   const subscription = await currentSubscription();
   if (!subscription) return false;
-  await post('/push/subscribe', { endpoint: subscription.endpoint }, token);
+  // v34: `clear` avisa que este service worker entende o aviso de limpar notificação resolvida.
+  await post('/push/subscribe', { endpoint: subscription.endpoint, clear: true }, token);
   return true;
 }
 
@@ -74,7 +75,7 @@ export async function enablePush(token) {
   if (!subscription) {
     subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(publicKey) });
   }
-  const result = await post('/push/subscribe', { endpoint: subscription.endpoint }, token);
+  const result = await post('/push/subscribe', { endpoint: subscription.endpoint, clear: true }, token);
   return { endpoint: subscription.endpoint, devices: result.devices };
 }
 
@@ -99,11 +100,16 @@ export const sendPushTest = (token) => post('/push/test', {}, token);
  */
 export async function uploadSchedule(token, hooks, force = false) {
   const local = hooks.local();
-  const items = buildSchedule(hooks.tasks(), new Date(), local.settings);
-  const hash = JSON.stringify([local.settings, items]);
+  const nowDate = new Date();
+  const items = buildSchedule(hooks.tasks(), nowDate, local.settings);
+  // v34: as tarefas com lembrete pendente agora. O que já tocou e saiu desta lista (concluído,
+  // adiado, dispensado) o servidor tira do painel de notificações dos outros aparelhos.
+  const due = hooks.due ? hooks.due(nowDate) : null;
+  const hash = JSON.stringify([local.settings, items, due]);
   if (!force && hash === local.hash) return false;
   const since = hooks.since?.();
-  const result = await post('/push/schedule', Number.isInteger(since) ? { items, since } : { items }, token);
+  const payload = { items, ...(Number.isInteger(since) ? { since } : {}), ...(due ? { due, now: nowDate.getTime() } : {}) };
+  const result = await post('/push/schedule', payload, token);
   if (result.stale) return 'stale';
   const settings = normalizePushSettings(result.settings);
   if (JSON.stringify(settings) !== JSON.stringify(normalizePushSettings(local.settings))) {

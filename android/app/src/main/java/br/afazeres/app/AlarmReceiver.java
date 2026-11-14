@@ -7,7 +7,7 @@ import android.content.Intent;
 import org.json.JSONObject;
 
 /**
- * Hora do lembrete. Com internet, confere em até 3 s se o aviso ainda vale (tarefa concluída ou
+ * Hora do lembrete. Com internet, confere (6 s e mais 3 s) se o aviso ainda vale (tarefa concluída ou
  * mudada em outro aparelho sai da fila do servidor e não toca). Sem internet, toca assim mesmo:
  * melhor um lembrete a mais do que um a menos.
  */
@@ -23,14 +23,21 @@ public class AlarmReceiver extends BroadcastReceiver {
             try {
                 JSONObject item = new JSONObject(raw);
                 boolean valid = true;
-                try {
-                    JSONObject check = Net.post("/alarms/check", new JSONObject().put("key", item.optString("key")), Alarms.token(app), 3000);
-                    valid = check.optBoolean("valid", true);
-                } catch (Net.Unauthorized e) {
-                    // A chave não vale mais: este lembrete ainda toca, e os próximos param.
-                    Alarms.unpair(app);
-                } catch (Exception ignored) {
-                    // Sem internet ou servidor lento: toca.
+                // v34: com o celular parado, a internet demora a acordar. Antes esperava só 3 s e tocava
+                // assim mesmo (uma tarefa já concluída tocou às 5h). Agora 6 s e mais uma tentativa de 3 s.
+                int[] waits = {6000, 3000};
+                for (int i = 0; i < waits.length; i++) {
+                    try {
+                        JSONObject check = Net.post("/alarms/check", new JSONObject().put("key", item.optString("key")), Alarms.token(app), waits[i]);
+                        valid = check.optBoolean("valid", true);
+                        break;
+                    } catch (Net.Unauthorized e) {
+                        // A chave não vale mais: este lembrete ainda toca, e os próximos param.
+                        Alarms.unpair(app);
+                        break;
+                    } catch (Exception ignored) {
+                        // Sem internet ou servidor lento: tenta de novo; sem resposta, toca.
+                    }
                 }
                 if (valid) Alarms.show(app, item);
                 else Alarms.markShown(app, item.optString("key"));
