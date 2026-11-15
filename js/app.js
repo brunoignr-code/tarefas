@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v35 · 15/11/2026';
+const APP_VERSION = 'v36 · 15/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -2258,7 +2258,7 @@ function alarmsPanel() {
   if (!version || !state.sync?.token) return '';
   const head = '<span class="lbl">Alarmes deste celular</span>';
   if (version < ALARMS_APK) {
-    return `<section class="panel">${head}<p>O app instalado ainda é o 1.3. Instale o APK 1.5 para os lembretes tocarem como alarme, na hora, mesmo com o celular parado e sem internet.</p></section>`;
+    return `<section class="panel">${head}<p>O app instalado ainda é o 1.3. Instale o APK 1.6 para os lembretes tocarem como alarme, na hora, mesmo com o celular parado e sem internet.</p></section>`;
   }
   const status = state.alarms;
   if (!status) return `<section class="panel">${head}<p class="help">Consultando…</p></section>`;
@@ -2270,13 +2270,18 @@ function alarmsPanel() {
       <p class="help" style="margin:8px 0 0">O Android vai pedir para permitir notificações (e, em alguns celulares, alarmes e lembretes).</p>
     </section>`;
   }
-  const seen = status.lastSeen ? `agenda atualizada ${formatDate(localDate(new Date(status.lastSeen))).toLowerCase()} às ${localDateTime(new Date(status.lastSeen)).slice(11)}` : 'agenda ainda não buscada';
+  const when = (ms) => `${formatDate(localDate(new Date(ms))).toLowerCase()} às ${localDateTime(new Date(ms)).slice(11)}`;
+  const seen = status.lastSeen ? `agenda atualizada ${when(status.lastSeen)}` : 'agenda ainda não buscada';
+  // v36: o APK 1.6 conta o que recebeu do site (a ponte) e quantas notificações resolvidas tirou do painel.
+  const bridge = status.bridge;
+  const bridgeLine = bridge ? `<p class="help">Ponte com o site (APK ${escapeHtml(bridge.apk || '')}): ${bridge.lastSignalAt ? `último sinal recebido ${escapeHtml(when(bridge.lastSignalAt))}` : 'nenhum sinal recebido ainda'} · ${bridge.calls || 0} ${bridge.calls === 1 ? 'notificação entregue' : 'notificações entregues'} pelo Chrome · ${bridge.cleared || 0} ${bridge.cleared === 1 ? 'resolvida tirada' : 'resolvidas tiradas'} do painel.</p>` : '';
   return `
     <section class="panel">${head}
       <p><b>${status.ready ? 'Ativos' : 'Ativados, mas o Android não deixou'}</b> neste celular (${escapeHtml(status.name || 'Android')}) · ${escapeHtml(seen)}.</p>
       ${status.ready
     ? '<p class="help">Os avisos já agendados aqui não vêm de novo pelo push; os que chegam de outro aparelho entre uma atualização e outra continuam vindo por push.</p>'
     : '<p class="help">Libere as notificações do Afazeres (e “Alarmes e lembretes”, se aparecer) nas configurações do Android e toque em Ativar de novo. Enquanto isso, os avisos seguem pelo push.</p>'}
+      ${bridgeLine}
       <div class="fit-box"><div class="fit fit-pair">
         <button class="btn small" data-action="alarms-pair">${status.ready ? 'Atualizar agora' : 'Ativar de novo'}</button>
         <button class="btn small" data-action="alarms-revoke">Desativar</button>

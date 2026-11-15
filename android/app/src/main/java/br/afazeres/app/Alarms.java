@@ -106,7 +106,7 @@ final class Alarms {
     /** Busca a agenda no servidor e reagenda os alarmes. Sem chave válida, desliga os alarmes deste celular. */
     static boolean refresh(Context c) throws Exception {
         if (!paired(c)) return false;
-        JSONObject body = new JSONObject().put("exact", canExact(c)).put("notify", canNotify(c));
+        JSONObject body = new JSONObject().put("exact", canExact(c)).put("notify", canNotify(c)).put("bridge", bridgeInfo(c));
         JSONObject res;
         try {
             res = Net.post("/alarms/list", body, token(c), 15000);
@@ -115,8 +115,87 @@ final class Alarms {
             return false;
         }
         applyItems(c, res.optJSONArray("items"));
+        applyResolved(c, res.optJSONArray("resolved"));
         prefs(c).edit().putLong("refreshedAt", System.currentTimeMillis()).apply();
         return true;
+    }
+
+    /* ---------- v36 (APK 1.6): tirar do painel o que foi resolvido em outro aparelho ---------- */
+
+    /**
+     * O servidor manda, junto com a agenda, as tarefas cujo lembrete foi resolvido nas últimas 12 h
+     * ([{"t": tarefa, "at": hora da limpeza}]). A notificação do alarme dessas tarefas, mostrada antes
+     * dessa hora, sai do painel. Não depende do sinal do site (que não chegou ao APK 1.5 nos celulares).
+     */
+    static int applyResolved(Context c, JSONArray resolved) {
+        if (resolved == null || resolved.length() == 0) return 0;
+        java.util.Map<String, Long> clear = new java.util.HashMap<>();
+        for (int i = 0; i < resolved.length(); i++) {
+            JSONObject one = resolved.optJSONObject(i);
+            if (one == null || one.optString("t").isEmpty()) continue;
+            Long before = clear.get(one.optString("t"));
+            long at = one.optLong("at", 0);
+            if (before == null || at > before) clear.put(one.optString("t"), at);
+        }
+        int n = cancelResolved(c, clear, null, 0);
+        if (n > 0) addBridge(c, "cleared", n);
+        return n;
+    }
+
+    /** Tira as notificações de alarme resolvidas; devolve quantas saíram. */
+    static int cancelResolved(Context c, java.util.Map<String, Long> clear, Set<String> due, long dueAt) {
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        if (nm == null) return 0;
+        int n = 0;
+        for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
+            String tag = sbn.getTag();
+            if (tag == null || sbn.getId() != 1 || !CHANNEL.equals(sbn.getNotification().getChannelId())) continue;
+            Long until = clear.get(tag);
+            boolean resolvedHere = due != null && !due.contains(tag) && sbn.getPostTime() <= dueAt;
+            if ((until != null && sbn.getPostTime() <= until) || resolvedHere) {
+                nm.cancel(tag, 1);
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** Há notificação de lembrete deste app no painel? */
+    static boolean hasReminderOnScreen(Context c) {
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        if (nm == null) return false;
+        for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
+            if (sbn.getId() == 1 && sbn.getTag() != null && CHANNEL.equals(sbn.getNotification().getChannelId())) return true;
+        }
+        return false;
+    }
+
+    /* Registro da ponte (o servidor guarda e o app mostra em Config. › Avisos). Só números e horários. */
+
+    static synchronized void addBridge(Context c, String counter, int amount) {
+        SharedPreferences p = prefs(c);
+        p.edit().putInt("bridge." + counter, p.getInt("bridge." + counter, 0) + amount).apply();
+    }
+
+    static void stampBridge(Context c, String field) {
+        prefs(c).edit().putLong("bridge." + field, System.currentTimeMillis()).apply();
+    }
+
+    static JSONObject bridgeInfo(Context c) {
+        SharedPreferences p = prefs(c);
+        JSONObject info = new JSONObject();
+        try {
+            info.put("calls", p.getInt("bridge.calls", 0))
+                    .put("signals", p.getInt("bridge.signals", 0))
+                    .put("cleared", p.getInt("bridge.cleared", 0))
+                    .put("lastCallAt", p.getLong("bridge.lastCallAt", 0))
+                    .put("lastSignalAt", p.getLong("bridge.lastSignalAt", 0))
+                    .put("lastWatchAt", p.getLong("bridge.lastWatchAt", 0))
+                    .put("apk", BuildConfig.VERSION_NAME);
+        } catch (JSONException ignored) {
+            // Só registro.
+        }
+        return info;
     }
 
     /** Guarda a agenda nova e reagenda. */
@@ -177,6 +256,7 @@ final class Alarms {
         prefs(c).edit().remove("token").putString("items", "[]").apply();
         scheduleCached(c);
         RefreshJob.cancel(c);
+        Watch.stop(c);
     }
 
     /** O dado (data) do Intent diferencia um alarme do outro: dois avisos nunca se sobrepõem. */
@@ -243,6 +323,8 @@ final class Alarms {
         }
         nm.notify(tagFor(item), 1, builder.build());
         markShown(c, key);
+        // v36: enquanto ela estiver no painel, o app confere de tempos em tempos se já foi resolvida em outro aparelho.
+        if (task) Watch.start(c);
     }
 
     /** Troca o texto da notificação (sem internet num botão, por exemplo) e oferece abrir o app. */
@@ -278,31 +360,26 @@ final class Alarms {
      */
     static void handleSignal(Context c, String json) {
         Context app = c.getApplicationContext();
+        addBridge(app, "signals", 1);
+        stampBridge(app, "lastSignalAt");
         try {
             JSONObject signal = new JSONObject(json);
             long at = signal.optLong("at", System.currentTimeMillis());
-            NotificationManager nm = app.getSystemService(NotificationManager.class);
-            if (nm != null) {
-                java.util.Map<String, Long> clear = new java.util.HashMap<>();
-                JSONArray list = signal.optJSONArray("clear");
-                for (int i = 0; list != null && i < list.length(); i++) {
-                    JSONObject one = list.optJSONObject(i);
-                    if (one != null && !one.optString("t").isEmpty()) clear.put(one.optString("t"), one.optLong("at", at));
-                }
-                Set<String> due = null;
-                JSONArray dueList = signal.optJSONArray("due");
-                if (dueList != null) {
-                    due = new HashSet<>();
-                    for (int i = 0; i < dueList.length(); i++) due.add(dueList.optString(i));
-                }
-                for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
-                    String tag = sbn.getTag();
-                    if (tag == null || sbn.getId() != 1 || !CHANNEL.equals(sbn.getNotification().getChannelId())) continue;
-                    Long until = clear.get(tag);
-                    boolean resolvedHere = due != null && !due.contains(tag) && sbn.getPostTime() <= at;
-                    if ((until != null && sbn.getPostTime() <= until) || resolvedHere) nm.cancel(tag, 1);
-                }
+            java.util.Map<String, Long> clear = new java.util.HashMap<>();
+            JSONArray list = signal.optJSONArray("clear");
+            for (int i = 0; list != null && i < list.length(); i++) {
+                JSONObject one = list.optJSONObject(i);
+                if (one != null && !one.optString("t").isEmpty()) clear.put(one.optString("t"), one.optLong("at", at));
             }
+            Set<String> due = null;
+            JSONArray dueList = signal.optJSONArray("due");
+            if (dueList != null) {
+                due = new HashSet<>();
+                for (int i = 0; i < dueList.length(); i++) due.add(dueList.optString(i));
+            }
+            int n = cancelResolved(app, clear, due, at);
+            if (n > 0) addBridge(app, "cleared", n);
+            Log.i(TAG, "Sinal do site recebido: " + clear.size() + " para limpar, " + n + " notificação(ões) tirada(s)");
         } catch (Exception e) {
             Log.w(TAG, "Sinal do app não entendido", e);
         }

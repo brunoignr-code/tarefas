@@ -398,10 +398,10 @@ window.fetch = prevFetch;
   // v35: notificação velha (já resolvida em outro aparelho) não conclui a próxima ocorrência.
   const logs4 = () => sql1("SELECT data FROM items WHERE kind = 'log'").map((r) => JSON.parse(r[0])).filter((l) => l.taskId === 'act4').length;
   const again4 = await call('/alarms/act', { taskId: 'act4', action: 'done', offset: OFFSET }, dev);
-  check('v35: Concluir de novo numa repetição já resolvida não faz nada (e tira a notificação)', again4.body.ok === true && again4.body.resolved === true
+  check('v35: Concluir de novo numa repetição já resolvida não faz nada (e tira a notificação)', again4.body.ok === true && again4.body.stale === true
     && getTask('act4').when === tomorrow && logs4() === 1);
   const later4 = await call('/alarms/act', { taskId: 'act4', action: 'tomorrow', offset: OFFSET }, dev);
-  check('v35: Amanhã de uma notificação velha não empurra a próxima ocorrência', later4.body.resolved === true && getTask('act4').when === tomorrow);
+  check('v35: Amanhã de uma notificação velha não empurra a próxima ocorrência', later4.body.stale === true && getTask('act4').when === tomorrow);
   check('ações: tarefa que não existe mais não quebra', (await call('/alarms/act', { taskId: 'nada', action: 'done', offset: OFFSET }, dev)).body.ok === false);
   check('ações: ação desconhecida recusada', (await call('/alarms/act', { taskId: 'act4', action: 'apagar', offset: OFFSET }, dev)).status === 400);
 
@@ -527,6 +527,18 @@ window.fetch = prevFetch;
   const pa2 = await call('/push/act', { taskId: 'pa', action: 'done', offset: OFFSET }, tokQ);
   check('v35: o mesmo botão no outro celular não conclui de novo', pa2.body.ok === true && pa2.body.resolved === true && !pa2.body.task && logsPa() === 1);
   check('v35: /push/act de tarefa que não existe não quebra', (await call('/push/act', { taskId: 'nada', action: 'done', offset: OFFSET }, tokP)).body.ok === false);
+
+  // ---------- v36: o APK 1.6 tira o que foi resolvido sem depender da ponte, e conta o que recebeu ----------
+  const l36 = await call('/alarms/list', { exact: true, notify: true, bridge: { calls: 3, signals: 1, cleared: 1, lastCallAt: 1700000000000, lastSignalAt: 1700000001000, apk: '1.6', lixo: 'x' } }, dev);
+  const res36 = l36.body.resolved || [];
+  check('v36: a agenda dos alarmes traz o que foi resolvido (tarefa e hora da limpeza)', res36.some((r) => r.t === 'pa' && r.at > 0) && res36.some((r) => r.t === 'r1'));
+  check('v36: só uma linha por tarefa (a limpeza mais nova)', new Set(res36.map((r) => r.t)).size === res36.length);
+  const st36 = await call('/alarms/status', {}, tokQ);
+  check('v36: o app web vê o registro da ponte do celular', st36.body.bridge?.calls === 3 && st36.body.bridge?.lastSignalAt === 1700000001000 && st36.body.bridge?.apk === '1.6' && !('lixo' in st36.body.bridge));
+  await call('/alarms/list', { exact: true, notify: true }, dev);
+  check('v36: APK antigo (sem registro) não apaga o registro guardado', (await call('/alarms/status', {}, tokQ)).body.bridge?.calls === 3);
+  const act36 = await call('/alarms/act', { taskId: 'pa', action: 'done', offset: OFFSET }, dev);
+  check('v36: a resposta do botão do alarme também traz o que foi resolvido', Array.isArray(act36.body.resolved) && act36.body.resolved.some((r) => r.t === 'pa'));
   await call('/alarms/revoke', {}, tokQ);
   await Promise.all([tokP, tokQ, tokN].map((t) => call('/logout', {}, t)));
 }

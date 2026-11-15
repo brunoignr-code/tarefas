@@ -927,7 +927,9 @@ const ensureTables = (env) => {
     env.DB.prepare('CREATE TABLE IF NOT EXISTS alarm_covered (device_id TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (device_id, key))'),
   ]).then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN session_hash TEXT'))
     // v34: o aparelho entende o aviso de "limpar" (service worker novo). Os antigos não recebem esse push.
-    .then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN clear_ok INTEGER')).catch((error) => {
+    .then(() => addColumn(env, 'ALTER TABLE push_subs ADD COLUMN clear_ok INTEGER'))
+    // v36: registro da ponte do site para o APK (o que o Android recebeu), mostrado em Config. › Avisos.
+    .then(() => addColumn(env, 'ALTER TABLE alarm_devices ADD COLUMN bridge TEXT')).catch((error) => {
     tablesReady = null;
     throw error;
   });
@@ -1291,11 +1293,29 @@ async function alarmItems(env, device, ready) {
     ...(ready ? results.map((item) => insert.bind(device.id, item.key)) : []),
     env.DB.prepare('UPDATE alarm_devices SET ready = ?, last_seen = ? WHERE id = ?').bind(ready ? 1 : 0, now, device.id),
   ]);
-  return { items: results, now, ready };
+  // v36: lembretes resolvidos nas últimas 12 h (concluídos, adiados, mudados em qualquer aparelho). O APK 1.6
+  // tira do painel a notificação do alarme dessas tarefas mostrada antes da hora da limpeza, sem depender
+  // do sinal do site, que não chegou ao APK 1.5 nos celulares reais.
+  const { results: resolved } = await env.DB.prepare(`SELECT task_id AS t, MAX(at) AS at FROM push_queue
+    WHERE kind = 'clear' AND task_id IS NOT NULL AND at >= ? GROUP BY task_id`).bind(now - CLEAR_LOOKBACK_MS).all();
+  return { items: results, now, ready, resolved };
+}
+
+/** v36: o que o APK conta da ponte (só números e horários). */
+function bridgeInfo(input) {
+  if (!input || typeof input !== 'object') return null;
+  const num = (value) => (Number.isFinite(value) && value >= 0 ? Math.round(value) : 0);
+  return {
+    calls: num(input.calls), signals: num(input.signals), cleared: num(input.cleared),
+    lastCallAt: num(input.lastCallAt), lastSignalAt: num(input.lastSignalAt), lastWatchAt: num(input.lastWatchAt),
+    apk: clip(input.apk, 10),
+  };
 }
 
 async function alarmsList(request, env, device) {
-  const { exact, notify } = await request.json().catch(() => ({}));
+  const { exact, notify, bridge } = await request.json().catch(() => ({}));
+  const info = bridgeInfo(bridge);
+  if (info) await env.DB.prepare('UPDATE alarm_devices SET bridge = ? WHERE id = ?').bind(JSON.stringify(info), device.id).run();
   // Só conta como coberto se o Android pode agendar alarme exato e mostrar notificação.
   return reply(request, await alarmItems(env, device, exact === true && notify === true));
 }
@@ -1368,9 +1388,10 @@ async function alarmsAct(request, env, device) {
   const body = await request.json().catch(() => ({}));
   if (!validAction(body)) return reply(request, { error: 'Pedido inválido.' }, 400);
   const done = await applyNotificationAction(env, body, { skipSub: device.sub_id || null });
-  // v35: `ok` também quando a notificação era de antes: o APK 1.5 só a tira do painel.
+  // v35: `ok` também quando a notificação era de antes: o APK 1.5 só a tira do painel (`stale`).
+  // v36: `resolved` é a lista do que foi resolvido (vem de alarmItems), para o APK 1.6.
   return reply(request, {
-    ok: done.ok, ...(done.error ? { error: done.error } : {}), ...(done.resolved ? { resolved: true } : {}),
+    ok: done.ok, ...(done.error ? { error: done.error } : {}), ...(done.resolved ? { stale: true } : {}),
     ...(await alarmItems(env, device, !!device.ready)),
   });
 }
@@ -1384,9 +1405,11 @@ async function pushAct(request, env, current) {
 
 /** App web: este celular tem alarmes nativos ativos? */
 async function alarmsStatus(request, env, current) {
-  const row = await env.DB.prepare('SELECT id, name, ready, last_seen, created_at FROM alarm_devices WHERE session_hash = ?').bind(current).first();
+  const row = await env.DB.prepare('SELECT id, name, ready, last_seen, created_at, bridge FROM alarm_devices WHERE session_hash = ?').bind(current).first();
+  let bridge = null;
+  try { bridge = row?.bridge ? JSON.parse(row.bridge) : null; } catch { bridge = null; }
   return reply(request, row
-    ? { active: true, ready: !!row.ready, name: row.name, lastSeen: row.last_seen, createdAt: row.created_at }
+    ? { active: true, ready: !!row.ready, name: row.name, lastSeen: row.last_seen, createdAt: row.created_at, bridge }
     : { active: false });
 }
 

@@ -107,6 +107,8 @@
 
         <receiver android:name=".AlarmReceiver" android:exported="false" />
         <receiver android:name=".ActionReceiver" android:exported="false" />
+        <!-- v36: confere se a notificação do lembrete já foi resolvida em outro aparelho -->
+        <receiver android:name=".Watch" android:exported="false" />
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

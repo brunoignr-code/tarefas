@@ -72,7 +72,20 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (15 de novembro de 2026, v35; APK 1.5)
+## Estado do projeto (15 de novembro de 2026, v36 e APK 1.6)
+
+### v36 e APK 1.6, 15 de novembro: a notificação do alarme sai sem depender da ponte
+
+Teste da v35 nos celulares: o aviso de limpar chegou ("limpar 1 lembrete (nenhuma do site aberta, sinal ao Android)"), mas a notificação do **alarme do Android** continuou no outro celular. Ou o sinal do site não chega ao APK pela `DelegationService`, ou chega e ele não age; sem registro no celular, não dava para saber. **Precisa colar o servidor no painel antes de publicar o app e instalar o APK 1.6** (`C:\Python - localpk-afazeresfazeres-1.6.apk`, mesma chave do 1.5: instala por cima, sem perder nada nem ativar de novo). O formato das tarefas e o login não mudam.
+
+- **Reserva que não depende da ponte:** a agenda dos alarmes (`/alarms/list`) e a resposta dos botões do alarme (`/alarms/act`) trazem agora `resolved`, as tarefas cujo lembrete foi resolvido nas últimas 12 h e a hora da limpeza. O APK 1.6 tira do painel a notificação do alarme dessas tarefas mostrada antes dessa hora, toda vez que atualiza a agenda: ao abrir o app, ao ligar o celular, a cada ~15 min, depois de cada botão e quando o sinal do site chega.
+- **Conferência enquanto há notificação no painel** (`Watch`): 2 min e 5 min depois de tocar e, enquanto ela continuar lá, a cada 15 min, por até 12 h. Com o celular parado, o Android junta esses despertares (~10 a 15 min).
+- **Registro da ponte:** o APK conta cada notificação que o Chrome entrega a ele, cada sinal reconhecido e quantas resolvidas tirou, e manda ao servidor (coluna nova `alarm_devices.bridge`, criada sozinha). Em Config. › Avisos › Alarmes deste celular aparece "Ponte com o site (APK 1.6): último sinal recebido … · N notificações entregues pelo Chrome · N resolvidas tiradas do painel". Se as notificações entregues ficarem em 0, o Chrome não está passando as notificações ao APK, e a ponte não tem como funcionar.
+- **Sinal mais tolerante:** o JSON é procurado também no texto longo da notificação, e cada entrega fica no log do Android.
+- Na resposta do `/alarms/act`, o aviso "notificação de antes" da v35 passou a se chamar `stale` (`resolved` agora é a lista); o APK 1.5 só olha o `ok`, então nada muda para ele.
+- **Testado:** 134 testes do servidor (5 novos: a agenda e o botão trazendo o que foi resolvido, uma linha por tarefa, o registro da ponte guardado e mostrado, APK antigo sem apagar o registro); 76 das regras; APK 1.6 compilado e conferido (mesma chave do 1.5, versão 1.6, código 7, só o servidor real dentro). No emulador, antes de o teste ser interrompido a pedido (lento): o APK 1.6 debug instalado, o pareamento com um servidor falso no PC e o registro da ponte chegando ao servidor; o app abriu como TWA.
+- **Não testado:** a notificação do alarme saindo do painel, a conferência periódica, o sinal chegando ao APK e o registro novo em Config. › Avisos, em celular de verdade ou no emulador.
+
 
 ### v35, 15 de novembro: a notificação resolvida não volta, e o remédio não é concluído duas vezes
 

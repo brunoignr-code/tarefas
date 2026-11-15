@@ -33,6 +33,8 @@ public class ActionReceiver extends BroadcastReceiver {
                     Alarms.showProblem(app, item, res.optString("error", "Não deu para fazer isso agora.") + " Toque para abrir o app.", "#today");
                 }
                 Alarms.applyItems(app, res.optJSONArray("items"));
+                // v36: o que foi resolvido em outro aparelho também sai do painel.
+                Alarms.applyResolved(app, res.optJSONArray("resolved"));
             } catch (Net.Unauthorized e) {
                 Alarms.unpair(app);
                 if (item != null) offline(app, item, action);
