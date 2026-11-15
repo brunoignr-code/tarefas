@@ -5,13 +5,20 @@ Copie o bloco abaixo no novo chat, aberto nesta mesma pasta. A próxima ação j
 ```text
 Continuando o meu gerenciador de tarefas "Minha lista de afazeres" (PWA pessoal, alternativa ao Microsoft To Do).
 
-Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v30 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
+Antes de mudar qualquer coisa, leia o README.md desta pasta (principalmente "Estado do projeto", da v34 para trás), este PROXIMO-CHAT.md e o memory do projeto. O escopo atualizado em 12/11 está em https://claude.ai/artifact/2c4hW8AsWTP1yRBnESSNKY (seção "Estado em 12/11/2026 (v23)").
 
 PRÓXIMA AÇÃO (pedido meu):
-[escreva aqui o que quer agora; se não houver, colete os feedbacks de uso real abaixo e ajuste]
+Descobrir por que a notificação resolvida num celular NÃO sumiu do outro (v34 + APK 1.5; os dois estavam na v34 com certeza) e corrigir. Não faça a "v35 limpar ao abrir" antes do diagnóstico: ela depende da mesma ponte com o Android.
+Eu vou trazer as respostas destas duas perguntas (se não trouxer, me peça antes de mexer):
+1. No celular onde a notificação ficou, Config. › Avisos › "Últimos avisos que chegaram a este aparelho" tinha uma linha no horário em que concluí no outro ("nada novo para mostrar")?
+   - Tem: o aviso de limpar chegou; o problema está no APK (ponte da DelegationService) → APK novo, num dia em que eu topar instalar.
+   - Não tem: o aviso não chegou; o problema está no servidor ou no site (ex.: push_subs.clear_ok não marcado, cron sem mandar para esse aparelho, /push/due) → corrigir sem APK.
+2. Apareceu alguma notificação estranha "Atualizando os lembretes" (texto entre chaves) ou "Lembrete resolvido em outro aparelho"? A primeira = a ponte com o Android não funcionou; a segunda = o aviso chegou e não sobrou notificação do site.
+Se o problema for no servidor/site, um registro melhor em "Últimos avisos" (mostrar quando chegou um aviso de limpar e quantas fechou) ajuda o próximo teste. Não abrir o emulador. Peça antes de publicar ou implantar.
 
-Onde paramos (14/11/2026):
-- v34 + APK 1.5 publicados (servidor implantado antes, 14/11 12:17 UTC; falta eu instalar C:\Python - local\apk-afazeres\afazeres-1.5.apk nos dois celulares): notificação resolvida num aparelho (concluída, adiada, dispensada, mudada) some dos outros em até 1 min (aviso "limpar" do servidor; se não sobrar nenhuma notificação, aparece 4 s "Lembrete resolvido em outro aparelho"); tocar no alarme do Android abre a tarefa; o site avisa o Android na hora por uma notificação-sinal "Atualizando os lembretes" que o APK 1.5 intercepta (DelegationService) e refaz a agenda; conferência na hora de tocar 6 s + 3 s (o remédio tinha tocado às 5h depois de concluído). Não usar o emulador (PC sem RAM).
+Onde paramos (15/11/2026):
+- 15/11: instalei o APK 1.5 nos dois celulares e testei: a limpeza entre celulares NÃO funcionou (ver PRÓXIMA AÇÃO). Os dois estavam na v34.
+- v34 + APK 1.5 publicados (servidor implantado antes, 14/11 12:17 UTC; instalei C:\Python - local\apk-afazeres\afazeres-1.5.apk nos dois celulares): notificação resolvida num aparelho (concluída, adiada, dispensada, mudada) some dos outros em até 1 min (aviso "limpar" do servidor; se não sobrar nenhuma notificação, aparece 4 s "Lembrete resolvido em outro aparelho"); tocar no alarme do Android abre a tarefa; o site avisa o Android na hora por uma notificação-sinal "Atualizando os lembretes" que o APK 1.5 intercepta (DelegationService) e refaz a agenda; conferência na hora de tocar 6 s + 3 s (o remédio tinha tocado às 5h depois de concluído). Não usar o emulador (PC sem RAM).
 - v33 publicada (só app): ícone de sino com seta de voltar no cabeçalho de Hoje devolve ao painel, em silêncio e sem duplicar (pula o que ainda está no painel), todos os lembretes de tarefas abertas que já tocaram (hoje, mesmo dispensados, e pendentes de dias anteriores; até 20; respeita adiamento). Também em Config. › Avisos › "Tirou uma notificação sem querer?" e no ⋯ da tarefa; o sino saiu do cartão do lembrete. Com os alarmes do APK ativos, a notificação do alarme (do Android) não é vista pelo app.
 - v32 publicada (só app): "mostrar a notificação de novo" para quando eu tirar sem querer do painel. Sino ao lado do X no cartão do lembrete em Hoje e item no menu da tarefa; vale para tarefa aberta com lembrete pendente ou de hoje que já passou (mesmo depois de Dispensar), inclusive com os alarmes do APK ativos.
 - 13/11: "Aparelhos inscritos na conta: 3" em Config. › Avisos conta as inscrições de aviso (push_subs), não as sessões; o provável terceiro é o Chrome do notebook. Conferir em Config. › Conta › Aparelhos conectados. Se fizer falta, mostrar quais aparelhos recebem avisos (precisa mudar o servidor).
