@@ -377,24 +377,31 @@ window.fetch = prevFetch;
   check('ações: Concluir sem abrir o app', a1.body.ok === true && t1.status === 'done');
   check('ações: a hora da conclusão é a real (não a deslocada)', Math.abs(Date.parse(t1.completedAt) - Date.now()) < 10000);
   check('ações: a mudança vai para os outros aparelhos', sql1('SELECT seq FROM counter')[0][0] === seq0 + 1 && t1._t.status > 1000);
-  putTask({ ...base, id: 'act2', when: today, remindAt: `${today}T08:00` });
+  putTask({ ...base, id: 'act2', when: today, remindAt: `${today}T00:00` });
   await call('/alarms/act', { taskId: 'act2', action: 'tomorrow', offset: OFFSET }, dev);
   const t2 = getTask('act2');
   const at2 = sql1("SELECT at FROM push_queue WHERE task_id = 'act2' AND sent_at IS NULL")[0]?.[0];
   const [ty, tm, td] = tomorrow.split('-').map(Number);
-  check('ações: Amanhã leva o dia e o lembrete para amanhã, no horário do celular', t2.when === tomorrow && t2.remindAt === `${tomorrow}T08:00`);
-  check('ações: o aviso novo entra na fila no instante certo (08:00 de Brasília = 11:00 UTC)', at2 === Date.UTC(ty, tm - 1, td, 11, 0));
+  check('ações: Amanhã leva o dia e o lembrete para amanhã, no horário do celular', t2.when === tomorrow && t2.remindAt === `${tomorrow}T00:00`);
+  check('ações: o aviso novo entra na fila no instante certo (00:00 de Brasília = 03:00 UTC)', at2 === Date.UTC(ty, tm - 1, td, 3, 0));
   putTask({ ...base, id: 'act3', when: today, remindAt: `${today}T00:00` });
   await call('/alarms/act', { taskId: 'act3', action: 'snooze', offset: OFFSET }, dev);
   const t3 = getTask('act3');
   const expect3 = devWall(Date.now() + 10 * 60000);
   const expected3 = `${devDate(expect3)}T${pad2(expect3.getUTCHours())}:${pad2(expect3.getUTCMinutes())}`;
   check('ações: Adiar 10 min no horário do celular', t3.snoozedUntil === expected3 || t3.snoozedUntil > expected3.slice(0, 15));
-  putTask({ ...base, id: 'act4', when: today, remindAt: `${today}T08:00`, repeat: { freq: 'daily', interval: 1, anchor: today } });
+  putTask({ ...base, id: 'act4', when: today, remindAt: `${today}T00:00`, remindEach: true, repeat: { freq: 'daily', interval: 1, anchor: today } });
   await call('/alarms/act', { taskId: 'act4', action: 'done', offset: OFFSET }, dev);
   const t4 = getTask('act4');
   const log4 = sql1("SELECT data FROM items WHERE kind = 'log'").map((r) => JSON.parse(r[0])).find((l) => l.taskId === 'act4');
   check('ações: Concluir numa repetição vai para a próxima e registra no histórico', t4.status === 'open' && t4.when === tomorrow && !!log4 && Math.abs(Date.parse(log4.completedAt) - Date.now()) < 10000);
+  // v35: notificação velha (já resolvida em outro aparelho) não conclui a próxima ocorrência.
+  const logs4 = () => sql1("SELECT data FROM items WHERE kind = 'log'").map((r) => JSON.parse(r[0])).filter((l) => l.taskId === 'act4').length;
+  const again4 = await call('/alarms/act', { taskId: 'act4', action: 'done', offset: OFFSET }, dev);
+  check('v35: Concluir de novo numa repetição já resolvida não faz nada (e tira a notificação)', again4.body.ok === true && again4.body.resolved === true
+    && getTask('act4').when === tomorrow && logs4() === 1);
+  const later4 = await call('/alarms/act', { taskId: 'act4', action: 'tomorrow', offset: OFFSET }, dev);
+  check('v35: Amanhã de uma notificação velha não empurra a próxima ocorrência', later4.body.resolved === true && getTask('act4').when === tomorrow);
   check('ações: tarefa que não existe mais não quebra', (await call('/alarms/act', { taskId: 'nada', action: 'done', offset: OFFSET }, dev)).body.ok === false);
   check('ações: ação desconhecida recusada', (await call('/alarms/act', { taskId: 'act4', action: 'apagar', offset: OFFSET }, dev)).status === 400);
 
@@ -484,6 +491,42 @@ window.fetch = prevFetch;
   pushed.length = 0;
   await cron();
   check('limpar: o celular do alarme não recebe; o outro aparelho recebe', to(epP) && !to(epQ));
+
+  // ---------- v35 ----------
+  // O alarme do celular já mostrou: a anotação continua depois da atualização, e o push seguinte não traz de novo pelo site.
+  sqlite.run("INSERT OR REPLACE INTO push_queue (key, at, task_id, kind, title, body) VALUES ('cov|x|0', ?, 'cov', 'remind', 'Remédio', 'b')", [Date.now() + 90000]);
+  await call('/alarms/list', { exact: true, notify: true }, dev);
+  sqlite.run("UPDATE push_queue SET at = ?, sent_at = ? WHERE key = 'cov|x|0'", [Date.now() - 60000, Date.now() - 50000]);
+  await call('/alarms/list', { exact: true, notify: true }, dev);
+  check('v35: o que o alarme já mostrou continua anotado depois de atualizar a agenda', sql1("SELECT COUNT(*) FROM alarm_covered WHERE key = 'cov|x|0'")[0][0] === 1);
+  check('v35: /push/due não traz pelo site o que o alarme deste celular já mostrou', (await call('/push/due', { endpoint: epQ, clear: true })).body.items.every((i) => i.key !== 'cov|x|0'));
+  sqlite.run("DELETE FROM push_queue WHERE key = 'cov|x|0'");
+  // Limpeza de hora em hora: anotação de aviso que saiu da fila some (simula o minuto 0 apagando direto).
+  sqlite.run('DELETE FROM alarm_covered WHERE key NOT IN (SELECT key FROM push_queue)');
+  check('v35: anotação órfã apagada pela limpeza', sql1("SELECT COUNT(*) FROM alarm_covered WHERE key = 'cov|x|0'")[0][0] === 0);
+
+  // Lembrete resolvido (há um limpar depois dele) não volta pelo /push/due em nenhum aparelho.
+  rung('r1');
+  sqlite.run("INSERT INTO push_queue (key, at, sent_at, task_id, kind, title, body) VALUES ('clear|r1|x', ?, ?, 'r1', 'clear', '', '{}')", [Date.now() - 1000, Date.now() - 500]);
+  const dueP = (await call('/push/due', { endpoint: epP, clear: true })).body.items;
+  check('v35: lembrete já limpo não volta pelo site', dueP.every((i) => i.key !== 'r1|x|0') && dueP.some((i) => i.kind === 'clear' && i.taskId === 'r1'));
+  rung('r2', 30000);
+  sqlite.run("INSERT INTO push_queue (key, at, sent_at, task_id, kind, title, body) VALUES ('clear|r2|x', ?, ?, 'r2', 'clear', '', '{}')", [Date.now() - 60000, Date.now() - 50000]);
+  check('v35: lembrete novo, depois da limpeza, continua vindo', (await call('/push/due', { endpoint: epP, clear: true })).body.items.some((i) => i.key === 'r2|x|0'));
+
+  // Botão da notificação do site, com o app fechado: o servidor aplica na versão mais nova da tarefa.
+  sqlite.run("INSERT OR REPLACE INTO items VALUES ('tasks', 'pa', ?, 0, 5)", [JSON.stringify({ id: 'pa', title: 'Remédio', status: 'open', listId: 'inbox', order: 0, notes: '', steps: [], tags: [], when: today, remindAt: `${today}T00:00`, remindEach: true, repeat: { freq: 'daily', interval: 1, anchor: today }, _t: { title: 1, status: 1, when: 1, remindAt: 1, remindEach: 1, repeat: 1 } })]);
+  rung('pa');
+  check('v35: /push/act sem sessão recusa', (await call('/push/act', { taskId: 'pa', action: 'done', offset: OFFSET })).status === 401);
+  check('v35: /push/act com pedido inválido recusa', (await call('/push/act', { taskId: 'pa', action: 'apagar', offset: OFFSET }, tokP)).status === 400);
+  const pa1 = await call('/push/act', { taskId: 'pa', action: 'done', offset: OFFSET }, tokP);
+  const logsPa = () => sql1("SELECT data FROM items WHERE kind = 'log'").map((r) => JSON.parse(r[0])).filter((l) => l.taskId === 'pa').length;
+  check('v35: /push/act conclui e devolve a tarefa e o histórico', pa1.body.ok === true && pa1.body.task?.when > today && pa1.body.log?.taskId === 'pa' && logsPa() === 1);
+  const clearPa = sql1("SELECT body FROM push_queue WHERE kind = 'clear' AND task_id = 'pa'")[0];
+  check('v35: /push/act anota limpar para os outros aparelhos', !!clearPa && JSON.parse(clearPa[0]).s);
+  const pa2 = await call('/push/act', { taskId: 'pa', action: 'done', offset: OFFSET }, tokQ);
+  check('v35: o mesmo botão no outro celular não conclui de novo', pa2.body.ok === true && pa2.body.resolved === true && !pa2.body.task && logsPa() === 1);
+  check('v35: /push/act de tarefa que não existe não quebra', (await call('/push/act', { taskId: 'nada', action: 'done', offset: OFFSET }, tokP)).body.ok === false);
   await call('/alarms/revoke', {}, tokQ);
   await Promise.all([tokP, tokQ, tokN].map((t) => call('/logout', {}, t)));
 }

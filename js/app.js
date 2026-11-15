@@ -14,7 +14,7 @@ import {
 } from './theme.js';
 import { stamp, stampAll } from './sync-core.js';
 import {
-  SNOOZE_MINUTES, blockedByDeadline, dateChanges, editFields,
+  SNOOZE_MINUTES, blockedByDeadline, dateChanges, editFields, staleReminder,
 } from './actions-core.js';
 import {
   authenticate, callServer, changePassword, createSync, endSession,
@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v34 · 14/11/2026';
+const APP_VERSION = 'v35 · 15/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -851,9 +851,20 @@ function openSnoozePicker(id) {
   $('#s-at').focus();
 }
 
-async function handleReminderAction(action, id) {
+async function handleReminderAction(action, id, fromNotification = true) {
+  if (fromNotification && ['done', 'snooze', 'tomorrow'].includes(action) && state.sync?.token && navigator.onLine) {
+    // v35: a notificação pode ter sido resolvida em outro aparelho; busca a versão mais nova antes (até 3 s).
+    await Promise.race([syncEngine.run().catch(() => {}), new Promise((resolve) => { setTimeout(resolve, 3000); })]);
+  }
   const task = findTask(id);
   if (!task) return;
+  if (action !== 'open' && staleReminder(task, action)) {
+    // Concluir de novo uma tarefa que se repete concluiria a próxima ocorrência.
+    closeResolvedNotifications();
+    render();
+    showToast('Este lembrete já foi resolvido.');
+    return;
+  }
   if (action === 'done') {
     await complete(id);
   } else if (action === 'snooze') {
@@ -2153,6 +2164,12 @@ function pushLogText(entry) {
   }[entry.source] ?? ` · erro do servidor (${String(entry.source).replace('server-', '')})`;
   let what = `${entry.shown} ${entry.shown === 1 ? 'aviso mostrado' : 'avisos mostrados'}`;
   if (!entry.shown) what = entry.visible ? 'app aberto: ele mesmo avisou' : 'nada novo para mostrar';
+  // v35: aviso de limpar (lembrete resolvido em outro aparelho).
+  if (entry.clears) {
+    const closed = entry.cleared ? `fechou ${entry.cleared} do site` : 'nenhuma do site aberta';
+    const clear = `limpar ${entry.clears === 1 ? '1 lembrete' : `${entry.clears} lembretes`} (${closed}${entry.signaled ? ', sinal ao Android' : ''})`;
+    what = entry.shown ? `${what} · ${clear}` : clear;
+  }
   return `${what}${where}`;
 }
 
@@ -4301,7 +4318,7 @@ const clickActions = {
   },
   open: (el) => openTask(el.dataset.id),
   reopen: (el) => reopen(el.dataset.id),
-  snooze: (el) => handleReminderAction('snooze', el.dataset.id),
+  snooze: (el) => handleReminderAction('snooze', el.dataset.id, false),
   dismiss: async (el) => {
     await saveTask(dismissReminder(findTask(el.dataset.id), localDateTime()));
     render();

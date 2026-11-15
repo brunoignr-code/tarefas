@@ -72,7 +72,22 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (14 de novembro de 2026, v34 e APK 1.5)
+## Estado do projeto (15 de novembro de 2026, v35; APK 1.5)
+
+### v35, 15 de novembro: a notificação resolvida não volta, e o remédio não é concluído duas vezes
+
+Feedback do teste de 15/11 com o APK 1.5 nos dois celulares: (A) concluir num celular não tirava a notificação do outro; (B) o remédio concluído no A55 continuava no A17, voltava depois de deslizar e acabou concluído de novo. **Precisa implantar o servidor antes de publicar o app.** O formato das tarefas, o login e o APK não mudam.
+
+- **Diagnóstico.** No banco (só leitura): os dois celulares com alarmes nativos ativos e as duas inscrições marcadas para receber o aviso de limpar, ou seja, o aviso era mandado. O problema estava no que vinha junto:
+  - **O servidor esquecia o que o alarme já tinha mostrado.** A cada atualização da agenda (~15 min, ao abrir o app, no sinal), a anotação "este celular cobre este aviso" era refeita só com os avisos futuros. O próximo push para aquele celular (justamente o de limpar) buscava em `/push/due` os avisos da última hora, e o lembrete que o alarme do Android já tinha mostrado vinha de novo, agora como notificação do site. Assim o remédio "não sumia" e, ao deslizar uma das duas, a outra aparecia ("voltou").
+  - **O botão da notificação do site agia sobre a cópia do celular.** Com o app fechado, o Concluir usava a tarefa guardada no aparelho; numa tarefa que se repete e já concluída em outro, ele concluía de novo (registro duplicado no histórico, ou a ocorrência de amanhã concluída sem querer). O botão do alarme do Android tinha o mesmo risco: concluía a ocorrência seguinte.
+- **Correções (servidor):** o que já tocou continua anotado como do celular (a limpeza de hora em hora apaga as anotações de avisos que saíram da fila); `/push/due` não devolve lembrete que tem um "limpar" depois dele; rota nova `/push/act`, em que o botão da notificação do site é aplicado pelo servidor na versão mais nova da tarefa (a mesma função do botão do alarme, `/alarms/act`), que devolve a tarefa e o histórico para o aparelho guardar e anota o "limpar" para os outros.
+- **Notificação velha não age (regras, app, service worker e servidor):** numa tarefa que se repete, sem nenhum lembrete (nem adiamento) que já passou, a notificação é de antes: Concluir, Amanhã e Adiar não fazem nada e ela sai do painel (o APK 1.5 recebe `ok` e a tira). Amanhã e Adiar seguem essa regra também sem repetição; Concluir uma tarefa sem repetição continua valendo. Abrindo pelo botão com o app aberto, ele sincroniza antes (até 3 s) e avisa "Este lembrete já foi resolvido."
+- **Sem internet ou com o servidor antigo,** o botão do site segue como antes (cópia do celular), já com a regra acima.
+- **Config. › Avisos › Últimos avisos** mostra agora o aviso de limpar: "limpar 1 lembrete (fechou 1 do site, sinal ao Android)" ou "(nenhuma do site aberta…)". Se a linha aparecer com "sinal ao Android" e a notificação do alarme continuar no painel, o problema é a ponte com o APK (DelegationService).
+- **Testado:** 129 testes do servidor (13 novos: anotação do alarme mantida e apagada quando o aviso sai da fila, lembrete limpo que não volta e o novo que continua vindo, `/push/act` com e sem sessão, concluindo, anotando o limpar e recusando a segunda vez, botão do alarme numa repetição já resolvida sem concluir nem empurrar a próxima); 76 testes das regras (1 novo); o service worker numa caixa de areia temporária (já apagada) com push e notificações simulados (botão indo ao servidor com o fuso do celular e guardando a tarefa e o histórico devolvidos, sem /sync nem /push/task; sinal ao Android; já resolvida sem mexer na cópia; servidor antigo pelo caminho de antes; sem internet sem concluir a próxima ocorrência; registro do limpar); o app numa origem local com dados descartáveis, apagados depois (notificação velha recusada, a que vale concluída com histórico); a v34 instalada atualizando para a v35.
+- **Não testado num celular de verdade:** tudo da v35, e ainda não está provado que o sinal chega ao APK pela DelegationService (o registro novo ajuda a ver).
+
 
 ### v34 e APK 1.5, 14 de novembro: notificação resolvida sai dos outros aparelhos; tocar abre a tarefa
 

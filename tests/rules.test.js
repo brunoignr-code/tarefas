@@ -11,7 +11,7 @@ import {
   activeReminder, cleanTags, insistStep, isUrgent, notifyMark, reminderTimes, shownReminder,
 } from '../js/rules.js';
 import { alreadyNotified, buildSchedule, parsePushKey, pushKey } from '../js/push-core.js';
-import { dateChanges, editFields, notificationAction } from '../js/actions-core.js';
+import { dateChanges, editFields, notificationAction, staleReminder } from '../js/actions-core.js';
 import { demoData } from '../js/demo.js';
 
 const results = [];
@@ -631,6 +631,28 @@ test('Demonstração: dados de exemplo atuais em qualquer hora do dia, sem lembr
   const monday = demoData(new Date(2026, 10, 16, 9, 0));
   eq(monday.log.some((item) => item.title === 'Academia' && item.occurrence === '2026-11-16'), true);
   eq(monday.tasks.find((t) => t.title === 'Academia').when, '2026-11-18');
+});
+
+test('v35: botão de notificação já resolvida não age de novo', () => {
+  const remedy = make({ when: '2026-11-15', repeat: { freq: 'daily', interval: 1, anchor: '2026-11-15' }, remindAt: '2026-11-15T05:00' });
+  const at6 = new Date(2026, 10, 15, 6, 0);
+  const first = notificationAction(remedy, 'done', at6);
+  eq([first.task.when, first.log.occurrence], ['2026-11-16', '2026-11-15']);
+  // A notificação ficou no outro celular: Concluir de novo não conclui a de amanhã.
+  eq(notificationAction(first.task, 'done', at6).resolved, true);
+  eq(notificationAction(first.task, 'tomorrow', at6).resolved, true);
+  eq(notificationAction(first.task, 'snooze', at6).resolved, true);
+  // Dispensado (X) e depois Concluir: ainda vale.
+  eq(staleReminder(dismissReminder(remedy, '2026-11-15T05:10'), 'done', at6), false);
+  // Adiado em outro aparelho: Concluir vale; Amanhã já aplicado não empurra de novo.
+  eq(staleReminder(snoozeTo(remedy, '2026-11-15T06:30', '2026-11-15T06:00'), 'done', at6), false);
+  const moved = notificationAction(remedy, 'tomorrow', at6).task;
+  eq(notificationAction(moved, 'tomorrow', at6).resolved, true);
+  // Sem repetição, Concluir continua valendo mesmo com o lembrete mudado para mais tarde.
+  const once = make({ when: '2026-11-15', remindAt: '2026-11-15T20:00' });
+  eq(notificationAction(once, 'done', at6).task.status, 'done');
+  eq(notificationAction(once, 'tomorrow', at6).resolved, true);
+  eq(notificationAction({ ...once, status: 'done' }, 'done', at6).resolved, true);
 });
 
 const failed = results.filter((r) => !r.ok);

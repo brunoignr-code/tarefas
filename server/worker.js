@@ -580,12 +580,27 @@ M['actions-core'] = (() => {
   const blockedByDeadline = (task, date) => !!(date && task.deadline && date > task.deadline);
 
   /**
+   * v35: a notificação ainda vale? Depois de resolvida em outro aparelho, uma tarefa que se repete
+   * já está na próxima ocorrência (todos os lembretes no futuro): o Concluir de uma notificação velha
+   * concluía a próxima, e o Amanhã a empurrava mais um dia. Sem nenhum lembrete (nem adiamento) que
+   * já passou, a notificação é de antes: os botões não fazem nada. Concluir uma tarefa sem repetição
+   * continua valendo (é o que a pessoa quer, e não dá para concluir duas vezes).
+   */
+  function staleReminder(task, action, nowDate = new Date()) {
+    if (!task || task.status !== 'open' || task.deletedAt) return true;
+    if (action === 'done' && !task.repeat) return false;
+    const now = localDateTime(nowDate);
+    return ![task.remindAt, ...(task.extraReminders || []), task.snoozedUntil].some((time) => time && time <= now);
+  }
+
+  /**
    * Botões da notificação: 'done' (concluir), 'snooze' (adiar alguns minutos) e
    * 'tomorrow' (vai para amanhã e o lembrete volta amanhã no mesmo horário).
-   * Devolve { task, log } ou { error }.
+   * Devolve { task, log } ou { error } (com `resolved` quando a notificação era de antes).
    */
   function notificationAction(task, action, nowDate = new Date()) {
-    if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.' };
+    if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.', resolved: true };
+    if (staleReminder(task, action, nowDate)) return { error: 'Este lembrete já foi resolvido.', resolved: true };
     const day = localDate(nowDate);
     if (action === 'done') return completeTask(task, day, nowDate.toISOString());
     if (action === 'snooze') return { task: snooze(task, nowDate, SNOOZE_MINUTES) };
@@ -602,7 +617,7 @@ M['actions-core'] = (() => {
     }
     return { error: 'Ação desconhecida.' };
   }
-  return { SNOOZE_MINUTES, editFields, dateChanges, blockedByDeadline, notificationAction };
+  return { SNOOZE_MINUTES, editFields, dateChanges, blockedByDeadline, staleReminder, notificationAction };
 })();
   return M;
 })();
@@ -1029,6 +1044,8 @@ async function runPushes(env) {
   if (new Date(now).getUTCMinutes() === 0) {
     await env.DB.prepare('DELETE FROM push_queue WHERE sent_at < ? OR (sent_at IS NULL AND at < ?)')
       .bind(now - 86400000, now - STALE_MS).run();
+    // v35: anotações de alarme de avisos que já saíram da fila.
+    await env.DB.prepare('DELETE FROM alarm_covered WHERE key NOT IN (SELECT key FROM push_queue)').run();
   }
   // Marca antes de enviar: o aparelho que receber já encontra o aviso em /push/due.
   const { results: due } = await env.DB.prepare('SELECT key, kind, body FROM push_queue WHERE sent_at IS NULL AND at <= ? AND at >= ? LIMIT 100')
@@ -1176,7 +1193,13 @@ async function pushDue(request, env) {
   const skip = new Set(mine.map((row) => row.key));
   // v34: só o service worker novo pede (e entende) os avisos de limpar; ele fica marcado para recebê-los.
   if (clear === true) await env.DB.prepare('UPDATE push_subs SET clear_ok = 1 WHERE id = ? AND clear_ok IS NULL').bind(known.id).run();
-  const items = results.filter((item) => !skip.has(item.key) && (item.kind !== 'clear' || clear === true))
+  // v35: lembrete que outro aparelho já resolveu (há um "limpar" depois dele) não volta a aparecer.
+  const clearedAt = new Map();
+  results.forEach((item) => {
+    if (item.kind === 'clear' && !(clearedAt.get(item.taskId) >= item.at)) clearedAt.set(item.taskId, item.at);
+  });
+  const resolved = (item) => (item.kind === 'remind' || item.kind === 'insist') && clearedAt.get(item.taskId) >= item.at;
+  const items = results.filter((item) => !skip.has(item.key) && !resolved(item) && (item.kind !== 'clear' || clear === true))
     .map((item) => (item.kind === 'clear' ? { key: item.key, at: item.at, taskId: item.taskId, kind: 'clear' } : item));
   return reply(request, { items });
 }
@@ -1258,7 +1281,13 @@ async function alarmItems(env, device, ready) {
     WHERE sent_at IS NULL AND kind <> 'clear' AND at >= ? AND at <= ? ORDER BY at LIMIT ?`).bind(now - 60000, now + ALARM_HORIZON_MS, ALARM_MAX_ITEMS).all();
   const insert = env.DB.prepare('INSERT OR IGNORE INTO alarm_covered (device_id, key) VALUES (?, ?)');
   await env.DB.batch([
-    env.DB.prepare('DELETE FROM alarm_covered WHERE device_id = ?').bind(device.id),
+    // v35: o que já tocou (sent_at) continua anotado como deste celular. Antes, a atualização seguinte
+    // apagava a anotação, e o próximo push (o de limpar, por exemplo) trazia de volta pelo site o
+    // lembrete que o alarme já tinha mostrado: a notificação "voltava" no outro celular.
+    ready
+      ? env.DB.prepare(`DELETE FROM alarm_covered WHERE device_id = ? AND key NOT IN
+        (SELECT key FROM push_queue WHERE sent_at IS NOT NULL)`).bind(device.id)
+      : env.DB.prepare('DELETE FROM alarm_covered WHERE device_id = ?').bind(device.id),
     ...(ready ? results.map((item) => insert.bind(device.id, item.key)) : []),
     env.DB.prepare('UPDATE alarm_devices SET ready = ?, last_seen = ? WHERE id = ?').bind(ready ? 1 : 0, now, device.id),
   ]);
@@ -1280,22 +1309,24 @@ async function alarmsCheck(request, env) {
 }
 
 /**
- * Botões Concluir, Amanhã e Adiar da notificação do Android, sem abrir o app.
- * As regras são as do app; o relógio é o do celular (`offset`, em minutos, como no Android).
- * O Worker roda em UTC, então a data "local" é montada deslocando o relógio do servidor.
+ * Aplica um botão de notificação (Concluir, Amanhã, Adiar) na tarefa guardada no servidor, com as
+ * regras do app e o relógio do aparelho (`offset`, em minutos, como no Android). O Worker roda em
+ * UTC, então a data "local" é montada deslocando o relógio do servidor. Refaz os avisos da tarefa e,
+ * se o lembrete deixou de estar pendente, anota "limpar" para os outros aparelhos (`skip`).
+ * v35: serve também ao botão da notificação do site (/push/act), que antes agia sobre a cópia da
+ * tarefa guardada no celular, às vezes velha (concluía a ocorrência seguinte de uma repetição).
+ * Devolve { ok, error?, resolved?, task?, log? }.
  */
-async function alarmsAct(request, env, device) {
-  const { taskId, action, offset } = await request.json().catch(() => ({}));
-  if (typeof taskId !== 'string' || !taskId || taskId.length > 100 || !ALARM_ACTIONS.has(action)
-    || !Number.isInteger(offset) || Math.abs(offset) > 14 * 60) return reply(request, { error: 'Pedido inválido.' }, 400);
+async function applyNotificationAction(env, { taskId, action, offset }, skip) {
   const row = await env.DB.prepare("SELECT data, deleted FROM items WHERE kind = 'tasks' AND id = ?").bind(taskId).first();
-  if (!row || row.deleted) return reply(request, { ok: false, error: 'A tarefa não existe mais.' });
+  if (!row || row.deleted) return { ok: false, error: 'A tarefa não existe mais.' };
   const current = JSON.parse(row.data);
   const realNow = Date.now();
   const shift = (offset + new Date(realNow).getTimezoneOffset()) * 60000;
   const wallNow = new Date(realNow + shift);
   const result = SHARED_RULES['actions-core'].notificationAction(current, action, wallNow);
-  if (result.error) return reply(request, { ok: false, error: result.error, ...(await alarmItems(env, device, !!device.ready)) });
+  // v35: notificação de antes (resolvida em outro aparelho): nada a fazer, e ela pode sair do painel.
+  if (result.error) return { ok: !!result.resolved, resolved: !!result.resolved, error: result.error };
   // Concluir grava a hora da conclusão em ISO: a do relógio deslocado precisa voltar para a real.
   const fakeIso = wallNow.toISOString();
   const realIso = new Date(realNow).toISOString();
@@ -1305,12 +1336,13 @@ async function alarmsAct(request, env, device) {
   const merged = merge(current, saved);
   const writes = [env.DB.prepare(`INSERT INTO items (kind, id, data, deleted, seq) VALUES ('tasks', ?, ?, 0, (SELECT seq FROM counter))
     ON CONFLICT (kind, id) DO UPDATE SET data = excluded.data, seq = excluded.seq WHERE items.deleted = 0`).bind(taskId, JSON.stringify(merged))];
+  let log = null;
   if (result.log) {
-    const entry = toWire(stamp(null, { ...fixIso(result.log), id: crypto.randomUUID() }, realNow));
+    log = toWire(stamp(null, { ...fixIso(result.log), id: crypto.randomUUID() }, realNow));
     writes.push(env.DB.prepare(`INSERT INTO items (kind, id, data, deleted, seq) VALUES ('log', ?, ?, 0, (SELECT seq FROM counter))`)
-      .bind(entry.id, JSON.stringify(entry)));
+      .bind(log.id, JSON.stringify(log)));
   }
-  // Os avisos desta tarefa, refeitos com a tarefa nova (como o botão da notificação do app faz por /push/task).
+  // Os avisos desta tarefa, refeitos com a tarefa nova.
   const settings = normalizePushSettings(await readMeta(env, 'pushSettings'));
   const items = SHARED_RULES['push-core'].buildSchedule([merged], wallNow, settings).filter((item) => item.taskId === taskId);
   const insert = env.DB.prepare('INSERT OR IGNORE INTO push_queue (key, at, task_id, kind, title, body) VALUES (?, ?, ?, ?, ?, ?)');
@@ -1320,12 +1352,34 @@ async function alarmsAct(request, env, device) {
     env.DB.prepare("DELETE FROM push_queue WHERE sent_at IS NULL AND task_id = ? AND kind <> 'clear'").bind(taskId),
     ...items.map((item) => insert.bind(item.key, Math.round(item.at - shift), taskId, item.kind, clip(item.title, 300), clip(item.body, 500))),
   ]);
-  // v34: resolvido aqui, sai do painel dos outros aparelhos (este celular já tirou a dele).
+  // v34: resolvido aqui, sai do painel dos outros aparelhos (este já tirou a dele).
   const rules = SHARED_RULES.rules;
   if (!rules.activeReminder(merged, rules.localDateTime(wallNow))) {
-    await enqueueClears(env, { only: taskId, upTo: realNow, skipSub: device.sub_id || null });
+    await enqueueClears(env, { only: taskId, upTo: realNow, ...skip });
   }
-  return reply(request, { ok: true, ...(await alarmItems(env, device, !!device.ready)) });
+  return { ok: true, task: merged, log };
+}
+
+const validAction = ({ taskId, action, offset }) => typeof taskId === 'string' && !!taskId && taskId.length <= 100
+  && ALARM_ACTIONS.has(action) && Number.isInteger(offset) && Math.abs(offset) <= 14 * 60;
+
+/** Botões Concluir, Amanhã e Adiar da notificação do Android, sem abrir o app. */
+async function alarmsAct(request, env, device) {
+  const body = await request.json().catch(() => ({}));
+  if (!validAction(body)) return reply(request, { error: 'Pedido inválido.' }, 400);
+  const done = await applyNotificationAction(env, body, { skipSub: device.sub_id || null });
+  // v35: `ok` também quando a notificação era de antes: o APK 1.5 só a tira do painel.
+  return reply(request, {
+    ok: done.ok, ...(done.error ? { error: done.error } : {}), ...(done.resolved ? { resolved: true } : {}),
+    ...(await alarmItems(env, device, !!device.ready)),
+  });
+}
+
+/** v35: botão da notificação do site, com o app fechado. Devolve a tarefa e o histórico para o aparelho guardar. */
+async function pushAct(request, env, current) {
+  const body = await request.json().catch(() => ({}));
+  if (!validAction(body)) return reply(request, { error: 'Pedido inválido.' }, 400);
+  return reply(request, await applyNotificationAction(env, body, { skipSession: current }));
 }
 
 /** App web: este celular tem alarmes nativos ativos? */
@@ -1630,6 +1684,7 @@ export default {
         '/push/settings': pushSettings,
         '/push/schedule': pushSchedule,
         '/push/task': pushTaskSchedule,
+        '/push/act': pushAct,
         '/alarms/pair': alarmsPair,
         '/alarms/status': alarmsStatus,
         '/alarms/revoke': alarmsRevoke,

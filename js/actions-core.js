@@ -38,12 +38,27 @@ export function dateChanges(task, date) {
 export const blockedByDeadline = (task, date) => !!(date && task.deadline && date > task.deadline);
 
 /**
+ * v35: a notificação ainda vale? Depois de resolvida em outro aparelho, uma tarefa que se repete
+ * já está na próxima ocorrência (todos os lembretes no futuro): o Concluir de uma notificação velha
+ * concluía a próxima, e o Amanhã a empurrava mais um dia. Sem nenhum lembrete (nem adiamento) que
+ * já passou, a notificação é de antes: os botões não fazem nada. Concluir uma tarefa sem repetição
+ * continua valendo (é o que a pessoa quer, e não dá para concluir duas vezes).
+ */
+export function staleReminder(task, action, nowDate = new Date()) {
+  if (!task || task.status !== 'open' || task.deletedAt) return true;
+  if (action === 'done' && !task.repeat) return false;
+  const now = localDateTime(nowDate);
+  return ![task.remindAt, ...(task.extraReminders || []), task.snoozedUntil].some((time) => time && time <= now);
+}
+
+/**
  * Botões da notificação: 'done' (concluir), 'snooze' (adiar alguns minutos) e
  * 'tomorrow' (vai para amanhã e o lembrete volta amanhã no mesmo horário).
- * Devolve { task, log } ou { error }.
+ * Devolve { task, log } ou { error } (com `resolved` quando a notificação era de antes).
  */
 export function notificationAction(task, action, nowDate = new Date()) {
-  if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.' };
+  if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.', resolved: true };
+  if (staleReminder(task, action, nowDate)) return { error: 'Este lembrete já foi resolvido.', resolved: true };
   const day = localDate(nowDate);
   if (action === 'done') return completeTask(task, day, nowDate.toISOString());
   if (action === 'snooze') return { task: snooze(task, nowDate, SNOOZE_MINUTES) };

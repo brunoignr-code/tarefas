@@ -580,12 +580,27 @@ M['actions-core'] = (() => {
   const blockedByDeadline = (task, date) => !!(date && task.deadline && date > task.deadline);
 
   /**
+   * v35: a notificação ainda vale? Depois de resolvida em outro aparelho, uma tarefa que se repete
+   * já está na próxima ocorrência (todos os lembretes no futuro): o Concluir de uma notificação velha
+   * concluía a próxima, e o Amanhã a empurrava mais um dia. Sem nenhum lembrete (nem adiamento) que
+   * já passou, a notificação é de antes: os botões não fazem nada. Concluir uma tarefa sem repetição
+   * continua valendo (é o que a pessoa quer, e não dá para concluir duas vezes).
+   */
+  function staleReminder(task, action, nowDate = new Date()) {
+    if (!task || task.status !== 'open' || task.deletedAt) return true;
+    if (action === 'done' && !task.repeat) return false;
+    const now = localDateTime(nowDate);
+    return ![task.remindAt, ...(task.extraReminders || []), task.snoozedUntil].some((time) => time && time <= now);
+  }
+
+  /**
    * Botões da notificação: 'done' (concluir), 'snooze' (adiar alguns minutos) e
    * 'tomorrow' (vai para amanhã e o lembrete volta amanhã no mesmo horário).
-   * Devolve { task, log } ou { error }.
+   * Devolve { task, log } ou { error } (com `resolved` quando a notificação era de antes).
    */
   function notificationAction(task, action, nowDate = new Date()) {
-    if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.' };
+    if (!task || task.status !== 'open' || task.deletedAt) return { error: 'A tarefa não está mais aberta.', resolved: true };
+    if (staleReminder(task, action, nowDate)) return { error: 'Este lembrete já foi resolvido.', resolved: true };
     const day = localDate(nowDate);
     if (action === 'done') return completeTask(task, day, nowDate.toISOString());
     if (action === 'snooze') return { task: snooze(task, nowDate, SNOOZE_MINUTES) };
@@ -602,16 +617,16 @@ M['actions-core'] = (() => {
     }
     return { error: 'Ação desconhecida.' };
   }
-  return { SNOOZE_MINUTES, editFields, dateChanges, blockedByDeadline, notificationAction };
+  return { SNOOZE_MINUTES, editFields, dateChanges, blockedByDeadline, staleReminder, notificationAction };
 })();
   return M;
 })();
 // ---- FIM DAS REGRAS EMBUTIDAS ----
 const { notificationAction } = SW_RULES['actions-core'];
-const { stamp, toWire } = SW_RULES['sync-core'];
+const { merge, stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
 const { activeReminder } = SW_RULES.rules;
-const CACHE = 'tarefas-v34';
+const CACHE = 'tarefas-v35';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [
@@ -765,7 +780,43 @@ async function actInBackground(action, id) {
   }
 }
 
+/**
+ * v35: com internet, o servidor aplica o botão na versão mais nova da tarefa e devolve o resultado
+ * para guardar aqui. Antes valia a cópia deste aparelho, que com o app fechado podia estar velha: o
+ * Concluir de uma notificação já resolvida em outro celular concluía de novo a tarefa que se repete
+ * (registro duplicado no histórico, ou a ocorrência seguinte concluída sem querer).
+ * Devolve false para seguir pelo caminho antigo (sem internet, servidor antigo, sessão encerrada).
+ */
+async function actOnServer(database, sync, action, id) {
+  let result;
+  try {
+    const response = await fetch(`${SYNC_URL}/push/act`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sync.token}` },
+      body: JSON.stringify({ taskId: id, action, offset: -new Date().getTimezoneOffset() }),
+    });
+    if (!response.ok) return false;
+    result = await response.json();
+  } catch {
+    return false;
+  }
+  if (!result.ok && !result.resolved) throw new Error(result.error || 'Não deu para fazer isso agora.');
+  if (result.task) {
+    const local = await idb(database, 'tasks', 'readonly', (store) => store.get(id));
+    await idb(database, 'tasks', 'readwrite', (store) => store.put(merge(local, result.task)));
+  }
+  if (result.log) await idb(database, 'log', 'readwrite', (store) => store.put(result.log));
+  // O Android (APK 1.5) refaz a agenda dos alarmes e tira a notificação dele.
+  await signalNative(database, { clear: [{ t: id, at: Date.now() }] });
+  // O servidor já refez os avisos desta tarefa; o app reenvia a agenda inteira quando abrir.
+  const push = await idb(database, 'meta', 'readonly', (store) => store.get('push'));
+  if (push && result.task) await idb(database, 'meta', 'readwrite', (store) => store.put({ ...push, hash: null }));
+  return true;
+}
+
 async function registerAction(database, action, id) {
+  const account = await idb(database, 'meta', 'readonly', (store) => store.get('sync'));
+  if (account && account.token && await actOnServer(database, account, action, id)) return;
   const task = await idb(database, 'tasks', 'readonly', (store) => store.get(id));
   if (!task) throw new Error('Tarefa não encontrada neste aparelho.');
   const result = notificationAction(task, action, new Date());
@@ -962,7 +1013,8 @@ async function onPush() {
     const keys = [...shown, ...fresh.map((item) => item.key), ...clears.map((item) => item.key)].slice(-SHOWN_MAX);
     await idb(database, 'meta', 'readwrite', (s) => s.put({ id: 'pushShown', keys })).catch(() => {});
   }
-  await logPush(database, { source, items: items.length, shown: latest.size, visible, cleared });
+  // v35: o registro diz também se chegou aviso de limpar, quantas notificações do site fechou e se o sinal foi ao Android.
+  await logPush(database, { source, items: items.length, shown: latest.size, visible, cleared, clears: clears.length, signaled });
   if (!latest.size && !visible && clears.length) {
     // O navegador exige um aviso a cada push. Com outras notificações do app ainda no painel (ou o
     // sinal entregue ao Android), basta; senão, um aviso discreto que some sozinho em instantes.
