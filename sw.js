@@ -544,7 +544,7 @@ M['push-core'] = (() => {
 M['actions-core'] = (() => {
   // Ações sobre uma tarefa que valem igual no app e no service worker (botões da notificação).
   // Sem tela nem banco: recebem a tarefa e devolvem a tarefa nova.
-  const { activeReminder, addDays, applyEdit, completeTask, localDate, localDateTime, snooze, snoozeTo } = M['rules'];
+  const { activeReminder, addDays, applyEdit, completeTask, diffDays, localDate, localDateTime, snooze, snoozeTo } = M['rules'];
 
   const SNOOZE_MINUTES = 10;
 
@@ -567,13 +567,26 @@ M['actions-core'] = (() => {
     ...changes,
   });
 
-  /** Mudar a data leva junto o lembrete que estava no mesmo dia, no mesmo horário. */
+  /**
+   * v37: mudar a data leva junto todos os lembretes, no mesmo horário e à mesma distância do dia
+   * (um lembrete na véspera continua na véspera). Antes só ia junto o lembrete que caía no mesmo
+   * dia de Quando: os outros, e os extras, ficavam no dia antigo e tocavam mesmo assim.
+   * Sem Quando, o dia de partida é o do lembrete. Tirar a data não mexe nos lembretes.
+   */
+  function reminderShift(task, date) {
+    const from = task.when || task.remindAt?.slice(0, 10);
+    if (!date || !task.remindAt || !from || from === date) return {};
+    const days = diffDays(date, from);
+    const shift = (time) => `${addDays(time.slice(0, 10), days)}${time.slice(10)}`;
+    return { remindAt: shift(task.remindAt), extraReminders: (task.extraReminders || []).map(shift) };
+  }
+
+  /** Mudar a data leva junto os lembretes (veja reminderShift). */
   function dateChanges(task, date) {
     // Numa tarefa que se repete, adiar ou mudar o dia pelo menu, pelo deslizar ou pela
     // notificação vale só para esta ocorrência: a série continua no calendário de antes.
     const changes = task.repeat ? { when: date, occurrenceOnly: true } : { when: date };
-    if (date && task.remindAt && task.when && task.remindAt.slice(0, 10) === task.when) changes.remindAt = `${date}T${task.remindAt.slice(11)}`;
-    return changes;
+    return { ...changes, ...reminderShift(task, date) };
   }
 
   /** O prazo (Até) não deixa Quando passar dele. */
@@ -617,7 +630,7 @@ M['actions-core'] = (() => {
     }
     return { error: 'Ação desconhecida.' };
   }
-  return { SNOOZE_MINUTES, editFields, dateChanges, blockedByDeadline, staleReminder, notificationAction };
+  return { SNOOZE_MINUTES, editFields, reminderShift, dateChanges, blockedByDeadline, staleReminder, notificationAction };
 })();
   return M;
 })();
@@ -626,7 +639,7 @@ const { notificationAction } = SW_RULES['actions-core'];
 const { merge, stamp, toWire } = SW_RULES['sync-core'];
 const { buildSchedule, normalizePushSettings } = SW_RULES['push-core'];
 const { activeReminder } = SW_RULES.rules;
-const CACHE = 'tarefas-v36';
+const CACHE = 'tarefas-v37';
 const APP_NAME = 'Minha lista de afazeres';
 const SYNC_URL = 'https://tarefas-sync.brunoignr-code.workers.dev';
 const FILES = [

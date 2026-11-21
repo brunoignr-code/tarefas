@@ -72,7 +72,19 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (15 de novembro de 2026, v36 e APK 1.6)
+## Estado do projeto (21 de novembro de 2026, v37)
+
+### v37, 21 de novembro: o lembrete acompanha a data da tarefa
+
+Uso real: mudei uma tarefa de hoje para a semana seguinte e o lembrete continuou hoje (e tocou). Antes, mudar a data só levava junto o lembrete que caía **no mesmo dia** do Quando. Ficavam para trás: o lembrete num outro dia (a véspera, por exemplo, ou o de uma tarefa adiada com "Amanhã" pela notificação quando ainda estava sem data, que fica com um adiamento no dia antigo), os **lembretes extras** e, junto, o adiamento.
+
+- **Regra nova** (`reminderShift` em `js/actions-core.js`, usada por `dateChanges`): mudar a data leva todos os lembretes, no mesmo horário e à mesma distância do dia (lembrete na véspera continua na véspera). Sem Quando, o dia de partida é o do lembrete. Tirar a data não mexe nos lembretes. Vale no menu da tarefa, no deslizar, na seleção, em Próximos e no "Amanhã" da notificação; o lembrete mudado apaga o adiamento antigo.
+- **Janela da tarefa:** mudar o Quando (botões, seletor ou dias da semana) leva junto o lembrete que não segue Quando e Hora e os extras, à mesma distância.
+- O formato das tarefas e o login não mudam. O servidor embute as mesmas regras (botões do alarme e da notificação do site): implantar o `server/worker.js` para o "Amanhã" da notificação também levar os extras. Sem implantar, o resto funciona.
+- **Testado:** 78 testes das regras (2 novos), testes do servidor todos OK, e na janela da tarefa numa origem local com dados descartáveis (véspera 20:00 e extra 15:00 foram para a semana seguinte e ficaram gravados assim).
+- **Não testado:** no celular de verdade. Tarefas que já estão com o lembrete no dia errado não são corrigidas sozinhas: abra a tarefa e confira o Lembrar.
+
+## Estado anterior (15 de novembro de 2026, v36 e APK 1.6)
 
 ### v36 e APK 1.6, 15 de novembro: a notificação do alarme sai sem depender da ponte
 

@@ -1,6 +1,6 @@
 import * as db from './db.js';
 import {
-  applyEdit, completeTask, daysWaiting, addDays, dismissReminder, dueReminders, isOverdue,
+  applyEdit, completeTask, daysWaiting, addDays, diffDays, dismissReminder, dueReminders, isOverdue,
   INSIST_MAX, activeReminder, firstOnWeekdays, reminderTimes, insistStep, nextDate, localDate, localDateTime, notifyMark, shownReminder, skipOccurrence, snooze, snoozeTo,
   todayTasks, upcomingTasks,
 } from './rules.js';
@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v36 · 15/11/2026';
+const APP_VERSION = 'v37 · 21/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -3034,6 +3034,7 @@ function openTask(id, { isNew = false } = {}) {
       : 'Avisa com o app aberto. Para avisar com ele fechado, ative em Config. › Avisos.';
   }
   showRemindField = false;
+  whenFrom = task.when || '';
   daysBase = task.when || null;
   daysNote = '';
   const next = task.repeat && task.status === 'open' ? nextDate(task, today()) : null;
@@ -3569,13 +3570,43 @@ function alignWhenToDays() {
 let remindLinked = true;
 const defaultRemindTime = () => (/^\d{2}:\d{2}$/.test(state.settings.defaultRemindTime || '') ? state.settings.defaultRemindTime : '09:00');
 
+// v37: o Quando de onde os lembretes partem (o da tarefa ao abrir a janela, depois o último escolhido).
+let whenFrom = '';
+
+/**
+ * v37: mudar o dia na janela leva junto o lembrete que não segue Quando e Hora (num outro dia, por
+ * exemplo a véspera) e os lembretes extras, à mesma distância do dia. Antes eles ficavam no dia
+ * antigo e tocavam mesmo com a tarefa na semana seguinte. Mesma regra de reminderShift.
+ */
+function shiftFormReminders() {
+  const when = $('#f-when')?.value || '';
+  const from = whenFrom;
+  whenFrom = when;
+  if (!when || when === from) return;
+  const remind = $('#f-remind');
+  const loose = !remindLinked && remind.value ? remind.value : '';
+  const base = from || loose.slice(0, 10);
+  if (!base) return;
+  const days = diffDays(when, base);
+  const shift = (value) => `${addDays(value.slice(0, 10), days)}${value.slice(10)}`;
+  if (loose) remind.value = shift(loose);
+  document.querySelectorAll('form[data-form="task"] input[name="extraReminder"]').forEach((input) => {
+    if (input.value) input.value = shift(input.value);
+  });
+}
+
 /** Chamado quando Quando ou Hora mudam. `fromDate`: a data acabou de ser escolhida. */
 function syncReminderFromWhen(fromDate = false) {
   const when = $('#f-when');
   const time = $('#f-time');
   const remind = $('#f-remind');
   const on = $('#f-remind-on');
-  if (!when || !remindLinked) return;
+  if (!when) return;
+  shiftFormReminders();
+  if (!remindLinked) {
+    updateFormHints();
+    return;
+  }
   if (!when.value) {
     remind.value = '';
     on.checked = false;

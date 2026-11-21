@@ -543,6 +543,34 @@ test('Adiar uma tarefa que se repete vale só para a ocorrência', () => {
   eq(completeTask(tomorrow, '2026-11-22', 'x').task.when, '2026-11-28');
 });
 
+test('v37: mudar a data leva todos os lembretes junto', () => {
+  // Mesmo dia de Quando (já funcionava).
+  const same = make({ when: '2026-11-21', remindAt: '2026-11-21T09:00' });
+  eq(dateChanges(same, '2026-11-28').remindAt, '2026-11-28T09:00');
+  // Lembrete na véspera continua na véspera; extras vão junto.
+  const eve = make({ when: '2026-11-21', remindAt: '2026-11-20T20:00', extraReminders: ['2026-11-21T15:00'] });
+  const moved = applyEdit(eve, editFields(eve, dateChanges(eve, '2026-11-28')), TODAY).task;
+  eq([moved.when, moved.remindAt, moved.extraReminders], ['2026-11-28', '2026-11-27T20:00', ['2026-11-28T15:00']]);
+  // Sem Quando: o lembrete vai para o dia escolhido, no mesmo horário.
+  const loose = make({ remindAt: '2026-11-21T15:00' });
+  eq(dateChanges(loose, '2026-11-28').remindAt, '2026-11-28T15:00');
+  // Tirar a data não mexe no lembrete.
+  eq(dateChanges(same, null).remindAt, undefined);
+});
+
+test('v37: adiamento antigo não toca depois de mudar a data', () => {
+  // Amanhã pela notificação numa tarefa sem Quando deixava o lembrete no dia antigo com um adiamento.
+  const loose = make({ remindAt: '2026-11-20T09:00' });
+  const { task: tomorrow } = notificationAction(loose, 'tomorrow', new Date(2026, 10, 20, 9, 30));
+  eq([tomorrow.when, tomorrow.remindAt], ['2026-11-21', '2026-11-21T09:00']);
+  const moved = applyEdit(tomorrow, editFields(tomorrow, dateChanges(tomorrow, '2026-11-28')), TODAY).task;
+  eq([moved.when, moved.remindAt, moved.snoozedUntil || null], ['2026-11-28', '2026-11-28T09:00', null]);
+  // Extras também vão para amanhã.
+  const two = make({ when: '2026-11-20', remindAt: '2026-11-20T09:00', extraReminders: ['2026-11-20T15:00'] });
+  const next = notificationAction(two, 'tomorrow', new Date(2026, 10, 20, 9, 30)).task;
+  eq([next.remindAt, next.extraReminders], ['2026-11-21T09:00', ['2026-11-21T15:00']]);
+});
+
 test('Quinzenal: digitar e concluir', () => {
   const r = parse('Lavar roupa de cama quinzenal');
   eq([r.title, r.repeat], ['Lavar roupa de cama', { interval: 2, freq: 'weekly' }]);
