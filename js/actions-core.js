@@ -26,15 +26,16 @@ export const editFields = (task, changes = {}) => ({
 });
 
 /**
- * v37: mudar a data leva junto todos os lembretes, no mesmo horário e à mesma distância do dia
- * (um lembrete na véspera continua na véspera). Antes só ia junto o lembrete que caía no mesmo
- * dia de Quando: os outros, e os extras, ficavam no dia antigo e tocavam mesmo assim.
- * Sem Quando, o dia de partida é o do lembrete. Tirar a data não mexe nos lembretes.
+ * v38: mudar a data leva o lembrete principal para o dia escolhido, no mesmo horário; os extras
+ * andam junto, à mesma distância do principal. Pedido do usuário: "o lembrete vai sempre para o
+ * novo dia da tarefa". Assim uma tarefa com o lembrete preso num dia antigo se acerta na próxima
+ * mudança. (A v37 mantinha a distância até Quando, e um lembrete já desalinhado continuava
+ * desalinhado; antes dela, só ia junto o lembrete do mesmo dia de Quando.)
+ * Tirar a data não mexe nos lembretes.
  */
 export function reminderShift(task, date) {
-  const from = task.when || task.remindAt?.slice(0, 10);
-  if (!date || !task.remindAt || !from || from === date) return {};
-  const days = diffDays(date, from);
+  if (!date || !task.remindAt || task.remindAt.slice(0, 10) === date) return {};
+  const days = diffDays(date, task.remindAt.slice(0, 10));
   const shift = (time) => `${addDays(time.slice(0, 10), days)}${time.slice(10)}`;
   return { remindAt: shift(task.remindAt), extraReminders: (task.extraReminders || []).map(shift) };
 }

@@ -27,7 +27,7 @@ import {
 const INBOX = 'inbox';
 // Atualize junto com CACHE em sw.js a cada publicação.
 const APP_NAME = 'Minha lista de afazeres';
-const APP_VERSION = 'v37 · 21/11/2026';
+const APP_VERSION = 'v38 · 21/11/2026';
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const FREQ_LABELS = {
@@ -3574,9 +3574,10 @@ const defaultRemindTime = () => (/^\d{2}:\d{2}$/.test(state.settings.defaultRemi
 let whenFrom = '';
 
 /**
- * v37: mudar o dia na janela leva junto o lembrete que não segue Quando e Hora (num outro dia, por
- * exemplo a véspera) e os lembretes extras, à mesma distância do dia. Antes eles ficavam no dia
- * antigo e tocavam mesmo com a tarefa na semana seguinte. Mesma regra de reminderShift.
+ * v38: mudar o dia na janela leva o lembrete principal para o dia escolhido (mesma regra de
+ * reminderShift). Um lembrete que estava num outro dia volta a seguir Quando e Hora: fica com a hora
+ * escolhida no seletor ou, sem ela, com a hora que já tinha. Os extras andam junto, à mesma distância
+ * do principal. Lembrete desligado continua desligado.
  */
 function shiftFormReminders() {
   const when = $('#f-when')?.value || '';
@@ -3584,12 +3585,16 @@ function shiftFormReminders() {
   whenFrom = when;
   if (!when || when === from) return;
   const remind = $('#f-remind');
-  const loose = !remindLinked && remind.value ? remind.value : '';
-  const base = from || loose.slice(0, 10);
-  if (!base) return;
-  const days = diffDays(when, base);
+  const time = $('#f-time');
+  const old = $('#f-remind-on').checked ? remind.value : '';
+  if (old && !remindLinked) {
+    if (!time.value) time.value = old.slice(11, 16);
+    remindLinked = true;
+  }
+  const oldDay = old ? old.slice(0, 10) : from;
+  if (!oldDay) return;
+  const days = diffDays(when, oldDay);
   const shift = (value) => `${addDays(value.slice(0, 10), days)}${value.slice(10)}`;
-  if (loose) remind.value = shift(loose);
   document.querySelectorAll('form[data-form="task"] input[name="extraReminder"]').forEach((input) => {
     if (input.value) input.value = shift(input.value);
   });

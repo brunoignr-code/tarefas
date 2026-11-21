@@ -543,14 +543,19 @@ test('Adiar uma tarefa que se repete vale só para a ocorrência', () => {
   eq(completeTask(tomorrow, '2026-11-22', 'x').task.when, '2026-11-28');
 });
 
-test('v37: mudar a data leva todos os lembretes junto', () => {
+test('v38: o lembrete vai para o novo dia da tarefa, no mesmo horário', () => {
   // Mesmo dia de Quando (já funcionava).
   const same = make({ when: '2026-11-21', remindAt: '2026-11-21T09:00' });
   eq(dateChanges(same, '2026-11-28').remindAt, '2026-11-28T09:00');
-  // Lembrete na véspera continua na véspera; extras vão junto.
+  // Lembrete em outro dia vai para o dia escolhido; extras ficam à mesma distância do principal.
   const eve = make({ when: '2026-11-21', remindAt: '2026-11-20T20:00', extraReminders: ['2026-11-21T15:00'] });
   const moved = applyEdit(eve, editFields(eve, dateChanges(eve, '2026-11-28')), TODAY).task;
-  eq([moved.when, moved.remindAt, moved.extraReminders], ['2026-11-28', '2026-11-27T20:00', ['2026-11-28T15:00']]);
+  eq([moved.when, moved.remindAt, moved.extraReminders], ['2026-11-28', '2026-11-28T20:00', ['2026-11-29T15:00']]);
+  // Caso real: lembrete preso no dia 21 com a tarefa no 27. Mudar para 26, 28 ou 30 acerta.
+  const stuck = make({ when: '2026-11-27', remindAt: '2026-11-21T09:00' });
+  for (const day of ['2026-11-26', '2026-11-28', '2026-11-30']) eq(dateChanges(stuck, day).remindAt, `${day}T09:00`);
+  // Já no dia escolhido: nada muda.
+  eq(dateChanges(make({ when: '2026-11-20', remindAt: '2026-11-21T09:00' }), '2026-11-21').remindAt, undefined);
   // Sem Quando: o lembrete vai para o dia escolhido, no mesmo horário.
   const loose = make({ remindAt: '2026-11-21T15:00' });
   eq(dateChanges(loose, '2026-11-28').remindAt, '2026-11-28T15:00');

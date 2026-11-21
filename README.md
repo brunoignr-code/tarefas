@@ -72,7 +72,17 @@ Em Config. > Lembretes com o app fechado, marque "Receber neste aparelho" em cad
 - Concluir, Adiar e Amanhã na notificação não abrem o app (desde a v15): o service worker registra no aparelho e avisa o servidor. Sem internet, a mudança sobe quando o app abrir.
 - Sem widget Android, Google Agenda, listas compartilhadas ou importação direta do To Do.
 
-## Estado do projeto (21 de novembro de 2026, v37)
+## Estado do projeto (21 de novembro de 2026, v38)
+
+### v38, 21 de novembro: o lembrete vai para o novo dia da tarefa
+
+Uso real da v37: "Lavar garrafa Stanley" estava hoje às 9h, foi para o dia 27 e o lembrete ficou hoje às 9h (preso no dia 21). Mudando depois para o 26, a v37 levou o lembrete para 20 às 9h, porque mantinha a distância entre o lembrete e o Quando, e a distância já estava errada. Regra pedida: **o lembrete vai sempre para o novo dia da tarefa, no mesmo horário.**
+
+- `reminderShift` (em `js/actions-core.js`): o lembrete principal vai para o dia escolhido, no mesmo horário; os extras andam junto, à mesma distância do principal. Uma tarefa com o lembrete preso num dia antigo se acerta na próxima mudança de data. Tirar a data não mexe nos lembretes.
+- Janela da tarefa: um lembrete que estava num outro dia vai para o Quando novo e volta a seguir Quando e Hora (fica com a hora escolhida no seletor ou, sem ela, com a que já tinha). Lembrete desligado continua desligado.
+- **Testado:** 78 testes das regras (o caso real: lembrete no 21 e tarefa no 27, mudando para 26, 28 e 30), 134 do servidor, e na janela com dados descartáveis numa origem local: com o lembrete preso no 21 e a tarefa no 27, mudar para 26 deu 26 às 9h; pelo seletor "Dia e hora", 28 e 30 às 9h. Banco local apagado depois.
+- **Não encontrado:** por que a primeira mudança (21 → 27) não levou o lembrete. Um lembrete no mesmo dia do Quando já ia junto em todos os caminhos que achei; pode ter sido o aparelho ainda na v36 ou um caminho que não reproduzi. Com a regra nova, qualquer mudança seguinte acerta o lembrete.
+- **Não testado:** no celular. Servidor: implantar `server/worker.js` para o "Amanhã" da notificação seguir a mesma regra.
 
 ### v37, 21 de novembro: o lembrete acompanha a data da tarefa
 
